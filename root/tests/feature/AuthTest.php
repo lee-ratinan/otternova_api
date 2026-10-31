@@ -155,8 +155,8 @@ final class AuthTest extends CIUnitTestCase
 
     public function testMissingFieldsAreRejected(): void
     {
-        $this->withBodyFormat('json')->post('login', ['email_address' => 'a@b.com'])->assertStatus(400);
-        $this->withBodyFormat('json')->post('login', ['email_address' => 'a@b.com', 'password' => 'x', 'account_type' => 'Z'])->assertStatus(400);
+        $this->withBodyFormat('json')->post('v1/login', ['email_address' => 'a@b.com'])->assertStatus(400);
+        $this->withBodyFormat('json')->post('v1/login', ['email_address' => 'a@b.com', 'password' => 'x', 'account_type' => 'Z'])->assertStatus(400);
     }
 
     public function testFailedLoginsAreRateLimitedPerEmail(): void
@@ -288,7 +288,7 @@ final class AuthTest extends CIUnitTestCase
 
         $this->logout($forged)->assertStatus(401);
         $this->logout('not-a-jwt')->assertStatus(401);
-        $this->post('logout')->assertStatus(401);
+        $this->post('v1/logout')->assertStatus(401);
     }
 
     public function testAccountDeactivatedAfterSignInIsRejected(): void
@@ -312,14 +312,14 @@ final class AuthTest extends CIUnitTestCase
         $staffToken  = $this->json($this->login('staff@otternova.com'), 200)['access_token'];
         $clientToken = $this->json($this->login('client@example.com', self::PASSWORD, 'C'), 200)['access_token'];
 
-        $staff = $this->json($this->getWithToken('staff/me', $staffToken), 200)['user'];
+        $staff = $this->json($this->getWithToken('v1/staff/me', $staffToken), 200)['user'];
         $this->assertSame('staff@otternova.com', $staff['email_address']);
         $this->assertArrayNotHasKey('password_hash', $staff);
 
-        $client = $this->json($this->getWithToken('client/me', $clientToken), 200)['user'];
+        $client = $this->json($this->getWithToken('v1/client/me', $clientToken), 200)['user'];
         $this->assertSame('client@example.com', $client['email_address']);
 
-        foreach ([['staff/me', $clientToken], ['client/me', $staffToken]] as [$path, $token]) {
+        foreach ([['v1/staff/me', $clientToken], ['v1/client/me', $staffToken]] as [$path, $token]) {
             $response = $this->getWithToken($path, $token);
             $response->assertStatus(403);
             $this->assertSame(lang('Auth.wrongAccountType'), $this->errorMessage($response));
@@ -333,10 +333,10 @@ final class AuthTest extends CIUnitTestCase
         $revoked = $this->json($this->login('staff@otternova.com'), 200)['access_token'];
         $this->logout($revoked)->assertStatus(200);
 
-        $this->get('staff/me')->assertStatus(401);
-        $this->getWithToken('staff/me', $expired)->assertStatus(401);
-        $this->getWithToken('staff/me', $revoked)->assertStatus(401);
-        $this->getWithToken('client/me', $expired)->assertStatus(401);
+        $this->get('v1/staff/me')->assertStatus(401);
+        $this->getWithToken('v1/staff/me', $expired)->assertStatus(401);
+        $this->getWithToken('v1/staff/me', $revoked)->assertStatus(401);
+        $this->getWithToken('v1/client/me', $expired)->assertStatus(401);
     }
 
     public function testTokenLifetimeIsCappedAtEightHours(): void
@@ -440,7 +440,7 @@ final class AuthTest extends CIUnitTestCase
 
     private function login(string $email, string $password = self::PASSWORD, string $accountType = 'S'): TestResponse
     {
-        return $this->withBodyFormat('json')->post('login', [
+        return $this->withBodyFormat('json')->post('v1/login', [
             'email_address' => $email,
             'password'      => $password,
             'account_type'  => $accountType,
@@ -449,12 +449,12 @@ final class AuthTest extends CIUnitTestCase
 
     private function verifyOtp(string $token, string $otp): TestResponse
     {
-        return $this->withBodyFormat('json')->post('verify-otp', ['otp_token' => $token, 'otp' => $otp]);
+        return $this->withBodyFormat('json')->post('v1/verify-otp', ['otp_token' => $token, 'otp' => $otp]);
     }
 
     private function logout(string $accessToken): TestResponse
     {
-        return $this->withHeaders(['Authorization' => 'Bearer ' . $accessToken])->post('logout');
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $accessToken])->post('v1/logout');
     }
 
     private function getWithToken(string $path, string $accessToken): TestResponse
