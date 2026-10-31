@@ -16,6 +16,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
     $routes->group('staff', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');
         $routes->post('accounts', 'Accounts::list');
+        $routes->post('account', 'Accounts::show');
     });
 
     // Client app: client accounts only (a valid token with typ C)

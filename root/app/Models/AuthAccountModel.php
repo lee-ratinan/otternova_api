@@ -112,6 +112,35 @@ class AuthAccountModel extends AuthMasterModel
     }
 
     /**
+     * One account for the Admin app's account page: every auth_master column but password_hash, admin_notes
+     * included, and the columns of its profile table (staff_master or client_master by account_type)
+     * @param string $uid
+     * @return array{account: array, profile: array|null}|null Null when no account has this uid; profile is null
+     *                                                          when the account has no profile row
+     */
+    public function findForAdmin(string $uid): ?array
+    {
+        $account = $this->db->table($this->table)
+            ->select(implode(', ', array_merge(self::ACCOUNT_FIELDS, ['admin_notes'])))
+            ->where('uid', $uid)
+            ->get()
+            ->getRowArray();
+        if ($account === null) {
+            return null;
+        }
+        $account['id'] = (int) $account['id'];
+
+        $profile = self::PROFILES[$account['account_type']] ?? null;
+        $row     = $profile === null ? null : $this->db->table($profile['table'])
+            ->select(implode(', ', $profile['fields']))
+            ->where('auth_id', $account['id'])
+            ->get()
+            ->getRowArray();
+
+        return ['account' => $account, 'profile' => $row];
+    }
+
+    /**
      * Find an account to sign in, password_hash included
      * @param string $email
      * @param string $accountType S or C; an account of the other type, or one without its profile row, is not found

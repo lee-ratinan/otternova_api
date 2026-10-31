@@ -17,7 +17,7 @@ class Accounts extends BaseController
     private const MAX_LENGTH     = 500;
 
     /**
-     * POST /accounts { start, length, search, order: [{field, dir}], filters: {column: value} }
+     * POST /staff/accounts { start, length, search, order: [{field, dir}], filters: {column: value} }
      * One page of the server-side DataTables list. Every part of the body is optional, and anything
      * outside the whitelists in AuthAccountModel is ignored rather than rejected.
      * @return ResponseInterface
@@ -46,9 +46,39 @@ class Accounts extends BaseController
                 $this->listOrder($input['order'] ?? null)
             );
         } catch (DatabaseException $e) {
-            log_message('error', 'v1/accounts: {message}', ['message' => $e->getMessage()]);
+            log_message('error', 'v1/staff/accounts: {message}', ['message' => $e->getMessage()]);
 
             return ApiResponse::error(lang('Accounts.listFailed'), 500);
+        }
+
+        return ApiResponse::success($data);
+    }
+
+    /**
+     * POST /staff/account { uid }
+     * One account with its staff_master or client_master profile, for the Admin app's account page
+     * @return ResponseInterface
+     */
+    public function show(): ResponseInterface
+    {
+        $input = $this->jsonInput();
+        if ($input === null) {
+            return ApiResponse::error(lang('Accounts.invalidRequest'), 422);
+        }
+        $uid = is_string($input['uid'] ?? null) ? trim($input['uid']) : '';
+        if ($uid === '') {
+            return ApiResponse::error(lang('Accounts.uidRequired'), 400);
+        }
+
+        try {
+            $data = model(AuthAccountModel::class)->findForAdmin($uid);
+        } catch (DatabaseException $e) {
+            log_message('error', 'v1/staff/account: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Accounts.loadFailed'), 500);
+        }
+        if ($data === null) {
+            return ApiResponse::error(lang('Accounts.notFound'), 404);
         }
 
         return ApiResponse::success($data);
