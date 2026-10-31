@@ -303,6 +303,42 @@ final class AuthTest extends CIUnitTestCase
         $this->assertSame(lang('Auth.accountNotActive'), $this->errorMessage($response));
     }
 
+    // ---- staff and client route groups ----
+
+    public function testEachGroupLetsInOnlyItsOwnAccountType(): void
+    {
+        $this->createStaff('staff@otternova.com', ['otp_mode' => 'X']);
+        $this->createClient('client@example.com', ['otp_mode' => 'X']);
+        $staffToken  = $this->json($this->login('staff@otternova.com'), 200)['access_token'];
+        $clientToken = $this->json($this->login('client@example.com', self::PASSWORD, 'C'), 200)['access_token'];
+
+        $staff = $this->json($this->getWithToken('staff/me', $staffToken), 200)['user'];
+        $this->assertSame('staff@otternova.com', $staff['email_address']);
+        $this->assertArrayNotHasKey('password_hash', $staff);
+
+        $client = $this->json($this->getWithToken('client/me', $clientToken), 200)['user'];
+        $this->assertSame('client@example.com', $client['email_address']);
+
+        foreach ([['staff/me', $clientToken], ['client/me', $staffToken]] as [$path, $token]) {
+            $response = $this->getWithToken($path, $token);
+            $response->assertStatus(403);
+            $this->assertSame(lang('Auth.wrongAccountType'), $this->errorMessage($response));
+        }
+    }
+
+    public function testGroupsRejectMissingExpiredAndRevokedTokens(): void
+    {
+        $account = $this->createStaff('staff@otternova.com', ['otp_mode' => 'X']);
+        $expired = $this->signToken(['sub' => $account['uid'], 'iat' => time() - 9 * HOUR, 'nbf' => time() - 9 * HOUR, 'exp' => time() - HOUR]);
+        $revoked = $this->json($this->login('staff@otternova.com'), 200)['access_token'];
+        $this->logout($revoked)->assertStatus(200);
+
+        $this->get('staff/me')->assertStatus(401);
+        $this->getWithToken('staff/me', $expired)->assertStatus(401);
+        $this->getWithToken('staff/me', $revoked)->assertStatus(401);
+        $this->getWithToken('client/me', $expired)->assertStatus(401);
+    }
+
     public function testTokenLifetimeIsCappedAtEightHours(): void
     {
         putenv('JWT_TTL=' . (24 * HOUR));
@@ -419,6 +455,11 @@ final class AuthTest extends CIUnitTestCase
     private function logout(string $accessToken): TestResponse
     {
         return $this->withHeaders(['Authorization' => 'Bearer ' . $accessToken])->post('logout');
+    }
+
+    private function getWithToken(string $path, string $accessToken): TestResponse
+    {
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $accessToken])->get($path);
     }
 
     /**

@@ -14,13 +14,14 @@ use UnexpectedValueException;
 /**
  * Lets a request through only with a valid "Authorization: Bearer <jwt>": signature, exp and nbf check out,
  * the jti has not been signed out, and the account still exists and is active.
+ * With arguments, it also limits the account type: 'jwt:S' lets only staff through, 'jwt:C' only clients.
  * The controller reads the account from service('authContext').
  */
 class JwtAuth implements FilterInterface
 {
     /**
      * @param RequestInterface $request
-     * @param array|null       $arguments
+     * @param array|null       $arguments Account types allowed (S, C); any type when empty
      * @return ResponseInterface|null
      */
     public function before(RequestInterface $request, $arguments = null)
@@ -33,6 +34,11 @@ class JwtAuth implements FilterInterface
             $claims = service('jwt')->decode($matches[1]);
         } catch (UnexpectedValueException|DomainException) {
             return ApiResponse::error(lang('Auth.sessionExpired'), 401);
+        }
+
+        // a valid token of the wrong type: a client calling a staff endpoint or the other way round
+        if (! empty($arguments) && ! in_array($claims->typ, $arguments, true)) {
+            return ApiResponse::error(lang('Auth.wrongAccountType'), 403);
         }
 
         if (model(AuthTokenDenylistModel::class)->isRevoked((string) $claims->jti)) {

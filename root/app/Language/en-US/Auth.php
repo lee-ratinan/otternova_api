@@ -9,4 +9,5 @@ return [
     'otpExpired'         => 'This code has expired. Please sign in again.',
     'signInRequired'     => 'Please sign in to continue.',
     'sessionExpired'     => 'Your session has expired. Please sign in again.',
+    'wrongAccountType'   => 'Your account does not have access to this page.',
 ];

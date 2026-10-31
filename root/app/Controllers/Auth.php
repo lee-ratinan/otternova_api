@@ -10,6 +10,7 @@ use App\Models\AuthTokenDenylistModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\Auth as AuthConfig;
+use Random\RandomException;
 
 /**
  * Sign-in for the Admin app (staff, account_type S) and the Client app (clients, account_type C).
@@ -130,9 +131,19 @@ class Auth extends BaseController
     }
 
     /**
+     * GET /staff/me and /client/me, behind the jwt filter: the signed-in user, as in the sign-in response
+     * @return ResponseInterface
+     */
+    public function me(): ResponseInterface
+    {
+        return ApiResponse::success(['user' => AuthAccountModel::toUserPayload(service('authContext')->account())]);
+    }
+
+    /**
      * Email a 6-digit code; the client gets an opaque otp_token to send back with it
      * @param array $account
      * @return ResponseInterface
+     * @throws RandomException
      */
     private function startOtpChallenge(array $account): ResponseInterface
     {
