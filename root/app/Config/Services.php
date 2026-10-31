@@ -2,6 +2,10 @@
 
 namespace Config;
 
+use App\Libraries\AuthContext;
+use App\Libraries\EmailService;
+use App\Libraries\JwtService;
+use App\Libraries\LoginThrottle;
 use CodeIgniter\Config\BaseService;
 
 /**
@@ -29,4 +33,43 @@ class Services extends BaseService
      *     return new \CodeIgniter\Example();
      * }
      */
+
+    public static function jwt(bool $getShared = true): JwtService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('jwt');
+        }
+
+        return new JwtService(config(Auth::class));
+    }
+
+    public static function emailService(bool $getShared = true): EmailService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('emailService');
+        }
+
+        return new EmailService();
+    }
+
+    public static function loginThrottle(bool $getShared = true): LoginThrottle
+    {
+        if ($getShared) {
+            return static::getSharedInstance('loginThrottle');
+        }
+
+        return new LoginThrottle(service('cache'), config(Auth::class));
+    }
+
+    /**
+     * The signed-in account of the current request (set by the jwt filter)
+     */
+    public static function authContext(bool $getShared = true): AuthContext
+    {
+        if ($getShared) {
+            return static::getSharedInstance('authContext');
+        }
+
+        return new AuthContext();
+    }
 }

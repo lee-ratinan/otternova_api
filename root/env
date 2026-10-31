@@ -56,6 +56,16 @@
 # encryption.key =
 
 #--------------------------------------------------------------------
+# AUTH (JWT access tokens, see app/Config/Auth.php)
+#--------------------------------------------------------------------
+
+# Required: a random secret of at least 32 bytes, e.g. from `php -r 'echo bin2hex(random_bytes(32));'`
+# JWT_SECRET =
+# Token lifetime in seconds; anything above 28800 (8 hours) is capped at 8 hours
+# JWT_TTL = 28800
+# JWT_ISSUER = otternova-api
+
+#--------------------------------------------------------------------
 # SESSION
 #--------------------------------------------------------------------
 
