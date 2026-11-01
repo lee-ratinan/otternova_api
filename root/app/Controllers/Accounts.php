@@ -5,6 +5,8 @@ namespace App\Controllers;
 use App\Libraries\AccountForm;
 use App\Libraries\ApiResponse;
 use App\Models\AuthAccountModel;
+use App\Models\OtternovaDepartmentModel;
+use App\Models\StaffMasterModel;
 use CodeIgniter\Database\Exceptions\DatabaseException;
 use CodeIgniter\Encryption\Exceptions\EncryptionException;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
@@ -178,6 +180,51 @@ class Accounts extends BaseController
         }
 
         return ApiResponse::success(null, 200, lang('Accounts.deleted'));
+    }
+
+    /**
+     * POST /staff/departments {}
+     * Every department, by name, for the account form's Department dropdown
+     * @return ResponseInterface
+     */
+    public function departments(): ResponseInterface
+    {
+        if ($this->jsonInput() === null) {
+            return ApiResponse::error(lang('Accounts.invalidRequest'), 422);
+        }
+
+        try {
+            $rows = model(OtternovaDepartmentModel::class)->listForLookup();
+        } catch (DatabaseException $e) {
+            log_message('error', 'v1/staff/departments: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Accounts.lookupFailed'), 500);
+        }
+
+        return ApiResponse::success(['rows' => $rows]);
+    }
+
+    /**
+     * POST /staff/staff-members {}
+     * Every staff member with a staff_master row, by name, for the account form's Line Manager dropdown.
+     * Inactive staff are included: the form labels them, and a manager who has left must still show by name.
+     * @return ResponseInterface
+     */
+    public function staffMembers(): ResponseInterface
+    {
+        if ($this->jsonInput() === null) {
+            return ApiResponse::error(lang('Accounts.invalidRequest'), 422);
+        }
+
+        try {
+            $rows = model(StaffMasterModel::class)->listForLookup();
+        } catch (DatabaseException $e) {
+            log_message('error', 'v1/staff/staff-members: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Accounts.lookupFailed'), 500);
+        }
+
+        return ApiResponse::success(['rows' => $rows]);
     }
 
     /**

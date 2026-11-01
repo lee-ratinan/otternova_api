@@ -19,6 +19,8 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('account', 'Accounts::show');
         $routes->post('account/update', 'Accounts::save');
         $routes->post('account/delete', 'Accounts::delete');
+        $routes->post('departments', 'Accounts::departments');
+        $routes->post('staff-members', 'Accounts::staffMembers');
     });
 
     // Client app: client accounts only (a valid token with typ C)

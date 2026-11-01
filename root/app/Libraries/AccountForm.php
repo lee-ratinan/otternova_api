@@ -4,6 +4,7 @@ namespace App\Libraries;
 
 use App\Models\AuthAccountModel;
 use App\Models\AuthMasterModel;
+use App\Models\StaffMasterModel;
 use libphonenumber\NumberParseException;
 use libphonenumber\PhoneNumberFormat;
 use libphonenumber\PhoneNumberUtil;
@@ -101,15 +102,35 @@ class AccountForm
         $model = model($form['model']);
         $rules = $model->getValidationRules();
         if ($accountType === AuthMasterModel::TYPE_STAFF) {
-            $rules['department_id']    .= '|is_not_unique[otternova_department.id]';
-            $rules['manager_staff_id'] .= '|is_not_unique[staff_master.id]';
+            $rules['department_id'] .= '|is_not_unique[otternova_department.id]';
         }
 
         $profile = $this->clean('profile', $input, $form['fields'], $form['nullable'], $rules);
         $data    = ['id' => $profileId === null ? null : (string) $profileId] + $profile + $stored;
         $this->validate('profile', $data, $form['fields'], $model, $accountType === AuthMasterModel::TYPE_STAFF ? 'StaffMaster' : 'ClientMaster', $rules);
+        // only a manager being set now is checked, so an untouched reporting line never blocks other changes
+        if ($accountType === AuthMasterModel::TYPE_STAFF && isset($profile['manager_staff_id']) && ! isset($this->errors['profile.manager_staff_id'])) {
+            $this->checkManager((int) $profile['manager_staff_id'], $profileId === null ? null : (int) $profileId);
+        }
 
         return $profile;
+    }
+
+    /**
+     * The line manager must be a staff account's staff_master row, and must not report to this staff member,
+     * directly or indirectly. differs[id] has already ruled out the staff member themselves.
+     * @param int      $managerId staff_master.id of the chosen line manager
+     * @param int|null $staffId   This staff member's staff_master.id; null on create, when nobody can report to them yet
+     * @return void
+     */
+    private function checkManager(int $managerId, ?int $staffId): void
+    {
+        $staff = model(StaffMasterModel::class);
+        if (! $staff->isStaffMember($managerId)) {
+            $this->errors['profile.manager_staff_id'] = lang('Accounts.managerNotFound');
+        } elseif ($staffId !== null && $staff->wouldReportTo($managerId, $staffId)) {
+            $this->errors['profile.manager_staff_id'] = lang('Accounts.managerLoop');
+        }
     }
 
     /**
@@ -186,6 +207,9 @@ class AccountForm
         }
         if (isset($set['manager_staff_id'])) {
             $set['manager_staff_id']['errors'] = ['differs' => lang('Accounts.managerIsSelf')];
+        }
+        if (isset($set['department_id'])) {
+            $set['department_id']['errors'] = ['is_not_unique' => lang('Accounts.departmentNotFound')];
         }
 
         $validation = service('validation', null, false);

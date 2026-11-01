@@ -57,4 +57,19 @@ class OtternovaDepartmentModel extends Model
         return $this->buildConfiguration('StaffMaster', $fields, $enums);
     }
 
+    /**
+     * Every department, for the Admin app's Department dropdown
+     * @return list<array{id: int, department_code: string, department_name: string, country_code: string}>
+     */
+    public function listForLookup(): array
+    {
+        $rows = $this->db->table($this->table)
+            ->select('id, department_code, department_name, country_code')
+            ->orderBy('department_name', 'ASC')
+            ->orderBy('id', 'ASC')
+            ->get()
+            ->getResultArray();
+
+        return array_map(static fn (array $row) => ['id' => (int) $row['id']] + $row, $rows);
+    }
 }

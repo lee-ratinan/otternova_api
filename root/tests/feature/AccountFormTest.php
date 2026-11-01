@@ -372,6 +372,134 @@ final class AccountFormTest extends CIUnitTestCase
             ->assertStatus(422);
     }
 
+    // ---- line manager and department ----
+
+    public function testFetchReturnsManagerAndDepartment(): void
+    {
+        $boss = $this->createStaff('boss@otternova.com');
+        $this->createStaff('fauzi@otternova.com', [], ['manager_staff_id' => $this->staffId($boss)]);
+
+        $profile = $this->data($this->fetch('fauziotternovacom'))['profile'];
+
+        $this->assertEquals($this->staffId($boss), $profile['manager_staff_id']);
+        $this->assertEquals(1, $profile['department_id']);
+        $this->assertNull($this->data($this->fetch('bossotternovacom'))['profile']['manager_staff_id']);
+    }
+
+    public function testUpdateSetsAValidManager(): void
+    {
+        $boss  = $this->createStaff('boss@otternova.com');
+        $fauzi = $this->createStaff('fauzi@otternova.com');
+
+        $this->save('fauziotternovacom', [], ['manager_staff_id' => $this->staffId($boss)])->assertStatus(200);
+
+        $this->seeInDatabase('staff_master', ['auth_id' => $fauzi['id'], 'manager_staff_id' => $this->staffId($boss)]);
+    }
+
+    public function testUpdateClearsTheManager(): void
+    {
+        $boss = $this->createStaff('boss@otternova.com');
+        foreach (['blank' => '', 'null' => null] as $name => $empty) {
+            $fauzi = $this->createStaff($name . '@otternova.com', [], ['manager_staff_id' => $this->staffId($boss)]);
+
+            $this->save($fauzi['uid'], [], ['manager_staff_id' => $empty])->assertStatus(200);
+
+            $this->seeInDatabase('staff_master', ['auth_id' => $fauzi['id'], 'manager_staff_id' => null]);
+        }
+    }
+
+    public function testManagerMustBeAnExistingStaffMember(): void
+    {
+        $this->createStaff('fauzi@otternova.com');
+        // a staff_master row on a client account does not count as staff
+        $client = $this->createAccount('odd@example.com', ['account_type' => 'C']);
+        $this->db->table('staff_master')->insert([
+            'auth_id' => $client['id'], 'department_id' => 1, 'employee_code' => 'ODD', 'job_title' => 'Odd',
+            'employment_start_date' => '2024-01-01', 'work_country_code' => 'TH', 'legal_first_name' => 'Odd', 'legal_last_name' => 'Client',
+        ]);
+        $oddId = (int) $this->db->insertID();
+
+        foreach ([999, $oddId] as $managerId) {
+            $errors = $this->errors($this->save('fauziotternovacom', [], ['manager_staff_id' => $managerId]));
+
+            $this->assertSame(['profile.manager_staff_id' => lang('Accounts.managerNotFound')], $errors, (string) $managerId);
+        }
+        // on create too, where only existence is checked
+        $errors = $this->errors($this->save(null, $this->newAccount(), $this->newProfile(['manager_staff_id' => 999])));
+        $this->assertSame(['profile.manager_staff_id' => lang('Accounts.managerNotFound')], $errors);
+    }
+
+    public function testCreateWithAManager(): void
+    {
+        $this->save(null, $this->newAccount(), $this->newProfile(['manager_staff_id' => $this->staffId($this->staff)]))->assertStatus(200);
+
+        $this->seeInDatabase('staff_master', ['employee_code' => 'EMP-NEW', 'manager_staff_id' => $this->staffId($this->staff)]);
+    }
+
+    public function testStaffCannotBeTheirOwnManager(): void
+    {
+        $fauzi = $this->createStaff('fauzi@otternova.com');
+
+        $errors = $this->errors($this->save('fauziotternovacom', [], ['manager_staff_id' => $this->staffId($fauzi)]));
+
+        $this->assertSame(['profile.manager_staff_id' => lang('Accounts.managerIsSelf')], $errors);
+        $this->seeInDatabase('staff_master', ['auth_id' => $fauzi['id'], 'manager_staff_id' => null]);
+    }
+
+    public function testManagerCannotCreateAReportingLoop(): void
+    {
+        $a = $this->createStaff('a@otternova.com');
+        $b = $this->createStaff('b@otternova.com');
+        $c = $this->createStaff('c@otternova.com');
+
+        // A reports to B; B reporting to A would close the loop
+        $this->save('aotternovacom', [], ['manager_staff_id' => $this->staffId($b)])->assertStatus(200);
+        $errors = $this->errors($this->save('botternovacom', [], ['manager_staff_id' => $this->staffId($a)]));
+        $this->assertSame(['profile.manager_staff_id' => lang('Accounts.managerLoop')], $errors);
+        $this->seeInDatabase('staff_master', ['auth_id' => $b['id'], 'manager_staff_id' => null]);
+
+        // and further up: A -> B -> C, so C cannot report to A
+        $this->save('botternovacom', [], ['manager_staff_id' => $this->staffId($c)])->assertStatus(200);
+        $errors = $this->errors($this->save('cotternovacom', [], ['manager_staff_id' => $this->staffId($a)]));
+        $this->assertSame(['profile.manager_staff_id' => lang('Accounts.managerLoop')], $errors);
+
+        // reporting to someone outside the line is fine
+        $this->save('cotternovacom', [], ['manager_staff_id' => $this->staffId($this->staff)])->assertStatus(200);
+    }
+
+    public function testLoopWalkStopsAtALoopAlreadyInTheData(): void
+    {
+        $x = $this->createStaff('x@otternova.com');
+        $y = $this->createStaff('y@otternova.com');
+        $this->createStaff('fauzi@otternova.com');
+        // X and Y already report to each other, written straight to the table
+        $this->db->table('staff_master')->where('auth_id', $x['id'])->update(['manager_staff_id' => $this->staffId($y)]);
+        $this->db->table('staff_master')->where('auth_id', $y['id'])->update(['manager_staff_id' => $this->staffId($x)]);
+
+        $this->save('fauziotternovacom', [], ['manager_staff_id' => $this->staffId($x)])->assertStatus(200);
+    }
+
+    public function testDepartmentIsRequiredAndMustExist(): void
+    {
+        $this->createStaff('fauzi@otternova.com');
+
+        foreach (['', null, 999, 'abc'] as $department) {
+            $errors = $this->errors($this->save('fauziotternovacom', [], ['department_id' => $department]));
+            $this->assertSame(['profile.department_id'], array_keys($errors), var_export($department, true));
+        }
+        $errors = $this->errors($this->save('fauziotternovacom', [], ['department_id' => 999]));
+        $this->assertSame(lang('Accounts.departmentNotFound'), $errors['profile.department_id']);
+
+        // on create, leaving it out is an error too
+        $profile = $this->newProfile();
+        unset($profile['department_id']);
+        foreach ([$profile, $this->newProfile(['department_id' => 999])] as $profileIn) {
+            $errors = $this->errors($this->save(null, $this->newAccount(), $profileIn));
+            $this->assertSame(['profile.department_id'], array_keys($errors));
+        }
+        $this->seeNumRecords(2, 'auth_master', []);
+    }
+
     // ---- delete ----
 
     public function testDeleteRemovesAccountAndProfileAndEndsItsSessions(): void
@@ -751,6 +879,14 @@ final class AccountFormTest extends CIUnitTestCase
         ]);
 
         return $account;
+    }
+
+    /**
+     * staff_master.id of a staff account
+     */
+    private function staffId(array $account): int
+    {
+        return (int) $this->db->table('staff_master')->where('auth_id', $account['id'])->get()->getRow()->id;
     }
 
     private function createClient(string $email, array $overrides = [], array $profile = []): array
