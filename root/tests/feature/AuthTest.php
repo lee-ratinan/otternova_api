@@ -60,11 +60,12 @@ final class AuthTest extends CIUnitTestCase
         $this->assertFalse($data['otp_required']);
         $this->assertNotEmpty($data['access_token']);
         $this->assertSame([
-            'id', 'uid', 'email_address', 'telephone_number', 'full_name', 'otp_mode', 'account_status',
-            'account_type', 'password_expiry', 'created_at', 'updated_at', 'employee_code', 'job_title',
-            'employment_status', 'gender', 'date_of_birth', 'timezone', 'avatar_path', 'status_message',
+            'id', 'uid', 'email_address', 'telephone_number', 'full_name', 'avatar_path', 'otp_mode',
+            'account_status', 'account_type', 'password_expiry', 'created_at', 'updated_at', 'employee_code',
+            'job_title', 'employment_status', 'gender', 'date_of_birth', 'status_message',
         ], array_keys($data['user']));
         $this->assertSame('none@otternova.com', $data['user']['email_address']);
+        $this->assertNull($data['user']['avatar_path']); // empty: the app shows its default avatar
         $this->assertSame('EMP-1', $data['user']['employee_code']);
         $this->assertIsInt($data['user']['id']);
 
@@ -503,7 +504,6 @@ final class AuthTest extends CIUnitTestCase
             'legal_last_name'       => 'Tester',
             'gender'                => 'N',
             'date_of_birth'         => '1990-01-01',
-            'timezone'              => 'Asia/Bangkok',
         ]);
 
         return $account;

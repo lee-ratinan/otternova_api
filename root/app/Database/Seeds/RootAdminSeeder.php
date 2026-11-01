@@ -88,7 +88,6 @@ class RootAdminSeeder extends Seeder
             'nationality_code'      => 'TH',
             'country_code'          => 'TH',
             'preferred_language'    => 'en-US',
-            'timezone'              => 'Asia/Bangkok',
             'status_message'        => 'Building OtterNova!',
         ]);
 

@@ -61,7 +61,7 @@ class TestClientSeeder extends Seeder
             'admin_notes'      => 'Test client account, created by TestClientSeeder.',
         ]);
 
-        // national ID and avatar are left empty
+        // national ID is left empty
         $this->insertOrFail($clientModel, [
             'auth_id'            => $authId,
             'legal_first_name'   => 'Ratinan',
@@ -73,7 +73,6 @@ class TestClientSeeder extends Seeder
             'date_of_birth'      => '1990-01-01',
             'nationality_code'   => 'TH',
             'preferred_language' => 'en-US',
-            'timezone'           => 'Asia/Bangkok',
             'bio'                => 'Test client account.',
             'marketing_opt_in'   => 0,
             'internal_notes'     => 'Created by TestClientSeeder.',

@@ -86,7 +86,8 @@ final class AccountFormTest extends CIUnitTestCase
             'telephone_number' => '+6597754577',
             'password_expiry'  => '2027-11-15',
             'admin_notes'      => 'He is the CEO!',
-        ], ['job_title' => 'CEO', 'avatar_path' => 'avatars/eikin.png']);
+            'avatar_path'      => 'avatars/eikin.png',
+        ], ['job_title' => 'CEO']);
 
         $data = $this->data($this->fetch('eikinotternovacom'));
 
@@ -100,11 +101,12 @@ final class AccountFormTest extends CIUnitTestCase
             'account_status'   => 'A',
             'account_type'     => 'S',
             'admin_notes'      => 'He is the CEO!',
+            'avatar_path'      => 'avatars/eikin.png',
         ], $data['account']);
         $this->assertSame(AuthAccountModel::FORM_PROFILES['S']['fields'], array_keys($data['profile']));
         $this->assertSame('CEO', $data['profile']['job_title']);
         $this->assertSame('EMP-' . $staff['id'], $data['profile']['employee_code']);
-        foreach (['id', 'auth_id', 'avatar_path', 'created_at', 'updated_at'] as $hidden) {
+        foreach (['id', 'auth_id', 'avatar_path', 'timezone', 'created_at', 'updated_at'] as $hidden) {
             $this->assertArrayNotHasKey($hidden, $data['profile']);
         }
     }
@@ -150,12 +152,11 @@ final class AccountFormTest extends CIUnitTestCase
             'uid'              => 'chosenuid',
             'password_hash'    => 'not-a-hash',
             'created_at'       => '2000-01-01 00:00:00',
+            'avatar_path'      => 'evil.png',
         ]), $this->newProfile([
             'work_country_code' => 'sg',
             'legal_middle_name' => '',
-            'timezone'          => 'Asia/Singapore',
             'auth_id'           => $this->staff['id'],
-            'avatar_path'       => 'evil.png',
             'id'                => 1,
         ]));
 
@@ -171,12 +172,12 @@ final class AccountFormTest extends CIUnitTestCase
         $this->assertNotSame('not-a-hash', $account['password_hash']);
         $this->assertSame(PASSWORD_DEFAULT, password_get_info($account['password_hash'])['algo']);
         $this->assertNotSame('2000-01-01 00:00:00', $account['created_at']);
+        $this->assertNull($account['avatar_path']);
 
         $profile = $this->db->table('staff_master')->where('auth_id', $account['id'])->get()->getRowArray();
         $this->assertSame('EMP-NEW', $profile['employee_code']);
         $this->assertSame('SG', $profile['work_country_code']);
         $this->assertNull($profile['legal_middle_name']);
-        $this->assertNull($profile['avatar_path']);
         $this->assertSame('F', $profile['employment_type']); // the column default
         $this->seeNumRecords(1, 'staff_master', ['auth_id' => $this->staff['id']]);
     }
@@ -247,7 +248,7 @@ final class AccountFormTest extends CIUnitTestCase
             'employment_start_date' => '2025-02-30',
             'work_country_code'     => 'ZZ',
             'nationality_code'      => 'THA',
-            'timezone'              => 'Mars/Olympus',
+            'preferred_language'    => 'english',
             'work_email_address'    => 'not-an-email',
             'gender'                => 'Q',
         ]));
@@ -258,7 +259,7 @@ final class AccountFormTest extends CIUnitTestCase
         foreach ([
             'account.full_name', 'account.telephone_number', 'account.password_expiry', 'account.otp_mode',
             'profile.department_id', 'profile.manager_staff_id', 'profile.job_title', 'profile.employment_start_date',
-            'profile.work_country_code', 'profile.nationality_code', 'profile.timezone', 'profile.work_email_address',
+            'profile.work_country_code', 'profile.nationality_code', 'profile.preferred_language', 'profile.work_email_address',
             'profile.gender',
         ] as $key) {
             $this->assertArrayHasKey($key, $errors);

@@ -75,8 +75,6 @@ class StaffMasterModel extends Model
         'emergency_contact_relation',
         'emergency_contact_telephone',
         'preferred_language',
-        'timezone',
-        'avatar_path',
         'status_message',
         'bio',
         'hr_notes',
@@ -122,9 +120,7 @@ class StaffMasterModel extends Model
         'emergency_contact_name'      => 'permit_empty|max_length[255]',
         'emergency_contact_relation'  => 'permit_empty|max_length[64]',
         'emergency_contact_telephone' => 'permit_empty|max_length[32]',
-        'preferred_language'          => 'permit_empty|max_length[16]',
-        'timezone'                    => 'permit_empty|timezone',
-        'avatar_path'                 => 'permit_empty|max_length[255]',
+        'preferred_language'          => 'permit_empty|max_length[5]|regex_match[/^[a-z]{2,3}(-[A-Z]{2})?$/]', // BCP 47: en-US, th
         'status_message'              => 'permit_empty|max_length[255]',
     ];
     protected $validationMessages   = [];
@@ -174,8 +170,6 @@ class StaffMasterModel extends Model
             'emergency_contact_relation'  => ['type' => 'text'],
             'emergency_contact_telephone' => ['type' => 'tel'],
             'preferred_language'          => ['type' => 'select', 'options' => listLanguages(), 'searchable' => false],
-            'timezone'                    => ['type' => 'select', 'options' => self::timezoneOptions(), 'searchable' => false],
-            'avatar_path'                 => ['type' => 'text', 'orderable' => false, 'searchable' => false],
             'status_message'              => ['type' => 'text'],
             'bio'                         => ['type' => 'textarea', 'rows' => 4, 'orderable' => false],
             'hr_notes'                    => ['type' => 'textarea', 'rows' => 4, 'orderable' => false],

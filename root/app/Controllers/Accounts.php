@@ -62,7 +62,8 @@ class Accounts extends BaseController
     /**
      * POST /staff/account { uid }
      * One account with its staff_master or client_master profile, for the Admin app's account form.
-     * "profile" is {} when the account has no profile row yet.
+     * "profile" is {} when the account has no profile row yet. account.avatar_path is shown but never saved by
+     * /staff/account/update; null means the default avatar.
      * @return ResponseInterface
      */
     public function show(): ResponseInterface

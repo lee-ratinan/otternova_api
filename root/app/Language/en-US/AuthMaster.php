@@ -7,6 +7,7 @@ return [
         'password_hash'    => 'Hashed Password',
         'password_expiry'  => 'Password Expiry Date',
         'full_name'        => 'Full Name',
+        'avatar_path'      => 'Avatar',
         'otp_mode'         => 'OTP Mode',
         'account_status'   => 'Account Status',
         'account_type'     => 'Account Type',

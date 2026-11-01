@@ -21,6 +21,7 @@ class AuthAccountModel extends AuthMasterModel
         'email_address',
         'telephone_number',
         'full_name',
+        'avatar_path',
         'otp_mode',
         'account_status',
         'account_type',
@@ -33,11 +34,11 @@ class AuthAccountModel extends AuthMasterModel
     public const PROFILES = [
         self::TYPE_STAFF  => [
             'table'  => 'staff_master',
-            'fields' => ['employee_code', 'job_title', 'employment_status', 'gender', 'date_of_birth', 'timezone', 'avatar_path', 'status_message'],
+            'fields' => ['employee_code', 'job_title', 'employment_status', 'gender', 'date_of_birth', 'status_message'],
         ],
         self::TYPE_CLIENT => [
             'table'  => 'client_master',
-            'fields' => ['display_name', 'status_message', 'status_emoji', 'avatar_path', 'timezone', 'preferred_language'],
+            'fields' => ['display_name', 'status_message', 'status_emoji', 'preferred_language'],
         ],
     ];
 
@@ -133,9 +134,12 @@ class AuthAccountModel extends AuthMasterModel
     /** auth_master form columns that may be NULL */
     public const FORM_ACCOUNT_NULLABLE = ['telephone_number', 'password_expiry', 'admin_notes'];
 
+    /** auth_master columns the account form shows but never writes; the avatar upload sets avatar_path */
+    public const FORM_ACCOUNT_READONLY = ['avatar_path'];
+
     /**
      * account_type => profile table of the account form: its model (for the validation rules), its columns but
-     * id, auth_id, avatar_path and the timestamps, and which of those may be NULL
+     * id, auth_id and the timestamps, and which of those may be NULL
      */
     public const FORM_PROFILES = [
         self::TYPE_STAFF  => [
@@ -148,7 +152,7 @@ class AuthAccountModel extends AuthMasterModel
                 'preferred_name', 'gender', 'date_of_birth', 'nationality_code', 'national_id_type', 'national_id_number',
                 'tax_id_number', 'address_line_1', 'address_line_2', 'address_city', 'subdivision_code', 'postal_code',
                 'country_code', 'emergency_contact_name', 'emergency_contact_relation', 'emergency_contact_telephone',
-                'preferred_language', 'timezone', 'status_message', 'bio', 'hr_notes',
+                'preferred_language', 'status_message', 'bio', 'hr_notes',
             ],
             'nullable' => [
                 'manager_staff_id', 'probation_end_date', 'employment_end_date', 'work_email_address',
@@ -156,7 +160,7 @@ class AuthAccountModel extends AuthMasterModel
                 'nationality_code', 'national_id_type', 'national_id_number', 'tax_id_number', 'address_line_1',
                 'address_line_2', 'address_city', 'subdivision_code', 'postal_code', 'country_code',
                 'emergency_contact_name', 'emergency_contact_relation', 'emergency_contact_telephone',
-                'preferred_language', 'timezone', 'status_message', 'bio', 'hr_notes',
+                'preferred_language', 'status_message', 'bio', 'hr_notes',
             ],
         ],
         self::TYPE_CLIENT => [
@@ -165,12 +169,12 @@ class AuthAccountModel extends AuthMasterModel
             'fields'   => [
                 'legal_first_name', 'legal_middle_name', 'legal_last_name', 'display_name', 'national_id_type',
                 'national_id_number', 'status_message', 'status_emoji', 'gender', 'date_of_birth', 'nationality_code',
-                'preferred_language', 'timezone', 'bio', 'marketing_opt_in', 'internal_notes',
+                'preferred_language', 'bio', 'marketing_opt_in', 'internal_notes',
             ],
             'nullable' => [
                 'legal_first_name', 'legal_middle_name', 'legal_last_name', 'display_name', 'national_id_type',
                 'national_id_number', 'status_message', 'status_emoji', 'gender', 'date_of_birth', 'nationality_code',
-                'preferred_language', 'timezone', 'bio', 'internal_notes',
+                'preferred_language', 'bio', 'internal_notes',
             ],
         ],
     ];
@@ -185,7 +189,7 @@ class AuthAccountModel extends AuthMasterModel
     public function findForForm(string $uid): ?array
     {
         $account = $this->db->table($this->table)
-            ->select(implode(', ', array_merge(['id'], self::FORM_ACCOUNT_FIELDS)))
+            ->select(implode(', ', array_merge(['id'], self::FORM_ACCOUNT_FIELDS, self::FORM_ACCOUNT_READONLY)))
             ->where('uid', $uid)
             ->get()
             ->getRowArray();

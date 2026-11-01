@@ -14,8 +14,6 @@ return [
         'date_of_birth'      => 'Date of Birth',
         'nationality_code'   => 'Nationality',
         'preferred_language' => 'Preferred Language',
-        'timezone'           => 'Timezone',
-        'avatar_path'        => 'Avatar',
         'bio'                => 'Bio',
         'marketing_opt_in'   => 'Marketing Opt-in',
         'internal_notes'     => 'Internal Notes',

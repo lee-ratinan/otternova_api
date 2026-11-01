@@ -24,6 +24,8 @@ trait TransactionTrait
             $result = $work();
         } catch (Throwable $e) {
             $this->db->transRollback(); // a failed query has rolled back already; this is a no-op then
+            // in strict mode the failed status outlives the rollback and would fail every later transaction on this connection
+            $this->db->resetTransStatus();
 
             throw $e;
         } finally {

@@ -53,15 +53,6 @@ trait FieldConfigurationTrait
     }
 
     /**
-     * Supported timezones as one flat select list (listSupportedTimezones() groups them by country)
-     * @return array
-     */
-    protected static function timezoneOptions(): array
-    {
-        return array_merge(...array_values(listSupportedTimezones()));
-    }
-
-    /**
      * Turn getConfiguration() fields into Table Builder columns
      * (fields with badges => badge, switch => boolean, everything else => text).
      * @param array $fields

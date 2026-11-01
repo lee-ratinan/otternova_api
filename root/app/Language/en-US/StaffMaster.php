@@ -34,8 +34,6 @@ return [
         'emergency_contact_relation'  => 'Emergency Contact Relationship',
         'emergency_contact_telephone' => 'Emergency Contact Telephone',
         'preferred_language'          => 'Preferred Language',
-        'timezone'                    => 'Timezone',
-        'avatar_path'                 => 'Avatar',
         'status_message'              => 'Status Message',
         'bio'                         => 'Bio',
         'hr_notes'                    => 'HR Notes',

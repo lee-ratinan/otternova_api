@@ -42,8 +42,6 @@ class ClientMasterModel extends Model
         'date_of_birth',
         'nationality_code',
         'preferred_language',
-        'timezone',
-        'avatar_path',
         'bio',
         'marketing_opt_in',
         'internal_notes',
@@ -68,9 +66,7 @@ class ClientMasterModel extends Model
         'gender'             => 'permit_empty|in_list[M,F,NB,X,N]',
         'date_of_birth'      => 'permit_empty|valid_date[Y-m-d]',
         'nationality_code'   => 'permit_empty|alpha|exact_length[2]',
-        'preferred_language' => 'permit_empty|max_length[16]',
-        'timezone'           => 'permit_empty|timezone',
-        'avatar_path'        => 'permit_empty|max_length[255]',
+        'preferred_language' => 'permit_empty|max_length[5]|regex_match[/^[a-z]{2,3}(-[A-Z]{2})?$/]', // BCP 47: en-US, th
         'marketing_opt_in'   => 'permit_empty|in_list[0,1]',
     ];
     protected $validationMessages   = [];
@@ -98,8 +94,6 @@ class ClientMasterModel extends Model
             'date_of_birth'      => ['type' => 'date', 'max' => date('Y-m-d'), 'searchable' => false],
             'nationality_code'   => ['type' => 'select', 'options' => listCountries(), 'searchable' => false],
             'preferred_language' => ['type' => 'select', 'options' => listLanguages(), 'searchable' => false],
-            'timezone'           => ['type' => 'select', 'options' => self::timezoneOptions(), 'searchable' => false],
-            'avatar_path'        => ['type' => 'text', 'orderable' => false, 'searchable' => false],
             'bio'                => ['type' => 'textarea', 'rows' => 4, 'orderable' => false],
             'marketing_opt_in'   => [
                 'type'          => 'switch',
