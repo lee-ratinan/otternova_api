@@ -17,6 +17,8 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');
         $routes->post('accounts', 'Accounts::list');
         $routes->post('account', 'Accounts::show');
+        $routes->post('account/update', 'Accounts::save');
+        $routes->post('account/delete', 'Accounts::delete');
     });
 
     // Client app: client accounts only (a valid token with typ C)

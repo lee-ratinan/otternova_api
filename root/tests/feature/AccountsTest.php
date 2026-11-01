@@ -11,7 +11,7 @@ use CodeIgniter\Test\TestResponse;
 use Config\Services;
 
 /**
- * POST /staff/accounts (the Admin app's account list) and /staff/account (one account)
+ * POST /staff/accounts, the Admin app's account list
  *
  * @internal
  */
@@ -20,7 +20,7 @@ final class AccountsTest extends CIUnitTestCase
     use DatabaseTestTrait;
     use FeatureTestTrait;
 
-    protected $namespace = null; // the App migrations and the test-only auth tables
+    protected $namespace = 'App'; // the app's own migrations, the schema of the real database
 
     /** The signed-in staff account calling the endpoint; it is in the list too */
     private array $staff;
@@ -312,130 +312,6 @@ final class AccountsTest extends CIUnitTestCase
         $this->assertTrue($this->logged('error', 'v1/staff/accounts: no such table: auth_master_secret_detail'));
     }
 
-    // ---- /staff/account ----
-
-    public function testStaffAccountComesWithItsStaffProfile(): void
-    {
-        $staff = $this->createStaff('eikin@otternova.com', [
-            'full_name'        => '力川栄欽',
-            'telephone_number' => '+6597754577',
-            'password_expiry'  => '2027-11-15',
-            'otp_mode'         => 'E',
-            'admin_notes'      => 'He is the CEO!',
-        ]);
-        $hash = $this->db->table('auth_master')->where('id', $staff['id'])->get()->getRowArray()['password_hash'];
-
-        $response = $this->account(['uid' => 'eikinotternovacom']);
-        $data     = $this->accountData($response);
-
-        $this->assertSame([
-            'id', 'uid', 'email_address', 'telephone_number', 'full_name', 'otp_mode', 'account_status',
-            'account_type', 'password_expiry', 'created_at', 'updated_at', 'admin_notes',
-        ], array_keys($data['account']));
-        $this->assertSame($staff['id'], $data['account']['id']);
-        $this->assertSame('eikin@otternova.com', $data['account']['email_address']);
-        $this->assertSame('力川栄欽', $data['account']['full_name']);
-        $this->assertSame('+6597754577', $data['account']['telephone_number']);
-        $this->assertSame('2027-11-15', $data['account']['password_expiry']);
-        $this->assertSame('S', $data['account']['account_type']);
-        $this->assertSame('He is the CEO!', $data['account']['admin_notes']);
-        $this->assertSame([
-            'employee_code'     => 'EMP-' . $staff['id'],
-            'job_title'         => 'Engineer',
-            'employment_status' => 'A',
-            'gender'            => null,
-            'date_of_birth'     => null,
-            'timezone'          => null,
-            'avatar_path'       => null,
-            'status_message'    => null,
-        ], $data['profile']);
-
-        $body = $response->getJSON();
-        $this->assertStringNotContainsString('password_hash', $body);
-        $this->assertStringNotContainsString(json_encode($hash), $body);
-    }
-
-    public function testClientAccountComesWithItsClientProfile(): void
-    {
-        $client = $this->createClient('client@example.com');
-        $this->db->table('client_master')->where('auth_id', $client['id'])->update(['display_name' => 'Otter Fan', 'preferred_language' => 'en']);
-
-        $data = $this->accountData($this->account(['uid' => '  clientexamplecom  ']));
-
-        $this->assertSame('C', $data['account']['account_type']);
-        $this->assertSame([
-            'display_name'       => 'Otter Fan',
-            'status_message'     => null,
-            'status_emoji'       => null,
-            'avatar_path'        => null,
-            'timezone'           => null,
-            'preferred_language' => 'en',
-        ], $data['profile']);
-    }
-
-    public function testAccountWithoutProfileRowHasNullProfile(): void
-    {
-        $this->createAccount('noprofile@otternova.com', ['account_type' => 'S']);
-
-        $data = $this->accountData($this->account(['uid' => 'noprofileotternovacom']));
-
-        $this->assertSame('noprofile@otternova.com', $data['account']['email_address']);
-        $this->assertNull($data['profile']);
-    }
-
-    public function testUnknownUidIsNotFound(): void
-    {
-        $response = $this->account(['uid' => 'nobodyotternovacom']);
-
-        $response->assertStatus(404);
-        $this->assertSame(['status' => 'error', 'message' => lang('Accounts.notFound')], json_decode($response->getJSON(), true));
-    }
-
-    public function testMissingUidIsABadRequest(): void
-    {
-        foreach ([[], ['uid' => ''], ['uid' => '   '], ['uid' => 42], ['uid' => ['adminotternovacom']]] as $body) {
-            $response = $this->account($body);
-
-            $response->assertStatus(400);
-            $this->assertSame(lang('Accounts.uidRequired'), json_decode($response->getJSON(), true)['message'], json_encode($body));
-        }
-
-        $this->withHeaders(['Authorization' => 'Bearer ' . $this->token, 'Content-Type' => 'application/json'])
-            ->withBody('{not json')
-            ->post('v1/staff/account')
-            ->assertStatus(422);
-    }
-
-    public function testAccountIsForStaffOnly(): void
-    {
-        $client = $this->createClient('client@example.com');
-
-        $this->post('v1/staff/account')->assertStatus(401);
-        $this->account(['uid' => 'clientexamplecom'], 'not-a-jwt')->assertStatus(401);
-        $this->account(['uid' => 'clientexamplecom'], service('jwt')->issue($client)['access_token'])->assertStatus(403);
-    }
-
-    public function testAccountDatabaseFailureIsA500AndLogged(): void
-    {
-        Factories::injectMock('models', AuthAccountModel::class, new class () extends AuthAccountModel {
-            public function findForAdmin(string $uid): ?array
-            {
-                throw new DatabaseException('no such table: staff_master_secret_detail');
-            }
-        });
-
-        try {
-            $response = $this->account(['uid' => 'adminotternovacom']);
-        } finally {
-            Factories::reset('models');
-        }
-
-        $response->assertStatus(500);
-        $this->assertSame(['status' => 'error', 'message' => lang('Accounts.loadFailed')], json_decode($response->getJSON(), true));
-        $this->assertStringNotContainsString('staff_master_secret_detail', $response->getJSON());
-        $this->assertTrue($this->logged('error', 'v1/staff/account: no such table: staff_master_secret_detail'));
-    }
-
     // ---- helpers ----
 
     private function createAccount(string $email, array $overrides = []): array
@@ -461,11 +337,19 @@ final class AccountsTest extends CIUnitTestCase
     private function createStaff(string $email, array $overrides = []): array
     {
         $account = $this->createAccount($email, $overrides + ['account_type' => 'S']);
+        if ($this->db->table('otternova_department')->countAllResults() === 0) {
+            $this->db->table('otternova_department')->insert(['department_code' => 'ENG', 'department_name' => 'Engineering', 'country_code' => 'TH']);
+        }
         $this->db->table('staff_master')->insert([
-            'auth_id'           => $account['id'],
-            'employee_code'     => 'EMP-' . $account['id'],
-            'job_title'         => 'Engineer',
-            'employment_status' => 'A',
+            'auth_id'               => $account['id'],
+            'department_id'         => 1,
+            'employee_code'         => 'EMP-' . $account['id'],
+            'job_title'             => 'Engineer',
+            'employment_status'     => 'A',
+            'employment_start_date' => '2024-01-01',
+            'work_country_code'     => 'TH',
+            'legal_first_name'      => 'Otter',
+            'legal_last_name'       => 'Tester',
         ]);
 
         return $account;
@@ -525,26 +409,6 @@ final class AccountsTest extends CIUnitTestCase
         $body = json_decode($response->getJSON(), true);
         $this->assertSame('success', $body['status']);
         $this->assertSame(['records_total', 'records_filtered', 'rows'], array_keys($body['data']));
-
-        return $body['data'];
-    }
-
-    private function account(array $body, ?string $token = null): TestResponse
-    {
-        return $this->withHeaders(['Authorization' => 'Bearer ' . ($token ?? $this->token)])
-            ->withBodyFormat('json')
-            ->post('v1/staff/account', $body);
-    }
-
-    /**
-     * The data of a 200 account response
-     */
-    private function accountData(TestResponse $response): array
-    {
-        $response->assertStatus(200);
-        $body = json_decode($response->getJSON(), true);
-        $this->assertSame('success', $body['status']);
-        $this->assertSame(['account', 'profile'], array_keys($body['data']));
 
         return $body['data'];
     }

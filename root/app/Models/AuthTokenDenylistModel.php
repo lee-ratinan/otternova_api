@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Libraries\ActivityLog;
 use CodeIgniter\Model;
 
 /**
@@ -9,6 +10,8 @@ use CodeIgniter\Model;
  */
 class AuthTokenDenylistModel extends Model
 {
+    use TransactionTrait;
+
     protected $table            = 'auth_token_denylist';
     protected $primaryKey       = 'jti';
     protected $useAutoIncrement = false;
@@ -24,17 +27,29 @@ class AuthTokenDenylistModel extends Model
     protected $useTimestamps = false;
 
     /**
-     * Revoke a token until its exp; rows of tokens that have expired anyway are cleared out on the way
+     * Revoke a token until its exp; rows of tokens that have expired anyway are cleared out on the way.
+     * Both are logged to log_activity in the same transaction.
      * @param string $jti
      * @param int    $expiresAt Unix seconds
+     * @param int    $authId    auth_master.id of the account signing out
      * @return void
      */
-    public function revoke(string $jti, int $expiresAt): void
+    public function revoke(string $jti, int $expiresAt, int $authId): void
     {
-        $this->where('expires_at <', time())->delete();
-        if (! $this->isRevoked($jti)) {
-            $this->insert(['jti' => $jti, 'expires_at' => $expiresAt]);
-        }
+        $log = new ActivityLog();
+        $this->inTransaction(function () use ($jti, $expiresAt, $authId, $log) {
+            $expired = $this->db->table($this->table)->where('expires_at <', time())->get()->getResultArray();
+            foreach ($expired as $row) {
+                $this->db->table($this->table)->where('jti', $row['jti'])->delete();
+                $log->deleted(null, 'Deleted expired token from the denylist', $this->table, null, $row);
+            }
+
+            if (! $this->isRevoked($jti)) {
+                $row = ['jti' => $jti, 'expires_at' => $expiresAt];
+                $this->db->table($this->table)->insert($row);
+                $log->inserted($authId, 'Signed out', $this->table, null, $row);
+            }
+        });
     }
 
     /**

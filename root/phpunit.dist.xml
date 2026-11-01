@@ -53,6 +53,8 @@
         <const name="PUBLICPATH" value="./public/"/>
         <!-- Test-only signing secret; real ones go in .env -->
         <env name="JWT_SECRET" value="test-only-jwt-secret-not-for-production-use"/>
+        <!-- Test-only key for the encrypted identity numbers (App\Libraries\FieldEncryption); the real one goes in .env -->
+        <env name="encryption.key" value="hex2bin:00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"/>
         <!-- Database configuration -->
         <!-- Uncomment to provide your own database for testing
             <env name="database.tests.hostname" value="localhost"/>

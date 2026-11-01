@@ -22,7 +22,7 @@ final class AuthTest extends CIUnitTestCase
 
     private const PASSWORD = 'correct horse battery staple';
 
-    protected $namespace = null; // the App migrations and the test-only auth tables
+    protected $namespace = 'App'; // the app's own migrations, the schema of the real database
 
     /** Captures emails instead of logging them */
     private EmailService $mailer;
@@ -387,6 +387,82 @@ final class AuthTest extends CIUnitTestCase
         }
     }
 
+    // ---- log_activity ----
+
+    public function testOtpSignInIsLoggedWithoutHashes(): void
+    {
+        $account = $this->createStaff('otp@otternova.com', ['otp_mode' => 'E']);
+        $token   = $this->json($this->login('otp@otternova.com'), 200)['otp_token'];
+        $row     = $this->db->table('auth_otp_challenge')->get()->getRowArray();
+
+        $this->verifyOtp($token, $this->wrongOtp())->assertStatus(401);
+        $this->verifyOtp($token, $this->sentOtp())->assertStatus(200);
+
+        $logs = $this->activity();
+        $this->assertSame([
+            ['Started OTP challenge on sign-in', 'insert'],
+            ['Used an OTP attempt', 'update'],
+            ['Used an OTP attempt', 'update'],
+            ['Ended OTP challenge', 'delete'],
+        ], array_map(static fn ($log) => [$log['activity_summary'], $log['detail']['action']], $logs));
+        foreach ($logs as $log) {
+            $this->assertSame('auth_otp_challenge', $log['table_involved']);
+            $this->assertSame((int) $row['id'], (int) $log['table_id_updated']);
+            $this->assertSame($account['id'], (int) $log['changed_by_acc']);
+            $this->assertStringNotContainsString($row['otp_hash'], $log['activity_detail']);
+            $this->assertStringNotContainsString($row['token_hash'], $log['activity_detail']);
+            $this->assertStringNotContainsString($token, $log['activity_detail']);
+        }
+        $this->assertSame(['auth_id', 'account_type', 'attempts', 'expires_at'], array_keys($logs[0]['detail']['new']));
+        $this->assertSame(['attempts' => ['old' => 1, 'new' => 2]], $logs[2]['detail']['changes']);
+    }
+
+    public function testReplacedAndExpiredChallengesAreLogged(): void
+    {
+        $account = $this->createStaff('otp@otternova.com', ['otp_mode' => 'E']);
+        $other   = $this->createStaff('other@otternova.com', ['otp_mode' => 'E']);
+        $this->login('other@otternova.com')->assertStatus(200);
+        $this->db->table('auth_otp_challenge')->update(['expires_at' => time() - 1]);
+        $this->login('otp@otternova.com')->assertStatus(200);
+        $this->login('otp@otternova.com')->assertStatus(200);
+
+        $logs = array_map(static fn ($log) => [$log['activity_summary'], $log['changed_by_acc'] === null ? null : (int) $log['changed_by_acc']], $this->activity());
+
+        $this->assertSame([
+            ['Started OTP challenge on sign-in', $other['id']],
+            ['Deleted expired OTP challenge', null], // the system cleaning up, not the account signing in
+            ['Started OTP challenge on sign-in', $account['id']],
+            ['Replaced OTP challenge on sign-in', $account['id']],
+            ['Started OTP challenge on sign-in', $account['id']],
+        ], $logs);
+    }
+
+    public function testLogoutIsLogged(): void
+    {
+        $account = $this->createStaff('staff@otternova.com', ['otp_mode' => 'X']);
+        $token   = $this->json($this->login('staff@otternova.com'), 200)['access_token'];
+        $this->db->table('auth_token_denylist')->insert(['jti' => 'old-jti', 'expires_at' => time() - 1]);
+
+        $this->logout($token)->assertStatus(200);
+
+        $logs = $this->activity();
+        $this->assertSame(['Deleted expired token from the denylist', null, 'old-jti'], [$logs[0]['activity_summary'], $logs[0]['changed_by_acc'], $logs[0]['detail']['old']['jti']]);
+        $this->assertSame('Signed out', $logs[1]['activity_summary']);
+        $this->assertSame('auth_token_denylist', $logs[1]['table_involved']);
+        $this->assertSame($account['id'], (int) $logs[1]['changed_by_acc']);
+        $this->assertSame(service('jwt')->decode($token)->jti, $logs[1]['detail']['new']['jti']);
+    }
+
+    public function testSignInWithoutOtpWritesNothing(): void
+    {
+        $this->createStaff('none@otternova.com', ['otp_mode' => 'X']);
+
+        $this->login('none@otternova.com')->assertStatus(200);
+        $this->login('none@otternova.com', 'wrong password')->assertStatus(401);
+
+        $this->assertSame([], $this->activity());
+    }
+
     // ---- helpers ----
 
     private function createAccount(string $email, array $overrides = []): array
@@ -412,14 +488,22 @@ final class AuthTest extends CIUnitTestCase
     private function createStaff(string $email, array $overrides = []): array
     {
         $account = $this->createAccount($email, $overrides + ['account_type' => 'S']);
+        if ($this->db->table('otternova_department')->countAllResults() === 0) {
+            $this->db->table('otternova_department')->insert(['department_code' => 'ENG', 'department_name' => 'Engineering', 'country_code' => 'TH']);
+        }
         $this->db->table('staff_master')->insert([
-            'auth_id'           => $account['id'],
-            'employee_code'     => 'EMP-' . $account['id'],
-            'job_title'         => 'Engineer',
-            'employment_status' => 'A',
-            'gender'            => 'N',
-            'date_of_birth'     => '1990-01-01',
-            'timezone'          => 'Asia/Bangkok',
+            'auth_id'               => $account['id'],
+            'department_id'         => 1,
+            'employee_code'         => 'EMP-' . $account['id'],
+            'job_title'             => 'Engineer',
+            'employment_status'     => 'A',
+            'employment_start_date' => '2024-01-01',
+            'work_country_code'     => 'TH',
+            'legal_first_name'      => 'Otter',
+            'legal_last_name'       => 'Tester',
+            'gender'                => 'N',
+            'date_of_birth'         => '1990-01-01',
+            'timezone'              => 'Asia/Bangkok',
         ]);
 
         return $account;
@@ -510,6 +594,16 @@ final class AuthTest extends CIUnitTestCase
     private function signToken(array $overrides): string
     {
         return JWT::encode($this->claims($overrides), config(AuthConfig::class)->jwtSecret, 'HS256');
+    }
+
+    /**
+     * The log_activity rows, oldest first, with activity_detail decoded as 'detail'
+     */
+    private function activity(): array
+    {
+        $rows = $this->db->table('log_activity')->orderBy('id')->get()->getResultArray();
+
+        return array_map(static fn ($row) => $row + ['detail' => json_decode((string) $row['activity_detail'], true)], $rows);
     }
 
     /**

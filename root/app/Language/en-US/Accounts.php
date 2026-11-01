@@ -1,5 +1,21 @@
 <?php
 return [
-    'invalidRequest' => 'The request could not be read. Please reload the page and try again.',
-    'listFailed'     => 'Could not load the accounts. Please try again.',
+    'invalidRequest'   => 'The request could not be read. Please reload the page and try again.',
+    'listFailed'       => 'Could not load the accounts. Please try again.',
+    'uidRequired'      => 'Please choose an account.',
+    'notFound'         => 'Account not found.',
+    'loadFailed'       => 'Could not load the account. Please try again.',
+    'saveFailed'       => 'Could not save the account. Please try again.',
+    'deleteFailed'     => 'Could not delete the account. Please try again.',
+    'created'          => 'Account created.',
+    'updated'          => 'Account updated.',
+    'deleted'          => 'Account deleted.',
+    'invalidFields'    => 'Please correct the highlighted fields.',
+    'staffOnly'        => 'Only staff accounts can be created here.',
+    'ownStatus'        => 'You cannot change the status of your own account.',
+    'cannotDeleteSelf' => 'You cannot delete your own account.',
+    'lastActiveStaff'  => 'This is the last active staff account, so it cannot be deleted.',
+    'invalidTelephone' => 'Please enter the number in international format, for example +6591234567.',
+    'invalidCountry'   => 'Please choose a country from the list.',
+    'managerIsSelf'    => 'A staff member cannot be their own line manager.',
 ];

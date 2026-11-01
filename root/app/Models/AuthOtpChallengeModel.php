@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Libraries\ActivityLog;
 use CodeIgniter\Model;
 
 /**
@@ -10,6 +11,11 @@ use CodeIgniter\Model;
  */
 class AuthOtpChallengeModel extends Model
 {
+    use TransactionTrait;
+
+    /** The columns written to log_activity; the hashes never are */
+    private const LOG_FIELDS = 'id, auth_id, account_type, attempts, expires_at';
+
     protected $table            = 'auth_otp_challenge';
     protected $primaryKey       = 'id';
     protected $useAutoIncrement = true;
@@ -38,18 +44,33 @@ class AuthOtpChallengeModel extends Model
      */
     public function createChallenge(int $authId, string $accountType, string $otp, int $expiresAt): string
     {
-        // a new sign-in replaces any challenge still open for the account; expired ones go too
-        $this->where('auth_id', $authId)->orWhere('expires_at <=', time())->delete();
-
         $token = bin2hex(random_bytes(32));
-        $this->insert([
-            'auth_id'      => $authId,
-            'account_type' => $accountType,
-            'token_hash'   => self::hashToken($token),
-            'otp_hash'     => password_hash($otp, PASSWORD_DEFAULT),
-            'attempts'     => 0,
-            'expires_at'   => $expiresAt,
-        ]);
+        $log   = new ActivityLog();
+        $this->inTransaction(function () use ($authId, $accountType, $otp, $expiresAt, $token, $log) {
+            // a new sign-in replaces any challenge still open for the account; expired ones go too
+            $old = $this->db->table($this->table)
+                ->select(self::LOG_FIELDS)
+                ->groupStart()->where('auth_id', $authId)->orWhere('expires_at <=', time())->groupEnd()
+                ->get()
+                ->getResultArray();
+            foreach ($old as $row) {
+                $this->db->table($this->table)->where('id', $row['id'])->delete();
+                (int) $row['auth_id'] === $authId
+                    ? $log->deleted($authId, 'Replaced OTP challenge on sign-in', $this->table, (int) $row['id'], $row)
+                    : $log->deleted(null, 'Deleted expired OTP challenge', $this->table, (int) $row['id'], $row);
+            }
+
+            $row = [
+                'auth_id'      => $authId,
+                'account_type' => $accountType,
+                'token_hash'   => self::hashToken($token),
+                'otp_hash'     => password_hash($otp, PASSWORD_DEFAULT),
+                'attempts'     => 0,
+                'expires_at'   => $expiresAt,
+            ];
+            $this->db->table($this->table)->insert($row);
+            $log->inserted($authId, 'Started OTP challenge on sign-in', $this->table, (int) $this->db->insertID(), $row);
+        });
 
         return $token;
     }
@@ -72,13 +93,24 @@ class AuthOtpChallengeModel extends Model
      */
     public function claimAttempt(int $id, int $maxAttempts): bool
     {
-        $this->builder()
-            ->set('attempts', 'attempts + 1', false)
-            ->where('id', $id)
-            ->where('attempts <', $maxAttempts)
-            ->update();
+        $log = new ActivityLog();
 
-        return $this->db->affectedRows() === 1;
+        return $this->inTransaction(function () use ($id, $maxAttempts, $log) {
+            $this->db->table($this->table)
+                ->set('attempts', 'attempts + 1', false)
+                ->where('id', $id)
+                ->where('attempts <', $maxAttempts)
+                ->update();
+            if ($this->db->affectedRows() !== 1) {
+                return false;
+            }
+
+            $row      = $this->db->table($this->table)->select(self::LOG_FIELDS)->where('id', $id)->get()->getRowArray();
+            $attempts = (int) $row['attempts'];
+            $log->updated((int) $row['auth_id'], 'Used an OTP attempt', $this->table, $id, ['attempts' => $attempts - 1], ['attempts' => $attempts]);
+
+            return true;
+        });
     }
 
     /**
@@ -88,9 +120,18 @@ class AuthOtpChallengeModel extends Model
      */
     public function consume(int $id): bool
     {
-        $this->delete($id);
+        $log = new ActivityLog();
 
-        return $this->db->affectedRows() === 1;
+        return $this->inTransaction(function () use ($id, $log) {
+            $row = $this->db->table($this->table)->select(self::LOG_FIELDS)->where('id', $id)->get()->getRowArray();
+            $this->db->table($this->table)->where('id', $id)->delete();
+            if ($row === null || $this->db->affectedRows() !== 1) {
+                return false;
+            }
+            $log->deleted((int) $row['auth_id'], 'Ended OTP challenge', $this->table, $id, $row);
+
+            return true;
+        });
     }
 
     /**

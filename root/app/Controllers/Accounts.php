@@ -2,11 +2,14 @@
 
 namespace App\Controllers;
 
+use App\Libraries\AccountForm;
 use App\Libraries\ApiResponse;
 use App\Models\AuthAccountModel;
 use CodeIgniter\Database\Exceptions\DatabaseException;
+use CodeIgniter\Encryption\Exceptions\EncryptionException;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
+use stdClass;
 
 /**
  * auth_master accounts for the Admin app, behind the jwt:S filter (staff only)
@@ -45,7 +48,7 @@ class Accounts extends BaseController
                 $this->listFilters($input['filters'] ?? null),
                 $this->listOrder($input['order'] ?? null)
             );
-        } catch (DatabaseException $e) {
+        } catch (DatabaseException|EncryptionException $e) {
             log_message('error', 'v1/staff/accounts: {message}', ['message' => $e->getMessage()]);
 
             return ApiResponse::error(lang('Accounts.listFailed'), 500);
@@ -56,7 +59,8 @@ class Accounts extends BaseController
 
     /**
      * POST /staff/account { uid }
-     * One account with its staff_master or client_master profile, for the Admin app's account page
+     * One account with its staff_master or client_master profile, for the Admin app's account form.
+     * "profile" is {} when the account has no profile row yet.
      * @return ResponseInterface
      */
     public function show(): ResponseInterface
@@ -71,17 +75,118 @@ class Accounts extends BaseController
         }
 
         try {
-            $data = model(AuthAccountModel::class)->findForAdmin($uid);
-        } catch (DatabaseException $e) {
+            $record = model(AuthAccountModel::class)->findForForm($uid);
+        } catch (DatabaseException|EncryptionException $e) {
             log_message('error', 'v1/staff/account: {message}', ['message' => $e->getMessage()]);
 
             return ApiResponse::error(lang('Accounts.loadFailed'), 500);
         }
-        if ($data === null) {
+        if ($record === null) {
             return ApiResponse::error(lang('Accounts.notFound'), 404);
         }
 
-        return ApiResponse::success($data);
+        // the internal ids never go out
+        unset($record['account']['id'], $record['profile']['id']);
+
+        return ApiResponse::success([
+            'account' => $record['account'],
+            'profile' => $record['profile'] ?: new stdClass(),
+        ]);
+    }
+
+    /**
+     * POST /staff/account/update { uid, account: {...}, profile: {...} }
+     * An empty uid creates a staff account (with its staff_master row); otherwise the account with that uid
+     * is updated and its profile row inserted or updated. See App\Libraries\AccountForm for the checks.
+     * @return ResponseInterface
+     */
+    public function save(): ResponseInterface
+    {
+        $input = $this->jsonInput();
+        $uid   = $input['uid'] ?? null;
+        if ($input === null || ($uid !== null && ! is_string($uid))) {
+            return ApiResponse::error(lang('Accounts.invalidRequest'), 422);
+        }
+        $uid       = trim((string) $uid);
+        $accountIn = is_array($input['account'] ?? null) ? $input['account'] : [];
+        $profileIn = is_array($input['profile'] ?? null) ? $input['profile'] : [];
+        $accounts  = model(AuthAccountModel::class);
+        $form      = new AccountForm();
+
+        try {
+            if ($uid === '') {
+                $result = $form->forCreate($accountIn, $profileIn);
+                if ($result['errors'] !== []) {
+                    return ApiResponse::error(lang('Accounts.invalidFields'), 422, $result['errors']);
+                }
+                $accounts->createStaffWithProfile($result['account'], $result['profile'], $this->actorId());
+
+                return ApiResponse::success(['uid' => $result['account']['uid']], 200, lang('Accounts.created'));
+            }
+
+            $record = $accounts->findForForm($uid);
+            if ($record === null) {
+                return ApiResponse::error(lang('Accounts.notFound'), 404);
+            }
+            $result = $form->forUpdate($record, $accountIn, $profileIn, (string) service('authContext')->claims()->sub);
+            if ($result['errors'] !== []) {
+                return ApiResponse::error(lang('Accounts.invalidFields'), 422, $result['errors']);
+            }
+            $accounts->updateWithProfile($record, $result['account'], $result['profile'], $this->actorId());
+
+            return ApiResponse::success(['uid' => $uid], 200, lang('Accounts.updated'));
+        } catch (DatabaseException|EncryptionException $e) {
+            log_message('error', 'v1/staff/account/update: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Accounts.saveFailed'), 500);
+        }
+    }
+
+    /**
+     * POST /staff/account/delete { uid }
+     * Delete an account and its profile row. The account's access tokens stop working with it: the jwt filter
+     * looks the account up on every request.
+     * @return ResponseInterface
+     */
+    public function delete(): ResponseInterface
+    {
+        $input = $this->jsonInput();
+        if ($input === null) {
+            return ApiResponse::error(lang('Accounts.invalidRequest'), 422);
+        }
+        $uid = is_string($input['uid'] ?? null) ? trim($input['uid']) : '';
+        if ($uid === '') {
+            return ApiResponse::error(lang('Accounts.uidRequired'), 400);
+        }
+
+        try {
+            $accounts = model(AuthAccountModel::class);
+            $record   = $accounts->findForForm($uid);
+            if ($record === null) {
+                return ApiResponse::error(lang('Accounts.notFound'), 404);
+            }
+            if ($uid === (string) service('authContext')->claims()->sub) {
+                return ApiResponse::error(lang('Accounts.cannotDeleteSelf'), 403);
+            }
+            if (! $accounts->deleteWithProfile($record, $this->actorId())) {
+                return ApiResponse::error(lang('Accounts.lastActiveStaff'), 409);
+            }
+        } catch (DatabaseException|EncryptionException $e) {
+            log_message('error', 'v1/staff/account/delete: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Accounts.deleteFailed'), 500);
+        }
+
+        return ApiResponse::success(null, 200, lang('Accounts.deleted'));
+    }
+
+    /**
+     * auth_master.id of the signed-in staff member, for log_activity.changed_by_acc
+     * @return int
+     */
+    private function actorId(): int
+    {
+        return (int) service('authContext')->account()['id'];
     }
 
     /**

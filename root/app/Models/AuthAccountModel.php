@@ -2,12 +2,18 @@
 
 namespace App\Models;
 
+use App\Libraries\ActivityLog;
+use App\Libraries\FieldEncryption;
+use Throwable;
+
 /**
  * auth_master joined to its profile table (staff_master for staff, client_master for clients),
  * for signing in. AuthMasterModel itself is shared with the other apps, so API-only queries live here.
  */
 class AuthAccountModel extends AuthMasterModel
 {
+    use TransactionTrait;
+
     /** auth_master columns returned to the apps; password_hash and admin_notes are never sent */
     public const ACCOUNT_FIELDS = [
         'id',
@@ -109,6 +115,212 @@ class AuthAccountModel extends AuthMasterModel
         $rows = $builder->limit($length, $start)->get()->getResultArray();
 
         return ['records_total' => $total, 'records_filtered' => $filtered, 'rows' => $rows];
+    }
+
+    /** auth_master columns of the Admin app's account form; id and password_hash never go in or out */
+    public const FORM_ACCOUNT_FIELDS = [
+        'uid',
+        'email_address',
+        'telephone_number',
+        'password_expiry',
+        'full_name',
+        'otp_mode',
+        'account_status',
+        'account_type',
+        'admin_notes',
+    ];
+
+    /** auth_master form columns that may be NULL */
+    public const FORM_ACCOUNT_NULLABLE = ['telephone_number', 'password_expiry', 'admin_notes'];
+
+    /**
+     * account_type => profile table of the account form: its model (for the validation rules), its columns but
+     * id, auth_id, avatar_path and the timestamps, and which of those may be NULL
+     */
+    public const FORM_PROFILES = [
+        self::TYPE_STAFF  => [
+            'table'    => 'staff_master',
+            'model'    => StaffMasterModel::class,
+            'fields'   => [
+                'department_id', 'employee_code', 'job_title', 'manager_staff_id', 'employment_type', 'employment_status',
+                'employment_start_date', 'probation_end_date', 'employment_end_date', 'work_country_code',
+                'work_email_address', 'work_telephone_number', 'legal_first_name', 'legal_middle_name', 'legal_last_name',
+                'preferred_name', 'gender', 'date_of_birth', 'nationality_code', 'national_id_type', 'national_id_number',
+                'tax_id_number', 'address_line_1', 'address_line_2', 'address_city', 'subdivision_code', 'postal_code',
+                'country_code', 'emergency_contact_name', 'emergency_contact_relation', 'emergency_contact_telephone',
+                'preferred_language', 'timezone', 'status_message', 'bio', 'hr_notes',
+            ],
+            'nullable' => [
+                'manager_staff_id', 'probation_end_date', 'employment_end_date', 'work_email_address',
+                'work_telephone_number', 'legal_middle_name', 'preferred_name', 'gender', 'date_of_birth',
+                'nationality_code', 'national_id_type', 'national_id_number', 'tax_id_number', 'address_line_1',
+                'address_line_2', 'address_city', 'subdivision_code', 'postal_code', 'country_code',
+                'emergency_contact_name', 'emergency_contact_relation', 'emergency_contact_telephone',
+                'preferred_language', 'timezone', 'status_message', 'bio', 'hr_notes',
+            ],
+        ],
+        self::TYPE_CLIENT => [
+            'table'    => 'client_master',
+            'model'    => ClientMasterModel::class,
+            'fields'   => [
+                'legal_first_name', 'legal_middle_name', 'legal_last_name', 'display_name', 'national_id_type',
+                'national_id_number', 'status_message', 'status_emoji', 'gender', 'date_of_birth', 'nationality_code',
+                'preferred_language', 'timezone', 'bio', 'marketing_opt_in', 'internal_notes',
+            ],
+            'nullable' => [
+                'legal_first_name', 'legal_middle_name', 'legal_last_name', 'display_name', 'national_id_type',
+                'national_id_number', 'status_message', 'status_emoji', 'gender', 'date_of_birth', 'nationality_code',
+                'preferred_language', 'timezone', 'bio', 'internal_notes',
+            ],
+        ],
+    ];
+
+    /**
+     * One account with its profile row, for the account form, with the encrypted profile columns decrypted.
+     * Both rows carry their internal id for the caller's own use; strip it before anything goes out.
+     * @param string $uid
+     * @return array{account: array, profile: array|null}|null Null when no account has this uid; profile is null
+     *                                                          when the account has no profile row yet
+     */
+    public function findForForm(string $uid): ?array
+    {
+        $account = $this->db->table($this->table)
+            ->select(implode(', ', array_merge(['id'], self::FORM_ACCOUNT_FIELDS)))
+            ->where('uid', $uid)
+            ->get()
+            ->getRowArray();
+        if ($account === null) {
+            return null;
+        }
+
+        $form    = self::FORM_PROFILES[$account['account_type']] ?? null;
+        $profile = $form === null ? null : $this->db->table($form['table'])
+            ->select(implode(', ', array_merge(['id'], $form['fields'])))
+            ->where('auth_id', $account['id'])
+            ->get()
+            ->getRowArray();
+
+        return ['account' => $account, 'profile' => $profile === null ? null : (new FieldEncryption())->decryptRow($form['table'], $profile)];
+    }
+
+    /**
+     * Create a staff account and its staff_master row in one transaction, logged to log_activity in it
+     * @param array $account Checked auth_master columns, uid and password_hash included
+     * @param array $profile Checked staff_master columns, without auth_id
+     * @param int   $actorId auth_master.id of the staff member creating it
+     * @return void
+     * @throws Throwable When a write fails; nothing is written then
+     */
+    public function createStaffWithProfile(array $account, array $profile, int $actorId): void
+    {
+        $table     = self::FORM_PROFILES[self::TYPE_STAFF]['table'];
+        $log       = new ActivityLog();
+        $encrypted = (new FieldEncryption())->encryptRow($table, $profile);
+        $this->inTransaction(function () use ($account, $profile, $encrypted, $actorId, $table, $log) {
+            $this->db->table($this->table)->insert($account);
+            $id = (int) $this->db->insertID();
+            $log->inserted($actorId, 'Created account ' . $account['uid'], $this->table, $id, $account);
+
+            $this->db->table($table)->insert($encrypted + ['auth_id' => $id]);
+            $log->inserted($actorId, 'Created staff profile of ' . $account['uid'], $table, (int) $this->db->insertID(), $profile + ['auth_id' => $id]);
+        });
+    }
+
+    /**
+     * Update an account and insert or update its profile row in one transaction, logged to log_activity in it.
+     * Only the columns whose value changes are written and logged; encrypted columns are compared as plaintext.
+     * @param array $record  findForForm(); its account_type picks the profile table
+     * @param array $account Checked auth_master columns
+     * @param array $profile Checked profile columns
+     * @param int   $actorId auth_master.id of the staff member making the change
+     * @return void
+     * @throws Throwable When a write fails; nothing is written then
+     */
+    public function updateWithProfile(array $record, array $account, array $profile, int $actorId): void
+    {
+        $stored = $record['account'];
+        $id     = (int) $stored['id'];
+        $uid    = $stored['uid'];
+        $table  = self::FORM_PROFILES[$stored['account_type']]['table'] ?? null;
+        $log    = new ActivityLog();
+        $crypt  = new FieldEncryption();
+        $this->inTransaction(function () use ($record, $stored, $id, $uid, $table, $account, $profile, $actorId, $log, $crypt) {
+            $changes = ActivityLog::changes($stored, $account);
+            if ($changes !== []) {
+                $this->db->table($this->table)->where('id', $id)->update($changes);
+                $log->updated($actorId, 'Updated account ' . $uid, $this->table, $id, $stored, $changes);
+            }
+            if ($table === null) {
+                return;
+            }
+
+            $what = ($stored['account_type'] === self::TYPE_STAFF ? 'staff' : 'client') . ' profile of ' . $uid;
+            if ($record['profile'] === null) {
+                $row = $profile + ['auth_id' => $id];
+                $this->db->table($table)->insert($crypt->encryptRow($table, $row));
+                $log->inserted($actorId, 'Created ' . $what, $table, (int) $this->db->insertID(), $row);
+
+                return;
+            }
+            $changes = ActivityLog::changes($record['profile'], $profile);
+            if ($changes !== []) {
+                $profileId = (int) $record['profile']['id'];
+                $this->db->table($table)->where('id', $profileId)->update($crypt->encryptRow($table, $changes));
+                $log->updated($actorId, 'Updated ' . $what, $table, $profileId, $record['profile'], $changes);
+            }
+        });
+    }
+
+    /**
+     * Delete an account, its profile row and its pending OTP challenges in one transaction, logged to
+     * log_activity in it. Refused when it is the last active staff account, checked inside the transaction
+     * so two staff deleting each other at the same time cannot both succeed.
+     * @param array $record  findForForm()
+     * @param int   $actorId auth_master.id of the staff member deleting it
+     * @return bool False when refused as the last active staff account; nothing is deleted then
+     * @throws Throwable When a delete fails; nothing is deleted then
+     */
+    public function deleteWithProfile(array $record, int $actorId): bool
+    {
+        $stored = $record['account'];
+        $id     = (int) $stored['id'];
+        $log    = new ActivityLog();
+
+        return $this->inTransaction(function () use ($record, $stored, $id, $actorId, $log) {
+            $isActiveStaff = $this->db->table($this->table)
+                ->where('id', $id)
+                ->where('account_type', self::TYPE_STAFF)
+                ->where('account_status', self::STATUS_ACTIVE)
+                ->countAllResults() > 0;
+            $otherActiveStaff = $this->db->table($this->table)
+                ->where('id !=', $id)
+                ->where('account_type', self::TYPE_STAFF)
+                ->where('account_status', self::STATUS_ACTIVE)
+                ->countAllResults();
+            if ($isActiveStaff && $otherActiveStaff === 0) {
+                return false;
+            }
+
+            // the foreign keys cascade, but delete explicitly so it does not depend on them, and so each is logged
+            $table = self::FORM_PROFILES[$stored['account_type']]['table'] ?? null;
+            if ($table !== null && $record['profile'] !== null) {
+                $this->db->table($table)->where('id', $record['profile']['id'])->delete();
+                $log->deleted($actorId, 'Deleted profile of ' . $stored['uid'], $table, (int) $record['profile']['id'], $record['profile']);
+            }
+            $challenges = $this->db->table('auth_otp_challenge')
+                ->select('id, auth_id, account_type, attempts, expires_at')
+                ->where('auth_id', $id)
+                ->get()
+                ->getResultArray();
+            foreach ($challenges as $challenge) {
+                $this->db->table('auth_otp_challenge')->where('id', $challenge['id'])->delete();
+                $log->deleted($actorId, 'Deleted OTP challenge of ' . $stored['uid'], 'auth_otp_challenge', (int) $challenge['id'], $challenge);
+            }
+            $this->db->table($this->table)->where('id', $id)->delete();
+            $log->deleted($actorId, 'Deleted account ' . $stored['uid'], $this->table, $id, $stored);
+
+            return true;
+        });
     }
 
     /**

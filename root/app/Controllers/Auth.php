@@ -125,7 +125,7 @@ class Auth extends BaseController
     public function logout(): ResponseInterface
     {
         $claims = service('authContext')->claims();
-        model(AuthTokenDenylistModel::class)->revoke((string) $claims->jti, (int) $claims->exp);
+        model(AuthTokenDenylistModel::class)->revoke((string) $claims->jti, (int) $claims->exp, (int) service('authContext')->account()['id']);
 
         return ApiResponse::success();
     }
