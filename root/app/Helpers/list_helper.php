@@ -75,7 +75,7 @@ if (!function_exists("listSupportedCountries")) {
      * This is the list of countries where clients can pick up as the main business country.
      * IMPORTANT:
      * TODO:
-     * To add to this list, the timezones, subdivisions, and currencies must be added together.
+     * To add to this list, the timezones, subdivisions, currencies, and telephone country code must be added together.
      * Also, translate the country names in the listCountries() function.
      * @return array
      */
@@ -831,5 +831,25 @@ if (!function_exists('mapCurrencyCode')) {
         ];
         $currencyCode = strtoupper($currencyCode);
         return $currencies[$currencyCode] ?? '';
+    }
+}
+if (!function_exists('listSupportedTelephoneCountryCodes')) {
+    /**
+     * List the supported subdivisions
+     * @return array
+     */
+    function listSupportedTelephoneCountryCodes(): array
+    {
+        return [
+            "ID" => "+62",
+            "MY" => "+60",
+            "PH" => "+63",
+            "SG" => "+65",
+            "VN" => "+84",
+            "TH" => "+66",
+            "TW" => "+886",
+            "JP" => "+81",
+            "KR" => "+82",
+        ];
     }
 }
