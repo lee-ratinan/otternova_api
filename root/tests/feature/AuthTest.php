@@ -11,7 +11,7 @@ use Config\Services;
 use Firebase\JWT\JWT;
 
 /**
- * POST /login, /verify-otp and /logout, and the jwt filter
+ * POST /login, /verify-otp, /change-expired-password and /logout, and the jwt filter
  *
  * @internal
  */
@@ -21,6 +21,8 @@ final class AuthTest extends CIUnitTestCase
     use FeatureTestTrait;
 
     private const PASSWORD = 'correct horse battery staple';
+
+    private const NEW_PASSWORD = 'otters hold hands 2 sleep';
 
     protected $namespace = 'App'; // the app's own migrations, the schema of the real database
 
@@ -464,6 +466,256 @@ final class AuthTest extends CIUnitTestCase
         $this->assertSame([], $this->activity());
     }
 
+    // ---- expired passwords ----
+
+    public function testExpiredPasswordWithoutOtpGetsChangeChallengeNotToken(): void
+    {
+        foreach (['X', 'T'] as $i => $mode) {
+            $this->createStaff("expired{$i}@otternova.com", ['otp_mode' => $mode, 'password_expiry' => $this->yesterday()]);
+
+            $data = $this->json($this->login("expired{$i}@otternova.com"), 200);
+
+            $this->assertSame(['otp_required', 'password_change_required', 'password_change_token', 'password_change_expires_at'], array_keys($data));
+            $this->assertFalse($data['otp_required']);
+            $this->assertTrue($data['password_change_required']);
+            $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $data['password_change_token']);
+            $this->assertEqualsWithDelta(time() + 10 * MINUTE, $data['password_change_expires_at'], 2);
+        }
+
+        // only the hash is stored
+        $hashes = array_column($this->db->table('auth_password_change')->get()->getResultArray(), 'token_hash');
+        $this->assertContains(hash('sha256', $data['password_change_token']), $hashes);
+        $this->assertNotContains($data['password_change_token'], $hashes);
+        $this->assertSame([], $this->mailer->sent);
+    }
+
+    public function testPasswordExpiringTodayIsExpired(): void
+    {
+        $this->createStaff('today@otternova.com', ['otp_mode' => 'X', 'password_expiry' => gmdate('Y-m-d')]);
+
+        $this->assertTrue($this->json($this->login('today@otternova.com'), 200)['password_change_required']);
+    }
+
+    public function testPasswordNotExpiredOrNeverExpiringSignsIn(): void
+    {
+        $this->createStaff('tomorrow@otternova.com', ['otp_mode' => 'X', 'password_expiry' => gmdate('Y-m-d', time() + DAY)]);
+        $this->createStaff('never@otternova.com', ['otp_mode' => 'X', 'password_expiry' => null]);
+
+        foreach (['tomorrow@otternova.com', 'never@otternova.com'] as $email) {
+            $data = $this->json($this->login($email), 200);
+            $this->assertFalse($data['password_change_required']);
+            $this->assertNotEmpty($data['access_token']);
+        }
+        $this->seeNumRecords(0, 'auth_password_change', []);
+    }
+
+    public function testExpiredPasswordWithInactiveAccountIsRejected(): void
+    {
+        $this->createStaff('blocked@otternova.com', ['otp_mode' => 'X', 'account_status' => 'B', 'password_expiry' => $this->yesterday()]);
+
+        $this->login('blocked@otternova.com')->assertStatus(403);
+        $this->seeNumRecords(0, 'auth_password_change', []);
+    }
+
+    public function testExpiredPasswordWithOtpAsksForCodeFirstThenChange(): void
+    {
+        $this->createStaff('otp@otternova.com', ['otp_mode' => 'E', 'password_expiry' => $this->yesterday()]);
+
+        // same answer as an account whose password has not expired
+        $data = $this->json($this->login('otp@otternova.com'), 200);
+        $this->assertSame(['otp_required', 'otp_token', 'otp_expires_at'], array_keys($data));
+        $this->seeNumRecords(0, 'auth_password_change', []);
+
+        $data = $this->json($this->verifyOtp($data['otp_token'], $this->sentOtp()), 200);
+
+        $this->assertTrue($data['password_change_required']);
+        $this->assertArrayNotHasKey('access_token', $data);
+        $this->assertArrayNotHasKey('user', $data);
+        $this->seeNumRecords(1, 'auth_password_change', []);
+        $this->seeNumRecords(0, 'auth_otp_challenge', []);
+
+        $data = $this->json($this->changePassword($data['password_change_token']), 200);
+        $this->assertNotEmpty($data['access_token']);
+    }
+
+    public function testWrongOtpDoesNotRevealExpiry(): void
+    {
+        $this->createStaff('expired@otternova.com', ['otp_mode' => 'E', 'password_expiry' => $this->yesterday()]);
+        $this->createStaff('valid@otternova.com', ['otp_mode' => 'E']);
+        $responses = [];
+        foreach (['expired@otternova.com', 'valid@otternova.com'] as $email) {
+            $token       = $this->json($this->login($email), 200)['otp_token'];
+            $responses[] = $this->verifyOtp($token, $this->wrongOtp());
+        }
+
+        foreach ($responses as $response) {
+            $response->assertStatus(401);
+            $this->assertSame(['status' => 'error', 'message' => lang('Auth.otpIncorrect')], json_decode($response->getJSON(), true));
+        }
+        $this->seeNumRecords(0, 'auth_password_change', []);
+    }
+
+    public function testChangeExpiredPasswordSignsInAndMovesExpiry(): void
+    {
+        $account = $this->createStaff('expired@otternova.com', ['otp_mode' => 'X', 'password_expiry' => $this->yesterday()]);
+        $token   = $this->json($this->login('expired@otternova.com'), 200)['password_change_token'];
+
+        $data = $this->json($this->changePassword($token), 200);
+
+        $this->assertFalse($data['otp_required']);
+        $this->assertFalse($data['password_change_required']);
+        $this->assertSame($account['uid'], service('jwt')->decode($data['access_token'])->sub);
+        $this->assertSame('expired@otternova.com', $data['user']['email_address']);
+        $this->assertSame(gmdate('Y-m-d', time() + 90 * DAY), $data['user']['password_expiry']);
+        $this->seeNumRecords(0, 'auth_password_change', []);
+
+        // the old password no longer works and the new one signs in straight away
+        $this->login('expired@otternova.com')->assertStatus(401);
+        $data = $this->json($this->login('expired@otternova.com', self::NEW_PASSWORD), 200);
+        $this->assertFalse($data['password_change_required']);
+        $this->assertNotEmpty($data['access_token']);
+
+        // single use
+        $this->changePassword($token, 'another password 3')->assertStatus(410);
+    }
+
+    public function testPasswordLifetimeComesFromConfig(): void
+    {
+        config(AuthConfig::class)->passwordLifetimeDays = 30;
+        $this->createStaff('expired@otternova.com', ['otp_mode' => 'X', 'password_expiry' => $this->yesterday()]);
+        $token = $this->json($this->login('expired@otternova.com'), 200)['password_change_token'];
+
+        $this->assertSame(gmdate('Y-m-d', time() + 30 * DAY), $this->json($this->changePassword($token), 200)['user']['password_expiry']);
+    }
+
+    public function testWeakOrSamePasswordIsRejectedAndChallengeStaysUsable(): void
+    {
+        $this->createStaff('expired@otternova.com', ['otp_mode' => 'X', 'password_expiry' => $this->yesterday()]);
+        $token = $this->json($this->login('expired@otternova.com'), 200)['password_change_token'];
+
+        $cases = [
+            'short1'             => lang('Auth.passwordTooShort', [8]),
+            str_repeat('a1', 37) => lang('Auth.passwordTooLong', [72]), // 74 bytes
+            'onlyletters'        => lang('Auth.passwordTooWeak'),
+        ];
+        foreach ($cases as $password => $message) {
+            $response = $this->changePassword($token, (string) $password);
+            $response->assertStatus(422);
+            $this->assertSame($message, $this->errorMessage($response));
+        }
+
+        // the same password as now, with a digit added so it passes the other rules
+        $hash = password_hash('same password 1', PASSWORD_DEFAULT);
+        $this->db->table('auth_master')->update(['password_hash' => $hash]);
+        $response = $this->changePassword($token, 'same password 1');
+        $response->assertStatus(422);
+        $this->assertSame(lang('Auth.passwordSameAsOld'), $this->errorMessage($response));
+
+        $this->assertSame(4, (int) $this->db->table('auth_password_change')->get()->getRowArray()['attempts']);
+        $this->assertSame($hash, $this->db->table('auth_master')->get()->getRowArray()['password_hash']);
+        $this->assertSame($this->yesterday(), $this->db->table('auth_master')->get()->getRowArray()['password_expiry']);
+
+        // still usable on the last attempt
+        $this->changePassword($token)->assertStatus(200);
+    }
+
+    public function testChangeChallengeIsGoneAfterFiveAttempts(): void
+    {
+        $this->createStaff('expired@otternova.com', ['otp_mode' => 'X', 'password_expiry' => $this->yesterday()]);
+        $token = $this->json($this->login('expired@otternova.com'), 200)['password_change_token'];
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->changePassword($token, 'weak')->assertStatus(422);
+        }
+
+        $this->seeNumRecords(0, 'auth_password_change', []);
+        $response = $this->changePassword($token);
+        $response->assertStatus(410);
+        $this->assertSame(lang('Auth.passwordChangeExpired'), $this->errorMessage($response));
+    }
+
+    public function testExpiredUnknownOrMissingChangeTokenIsGone(): void
+    {
+        $this->createStaff('expired@otternova.com', ['otp_mode' => 'X', 'password_expiry' => $this->yesterday()]);
+        $token = $this->json($this->login('expired@otternova.com'), 200)['password_change_token'];
+        $this->db->table('auth_password_change')->update(['expires_at' => time() - 1]);
+
+        $this->changePassword($token)->assertStatus(410);
+        $this->seeNumRecords(0, 'auth_password_change', []);
+        $this->changePassword(str_repeat('a', 64))->assertStatus(410);
+        $this->withBodyFormat('json')->post('v1/change-expired-password', ['new_password' => self::NEW_PASSWORD])->assertStatus(410);
+        $this->assertSame($this->yesterday(), $this->db->table('auth_master')->get()->getRowArray()['password_expiry']);
+    }
+
+    public function testChangeForAccountNoLongerActiveIsRejected(): void
+    {
+        $this->createStaff('expired@otternova.com', ['otp_mode' => 'X', 'password_expiry' => $this->yesterday()]);
+        $token = $this->json($this->login('expired@otternova.com'), 200)['password_change_token'];
+        $this->db->table('auth_master')->update(['account_status' => 'S']);
+
+        $response = $this->changePassword($token);
+
+        $response->assertStatus(403);
+        $this->assertSame(lang('Auth.accountNotActive'), $this->errorMessage($response));
+        $this->assertSame($this->yesterday(), $this->db->table('auth_master')->get()->getRowArray()['password_expiry']);
+    }
+
+    public function testNewSignInReplacesOpenChangeChallenge(): void
+    {
+        $this->createStaff('expired@otternova.com', ['otp_mode' => 'X', 'password_expiry' => $this->yesterday()]);
+        $first  = $this->json($this->login('expired@otternova.com'), 200)['password_change_token'];
+        $second = $this->json($this->login('expired@otternova.com'), 200)['password_change_token'];
+
+        $this->seeNumRecords(1, 'auth_password_change', []);
+        $this->changePassword($first)->assertStatus(410);
+        $this->changePassword($second)->assertStatus(200);
+    }
+
+    public function testPasswordChangeIsLoggedWithoutSecrets(): void
+    {
+        $account = $this->createStaff('expired@otternova.com', ['otp_mode' => 'X', 'password_expiry' => $this->yesterday()]);
+        $oldHash = $this->db->table('auth_master')->get()->getRowArray()['password_hash'];
+        $token   = $this->json($this->login('expired@otternova.com'), 200)['password_change_token'];
+        $row     = $this->db->table('auth_password_change')->get()->getRowArray();
+
+        $this->changePassword($token, 'weak')->assertStatus(422);
+        $this->changePassword($token)->assertStatus(200);
+        $newHash = $this->db->table('auth_master')->get()->getRowArray()['password_hash'];
+
+        $logs = $this->activity();
+        $this->assertSame([
+            ['Started password change challenge on sign-in', 'insert', 'auth_password_change'],
+            ['Used a password change attempt', 'update', 'auth_password_change'],
+            ['Used a password change attempt', 'update', 'auth_password_change'],
+            ['Ended password change challenge', 'delete', 'auth_password_change'],
+            ['Changed expired password on sign-in', 'update', 'auth_master'],
+        ], array_map(static fn ($log) => [$log['activity_summary'], $log['detail']['action'], $log['table_involved']], $logs));
+        foreach ($logs as $log) {
+            $this->assertSame($account['id'], (int) $log['changed_by_acc']);
+            foreach ([$token, $row['token_hash'], $oldHash, $newHash, self::PASSWORD, self::NEW_PASSWORD] as $secret) {
+                $this->assertStringNotContainsString($secret, $log['activity_detail']);
+            }
+        }
+        $this->assertSame([
+            'password_hash'   => ['old' => '***', 'new' => '***'],
+            'password_expiry' => ['old' => $this->yesterday(), 'new' => gmdate('Y-m-d', time() + 90 * DAY)],
+        ], end($logs)['detail']['changes']);
+    }
+
+    public function testDeletingAccountDeletesItsChangeChallenge(): void
+    {
+        $this->createStaff('admin@otternova.com', ['otp_mode' => 'X']);
+        $this->createStaff('expired@otternova.com', ['otp_mode' => 'X', 'password_expiry' => $this->yesterday()]);
+        $this->login('expired@otternova.com')->assertStatus(200);
+
+        $model  = model(App\Models\AuthAccountModel::class);
+        $record = $model->findForForm('expiredotternovacom');
+        $this->assertTrue($model->deleteWithProfile($record, 1));
+
+        $this->seeNumRecords(0, 'auth_password_change', []);
+        $this->assertContains('Deleted password change challenge of expiredotternovacom', array_column($this->activity(), 'activity_summary'));
+    }
+
     // ---- helpers ----
 
     private function createAccount(string $email, array $overrides = []): array
@@ -534,6 +786,16 @@ final class AuthTest extends CIUnitTestCase
     private function verifyOtp(string $token, string $otp): TestResponse
     {
         return $this->withBodyFormat('json')->post('v1/verify-otp', ['otp_token' => $token, 'otp' => $otp]);
+    }
+
+    private function changePassword(string $token, string $newPassword = self::NEW_PASSWORD): TestResponse
+    {
+        return $this->withBodyFormat('json')->post('v1/change-expired-password', ['password_change_token' => $token, 'new_password' => $newPassword]);
+    }
+
+    private function yesterday(): string
+    {
+        return gmdate('Y-m-d', time() - DAY);
     }
 
     private function logout(string $accessToken): TestResponse

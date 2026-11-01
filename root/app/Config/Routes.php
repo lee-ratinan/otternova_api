@@ -10,6 +10,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
     // Sign-in for the Admin (staff) and Client apps; see App\Controllers\Auth
     $routes->post('login', 'Auth::login');
     $routes->post('verify-otp', 'Auth::verifyOtp');
+    $routes->post('change-expired-password', 'Auth::changeExpiredPassword');
     $routes->post('logout', 'Auth::logout', ['filter' => 'jwt']);
 
     // Admin app: staff accounts only (a valid token with typ S)

@@ -28,6 +28,24 @@ to your `app` folder. The affected files can be copied or merged from
 Copy `env` to `.env` and tailor for your app, specifically the baseURL
 and any database settings.
 
+## Testing the expired-password sign-in
+
+A password is expired when `auth_master.password_expiry` is today or earlier (UTC); `NULL` never expires.
+The seeded accounts (`RootAdminSeeder`, `TestClientSeeder`) expire in 30 days. To try the
+password-change flow, expire them now:
+
+```sql
+UPDATE auth_master SET password_expiry = CURRENT_DATE - INTERVAL 1 DAY
+WHERE email_address IN ('eikin@otternova.com', 'lee.ratinan@gmail.com');
+```
+
+Both use email OTP, so the sign-in asks for the code first, then returns
+`password_change_required: true` and a `password_change_token` instead of an access token.
+`POST v1/change-expired-password` with that token and a `new_password` (at least 8 characters,
+at most 72 bytes, a letter and a digit, not the current password) signs in and sets
+`password_expiry` to today + `PASSWORD_LIFETIME_DAYS` (90 by default). To test without the OTP step,
+also set `otp_mode = 'X'` on the account.
+
 ## Important Change with index.php
 
 `index.php` is no longer in the root of the project! It has been moved inside the *public* folder,

@@ -5,7 +5,7 @@ namespace Config;
 use CodeIgniter\Config\BaseConfig;
 
 /**
- * Settings for the /login, /verify-otp and /logout endpoints and the jwt filter
+ * Settings for the /login, /verify-otp, /change-expired-password and /logout endpoints and the jwt filter
  */
 class Auth extends BaseConfig
 {
@@ -27,6 +27,15 @@ class Auth extends BaseConfig
     /** Wrong codes allowed before an OTP challenge is thrown away */
     public int $otpMaxAttempts = 5;
 
+    /** Lifetime in seconds of the challenge to change an expired password at sign-in */
+    public int $passwordChangeTtl = 10 * MINUTE;
+
+    /** Requests allowed before a password change challenge is thrown away */
+    public int $passwordChangeMaxAttempts = 5;
+
+    /** A new password expires this many days after today: PASSWORD_LIFETIME_DAYS in .env */
+    public int $passwordLifetimeDays = 90;
+
     /** Failed sign-ins allowed per email address / per IP address within $throttleWindow seconds */
     public int $throttleMaxPerEmail = 5;
     public int $throttleMaxPerIp    = 20;
@@ -39,5 +48,7 @@ class Auth extends BaseConfig
         $this->jwtSecret = (string) env('JWT_SECRET', $this->jwtSecret);
         $this->jwtIssuer = (string) env('JWT_ISSUER', $this->jwtIssuer);
         $this->jwtTtl    = max(1, min((int) env('JWT_TTL', $this->jwtTtl), self::MAX_TOKEN_TTL));
+
+        $this->passwordLifetimeDays = max(1, (int) env('PASSWORD_LIFETIME_DAYS', $this->passwordLifetimeDays));
     }
 }

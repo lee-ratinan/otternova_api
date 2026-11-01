@@ -320,6 +320,15 @@ class AuthAccountModel extends AuthMasterModel
                 $this->db->table('auth_otp_challenge')->where('id', $challenge['id'])->delete();
                 $log->deleted($actorId, 'Deleted OTP challenge of ' . $stored['uid'], 'auth_otp_challenge', (int) $challenge['id'], $challenge);
             }
+            $changes = $this->db->table('auth_password_change')
+                ->select('id, auth_id, account_type, attempts, expires_at')
+                ->where('auth_id', $id)
+                ->get()
+                ->getResultArray();
+            foreach ($changes as $change) {
+                $this->db->table('auth_password_change')->where('id', $change['id'])->delete();
+                $log->deleted($actorId, 'Deleted password change challenge of ' . $stored['uid'], 'auth_password_change', (int) $change['id'], $change);
+            }
             $this->db->table($this->table)->where('id', $id)->delete();
             $log->deleted($actorId, 'Deleted account ' . $stored['uid'], $this->table, $id, $stored);
 
@@ -336,6 +345,17 @@ class AuthAccountModel extends AuthMasterModel
     public function findForLogin(string $email, string $accountType): ?array
     {
         return $this->findAccount('email_address', $email, $accountType, true);
+    }
+
+    /**
+     * Find an account to change its expired password, password_hash included
+     * @param int    $id
+     * @param string $accountType
+     * @return array|null
+     */
+    public function findForPasswordChange(int $id, string $accountType): ?array
+    {
+        return $this->findAccount('id', $id, $accountType, true);
     }
 
     /**

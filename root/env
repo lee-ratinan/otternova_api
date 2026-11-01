@@ -64,6 +64,8 @@
 # Token lifetime in seconds; anything above 28800 (8 hours) is capped at 8 hours
 # JWT_TTL = 28800
 # JWT_ISSUER = otternova-api
+# Days a new password lasts before it must be changed again at sign-in
+# PASSWORD_LIFETIME_DAYS = 90
 
 #--------------------------------------------------------------------
 # SESSION

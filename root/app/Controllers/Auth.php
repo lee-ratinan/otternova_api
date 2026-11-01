@@ -6,6 +6,7 @@ use App\Libraries\ApiResponse;
 use App\Libraries\EmailService;
 use App\Models\AuthAccountModel;
 use App\Models\AuthOtpChallengeModel;
+use App\Models\AuthPasswordChangeModel;
 use App\Models\AuthTokenDenylistModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
@@ -22,6 +23,10 @@ class Auth extends BaseController
      * Checked against when no account matches, so an unknown email takes as long to reject as a wrong password
      */
     private const DUMMY_HASH = '$2y$12$dOj6FCfe3Bh1RnqoU9Mb1uV2cbYYofQOtT3A1bJE8H2HP2cXIiOV.';
+
+    /** New password rules: characters at least, and bytes at most (bcrypt ignores anything past 72 bytes) */
+    private const PASSWORD_MIN_LENGTH = 8;
+    private const PASSWORD_MAX_BYTES  = 72;
 
     /**
      * POST /login { email_address, password, account_type }
@@ -61,8 +66,12 @@ class Auth extends BaseController
         $throttle->clear($email);
 
         // telephone OTP is not supported yet, so T signs in straight away like X
+        // with email OTP the expiry is checked after the code, so the password alone does not tell anyone it expired
         if ($account['otp_mode'] === AuthAccountModel::OTP_EMAIL) {
             return $this->startOtpChallenge($account);
+        }
+        if ($this->isPasswordExpired($account)) {
+            return $this->startPasswordChange($account);
         }
 
         return $this->signedIn($account);
@@ -115,6 +124,72 @@ class Auth extends BaseController
         }
         if ($account['account_status'] !== AuthAccountModel::STATUS_ACTIVE) {
             return ApiResponse::error(lang('Auth.accountNotActive'), 403);
+        }
+        if ($this->isPasswordExpired($account)) {
+            return $this->startPasswordChange($account);
+        }
+
+        return $this->signedIn($account);
+    }
+
+    /**
+     * POST /change-expired-password { password_change_token, new_password }
+     * The only way to sign in while the password is expired: sets the new password and signs in.
+     * A new password that breaks the rules gets a 422 and leaves the challenge open for another try.
+     * @return ResponseInterface
+     */
+    public function changeExpiredPassword(): ResponseInterface
+    {
+        $input       = $this->jsonInput();
+        $token       = is_string($input['password_change_token'] ?? null) ? $input['password_change_token'] : '';
+        $newPassword = is_string($input['new_password'] ?? null) ? $input['new_password'] : '';
+        if ($token === '') {
+            return ApiResponse::error(lang('Auth.passwordChangeExpired'), 410);
+        }
+
+        $config     = config(AuthConfig::class);
+        $challenges = model(AuthPasswordChangeModel::class);
+        $challenge  = $challenges->findByToken($token);
+        if ($challenge === null) {
+            return ApiResponse::error(lang('Auth.passwordChangeExpired'), 410);
+        }
+        if ($challenge['expires_at'] <= time() || ! $challenges->claimAttempt((int) $challenge['id'], $config->passwordChangeMaxAttempts)) {
+            $challenges->consume((int) $challenge['id']);
+
+            return ApiResponse::error(lang('Auth.passwordChangeExpired'), 410);
+        }
+
+        $accounts = model(AuthAccountModel::class);
+        $account  = $accounts->findForPasswordChange((int) $challenge['auth_id'], $challenge['account_type']);
+        if ($account === null) {
+            $challenges->consume((int) $challenge['id']);
+
+            return ApiResponse::error(lang('Auth.passwordChangeExpired'), 410);
+        }
+        if ($account['account_status'] !== AuthAccountModel::STATUS_ACTIVE) {
+            $challenges->consume((int) $challenge['id']);
+
+            return ApiResponse::error(lang('Auth.accountNotActive'), 403);
+        }
+
+        $problem = $this->passwordProblem($newPassword, $account['password_hash']);
+        if ($problem !== null) {
+            if ($challenge['attempts'] + 1 >= $config->passwordChangeMaxAttempts) {
+                $challenges->consume((int) $challenge['id']);
+            }
+
+            return ApiResponse::error($problem, 422);
+        }
+
+        // single use: if another request got here first, this one is too late
+        $expiry = gmdate('Y-m-d', time() + $config->passwordLifetimeDays * DAY);
+        if (! $challenges->consumeWithNewPassword((int) $challenge['id'], password_hash($newPassword, PASSWORD_DEFAULT), $expiry)) {
+            return ApiResponse::error(lang('Auth.passwordChangeFailed'), 410);
+        }
+
+        $account = $accounts->findForSessionById((int) $account['id'], $account['account_type']);
+        if ($account === null) {
+            return ApiResponse::error(lang('Auth.passwordChangeExpired'), 410);
         }
 
         return $this->signedIn($account);
@@ -170,6 +245,62 @@ class Auth extends BaseController
     }
 
     /**
+     * Expired when password_expiry is set and is today or earlier (UTC); null never expires
+     * @param array $account
+     * @return bool
+     */
+    private function isPasswordExpired(array $account): bool
+    {
+        $expiry = $account['password_expiry'] ?? null;
+
+        return $expiry !== null && $expiry !== '' && substr((string) $expiry, 0, 10) <= gmdate('Y-m-d');
+    }
+
+    /**
+     * No access token while the password is expired: the client gets an opaque password_change_token instead,
+     * to send back with the new password
+     * @param array $account
+     * @return ResponseInterface
+     */
+    private function startPasswordChange(array $account): ResponseInterface
+    {
+        $expiresAt = time() + config(AuthConfig::class)->passwordChangeTtl;
+        $token     = model(AuthPasswordChangeModel::class)->createChallenge((int) $account['id'], $account['account_type'], $expiresAt);
+
+        return ApiResponse::success([
+            'otp_required'               => false,
+            'password_change_required'   => true,
+            'password_change_token'      => $token,
+            'password_change_expires_at' => $expiresAt,
+        ]);
+    }
+
+    /**
+     * What is wrong with a new password, as the message shown to the user
+     * @param string $password
+     * @param string $currentHash
+     * @return string|null null when it is fine
+     */
+    private function passwordProblem(string $password, string $currentHash): ?string
+    {
+        if (mb_strlen($password, 'UTF-8') < self::PASSWORD_MIN_LENGTH) {
+            return lang('Auth.passwordTooShort', [self::PASSWORD_MIN_LENGTH]);
+        }
+        if (strlen($password) > self::PASSWORD_MAX_BYTES) {
+            return lang('Auth.passwordTooLong', [self::PASSWORD_MAX_BYTES]);
+        }
+        // invalid UTF-8 matches neither, so it counts as too weak
+        if (preg_match('/\p{L}/u', $password) !== 1 || preg_match('/\p{Nd}/u', $password) !== 1) {
+            return lang('Auth.passwordTooWeak');
+        }
+        if (password_verify($password, $currentHash)) {
+            return lang('Auth.passwordSameAsOld');
+        }
+
+        return null;
+    }
+
+    /**
      * @param array $account
      * @return ResponseInterface
      */
@@ -178,10 +309,11 @@ class Auth extends BaseController
         $token = service('jwt')->issue($account);
 
         return ApiResponse::success([
-            'otp_required' => false,
-            'access_token' => $token['access_token'],
-            'expires_at'   => $token['expires_at'],
-            'user'         => AuthAccountModel::toUserPayload($account),
+            'otp_required'             => false,
+            'password_change_required' => false,
+            'access_token'             => $token['access_token'],
+            'expires_at'               => $token['expires_at'],
+            'user'                     => AuthAccountModel::toUserPayload($account),
         ]);
     }
 
