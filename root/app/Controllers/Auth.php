@@ -8,6 +8,7 @@ use App\Models\AuthAccountModel;
 use App\Models\AuthActivationModel;
 use App\Models\AuthOtpChallengeModel;
 use App\Models\AuthPasswordChangeModel;
+use App\Models\AuthPasswordResetModel;
 use App\Models\AuthTokenDenylistModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
@@ -17,7 +18,7 @@ use Throwable;
 
 /**
  * Sign-in for the Admin app (staff, account_type S) and the Client app (clients, account_type C),
- * and sign-up for the Client app. The apps keep the access token in their own session and send it back as "Authorization: Bearer <jwt>".
+ * sign-up for the Client app, and the forgotten password for both. The apps keep the access token in their own session and send it back as "Authorization: Bearer <jwt>".
  */
 class Auth extends BaseController
 {
@@ -315,6 +316,104 @@ class Auth extends BaseController
     }
 
     /**
+     * POST /request-password-reset { email_address, account_type }, no sign-in needed
+     * Emails a reset link when the address has an account of that type that may sign in (active, or pending:
+     * the link proves the address, so resetting activates it too). The answer is the same either way, so it does not
+     * tell anyone which addresses have an account.
+     * @return ResponseInterface
+     */
+    public function requestPasswordReset(): ResponseInterface
+    {
+        $input       = $this->jsonInput();
+        $email       = is_string($input['email_address'] ?? null) ? trim($input['email_address']) : '';
+        $accountType = is_string($input['account_type'] ?? null) ? $input['account_type'] : '';
+        if (! isset(AuthAccountModel::PROFILES[$accountType])) {
+            return ApiResponse::error(lang('Auth.missingCredentials'), 400);
+        }
+        if (strlen($email) > 128 || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return ApiResponse::error(lang('Auth.emailInvalid'), 422, ['email_address' => lang('Auth.emailInvalid')]);
+        }
+
+        $ip       = $this->request->getIPAddress();
+        $throttle = service('loginThrottle');
+        if ($throttle->isResetBlocked($email, $ip)) {
+            return ApiResponse::error(lang('Auth.tooManyResets'), 429);
+        }
+        $throttle->recordReset($email, $ip);
+
+        $account = $this->findForReset($email, $accountType);
+        if ($account !== null) {
+            $config    = config(AuthConfig::class);
+            $expiresAt = time() + $config->passwordResetTtl;
+            $token     = model(AuthPasswordResetModel::class)->createReset((int) $account['id'], $account['account_type'], $expiresAt);
+            service('emailService')->send(EmailService::TYPE_PASSWORD_RESET, $account['email_address'], [
+                'full_name' => $account['full_name'],
+                'link'      => $this->appLink($account['account_type']) . 'reset-password?token=' . $token,
+                'minutes'   => intdiv($config->passwordResetTtl, MINUTE),
+            ]);
+        }
+
+        return ApiResponse::success(null, 200, lang('Auth.resetRequested', [$email]));
+    }
+
+    /**
+     * POST /check-password-reset { token }, no sign-in needed
+     * Whether a reset link is still usable, so the app can say so before asking for the new password. Changes nothing.
+     * @return ResponseInterface
+     */
+    public function checkPasswordReset(): ResponseInterface
+    {
+        $reset = $this->usableReset($this->jsonInput()['token'] ?? null);
+        if ($reset === null) {
+            return ApiResponse::error(lang('Auth.resetInvalid'), 410);
+        }
+
+        return ApiResponse::success(['expires_at' => (int) $reset['expires_at']], 200, lang('Auth.resetValid'));
+    }
+
+    /**
+     * POST /reset-password { token, new_password }, no sign-in needed
+     * Sets the new password from a reset link. Single use. A new password that breaks the rules gets a 422 and leaves
+     * the link usable for another try. It does not sign in: the user signs in afterwards (with the OTP, if the account
+     * has one).
+     * @return ResponseInterface
+     */
+    public function resetPassword(): ResponseInterface
+    {
+        $input       = $this->jsonInput();
+        $newPassword = is_string($input['new_password'] ?? null) ? $input['new_password'] : '';
+        $reset       = $this->usableReset($input['token'] ?? null);
+        if ($reset === null) {
+            return ApiResponse::error(lang('Auth.resetInvalid'), 410);
+        }
+
+        $resets  = model(AuthPasswordResetModel::class);
+        $account = $this->findForReset(null, $reset['account_type'], (int) $reset['auth_id']);
+        if ($account === null) {
+            // blocked or suspended since the link was sent
+            $resets->consume((int) $reset['id']);
+
+            return ApiResponse::error(lang('Auth.resetInvalid'), 410);
+        }
+
+        $problem = $this->passwordProblem($newPassword, $account['password_hash']);
+        if ($problem !== null) {
+            return ApiResponse::error($problem, 422, ['new_password' => $problem]);
+        }
+
+        // single use: if another request got here first, this one is too late
+        $config = config(AuthConfig::class);
+        $expiry = gmdate('Y-m-d', time() + $config->passwordLifetimeDays * DAY);
+        if (! $resets->consumeWithNewPassword((int) $reset['id'], password_hash($newPassword, PASSWORD_DEFAULT), $expiry)) {
+            return ApiResponse::error(lang('Auth.resetInvalid'), 410);
+        }
+        // the old password's failed attempts no longer say anything
+        service('loginThrottle')->clear($account['email_address']);
+
+        return ApiResponse::success(null, 200, lang('Auth.passwordReset'));
+    }
+
+    /**
      * POST /logout, behind the jwt filter: the token stops working now rather than at its exp
      * @return ResponseInterface
      */
@@ -390,6 +489,44 @@ class Auth extends BaseController
             'password_change_token'      => $token,
             'password_change_expires_at' => $expiresAt,
         ]);
+    }
+
+    /**
+     * The reset row of a token when it exists and has not expired; an expired one is deleted
+     * @param mixed $token
+     * @return array|null
+     */
+    private function usableReset(mixed $token): ?array
+    {
+        $token = is_string($token) ? trim($token) : '';
+        if (! preg_match('/^[0-9a-f]{64}$/', $token)) {
+            return null;
+        }
+        $resets = model(AuthPasswordResetModel::class);
+        $reset  = $resets->findByToken($token);
+        if ($reset !== null && $reset['expires_at'] <= time()) {
+            $resets->consume((int) $reset['id']);
+
+            return null;
+        }
+
+        return $reset;
+    }
+
+    /**
+     * An account whose password may be reset: of this type, with its profile row, and active or pending
+     * @param string|null $email    Find by email address, or
+     * @param string      $accountType
+     * @param int|null    $id       by id
+     * @return array|null password_hash included
+     */
+    private function findForReset(?string $email, string $accountType, ?int $id = null): ?array
+    {
+        $accounts = model(AuthAccountModel::class);
+        $account  = $id === null ? $accounts->findForLogin((string) $email, $accountType) : $accounts->findForPasswordChange($id, $accountType);
+        $allowed  = [AuthAccountModel::STATUS_ACTIVE, AuthAccountModel::STATUS_PENDING];
+
+        return $account !== null && in_array($account['account_status'], $allowed, true) ? $account : null;
     }
 
     /**

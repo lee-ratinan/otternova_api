@@ -17,6 +17,11 @@ $routes->group('v1', static function (RouteCollection $routes) {
     $routes->post('create-client-account', 'Auth::createClientAccount');
     $routes->post('activate-client-account', 'Auth::activateClientAccount');
 
+    // Forgotten password, for either app: no sign-in needed; see App\Controllers\Auth
+    $routes->post('request-password-reset', 'Auth::requestPasswordReset');
+    $routes->post('check-password-reset', 'Auth::checkPasswordReset');
+    $routes->post('reset-password', 'Auth::resetPassword');
+
     // Admin app: staff accounts only (a valid token with typ S)
     $routes->group('staff', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');

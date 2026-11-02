@@ -13,6 +13,7 @@ class EmailService
     public const TYPE_LOGIN_OTP          = 'login_otp';
     public const TYPE_ACCOUNT_ACTIVATION = 'account_activation';
     public const TYPE_ACCOUNT_EXISTS     = 'account_exists';
+    public const TYPE_PASSWORD_RESET     = 'password_reset';
 
     /**
      * @param string $type One of the TYPE_* constants
@@ -22,7 +23,7 @@ class EmailService
      */
     public function send(string $type, string $to, array $data = []): bool
     {
-        if (! in_array($type, [self::TYPE_LOGIN_OTP, self::TYPE_ACCOUNT_ACTIVATION, self::TYPE_ACCOUNT_EXISTS], true)) {
+        if (! in_array($type, [self::TYPE_LOGIN_OTP, self::TYPE_ACCOUNT_ACTIVATION, self::TYPE_ACCOUNT_EXISTS, self::TYPE_PASSWORD_RESET], true)) {
             throw new InvalidArgumentException('Unknown email type: ' . $type);
         }
 

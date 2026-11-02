@@ -6,7 +6,8 @@ use CodeIgniter\Config\BaseConfig;
 
 /**
  * Settings for the /login, /verify-otp, /change-expired-password and /logout endpoints and the jwt filter,
- * and for the client sign-up (/create-client-account, /activate-client-account)
+ * the client sign-up (/create-client-account, /activate-client-account) and the forgotten password
+ * (/request-password-reset, /check-password-reset, /reset-password)
  */
 class Auth extends BaseConfig
 {
@@ -48,6 +49,13 @@ class Auth extends BaseConfig
 
     /** Lifetime in seconds of the activation link emailed after a client signs up */
     public int $activationTtl = 2 * DAY;
+
+    /** Reset links requested per email address / per IP address within $throttleWindow seconds */
+    public int $resetMaxPerEmail = 3;
+    public int $resetMaxPerIp    = 10;
+
+    /** Lifetime in seconds of the link emailed for a forgotten password */
+    public int $passwordResetTtl = HOUR;
 
     public function __construct()
     {

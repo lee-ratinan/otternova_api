@@ -26,4 +26,9 @@ return [
     'signUpFailed'          => 'Your account could not be created. Please try again.',
     'activationInvalid'     => 'This activation link is invalid or has expired. Please sign up again to get a new link.',
     'accountActivated'      => 'Your account is active. You can now sign in.',
+    'tooManyResets'         => 'Too many password reset requests. Please wait a few minutes and try again.',
+    'resetRequested'        => 'If {0} has an account, we have sent it a link to reset the password. Please check your email and follow the steps in it.',
+    'resetInvalid'          => 'This password reset link is invalid or has expired. Please ask for a new one.',
+    'resetValid'            => 'Please choose a new password.',
+    'passwordReset'         => 'Your password has been changed. You can now sign in with your new password.',
 ];

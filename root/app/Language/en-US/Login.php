@@ -62,7 +62,7 @@ return [
     ],
     'create-account'  => [
         'title'                      => 'Create an account',
-        'subtitle'                   => 'Start your 30-day free trial — no credit card needed',
+        'subtitle'                   => 'Start using your free-tier features<br/>no credit card needed',
         'full-name'                  => 'Full name',
         'full-name-placeholder'      => 'Your name',
         'full-name-invalid-feedback' => 'Please enter your name.',

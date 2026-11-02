@@ -327,7 +327,7 @@ class AuthAccountModel extends AuthMasterModel
     }
 
     /**
-     * Delete an account, its profile row and its pending challenges and activation links in one transaction, logged to
+     * Delete an account, its profile row and its pending challenges, reset links and activation links in one transaction, logged to
      * log_activity in it. Refused when it is the last active staff account, checked inside the transaction
      * so two staff deleting each other at the same time cannot both succeed.
      * @param array $record  findForForm()
@@ -379,6 +379,15 @@ class AuthAccountModel extends AuthMasterModel
             foreach ($changes as $change) {
                 $this->db->table('auth_password_change')->where('id', $change['id'])->delete();
                 $log->deleted($actorId, 'Deleted password change challenge of ' . $stored['uid'], 'auth_password_change', (int) $change['id'], $change);
+            }
+            $resets = $this->db->table('auth_password_reset')
+                ->select('id, auth_id, account_type, expires_at')
+                ->where('auth_id', $id)
+                ->get()
+                ->getResultArray();
+            foreach ($resets as $reset) {
+                $this->db->table('auth_password_reset')->where('id', $reset['id'])->delete();
+                $log->deleted($actorId, 'Deleted password reset link of ' . $stored['uid'], 'auth_password_reset', (int) $reset['id'], $reset);
             }
             $activations = $this->db->table('auth_activation')
                 ->select('id, auth_id, expires_at')

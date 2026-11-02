@@ -8,8 +8,8 @@ use Config\Auth;
 /**
  * Counts failed sign-ins (wrong password or wrong OTP) per email address and per IP address
  * in a fixed window, so /login can answer 429 once either count reaches its limit.
- * Sign-ups are counted the same way, apart from the sign-ins, so /create-client-account cannot be used to flood
- * an inbox with emails.
+ * Sign-ups and password reset requests are counted the same way, apart from the sign-ins, so
+ * /create-client-account and /request-password-reset cannot be used to flood an inbox with emails.
  */
 class LoginThrottle
 {
@@ -70,6 +70,29 @@ class LoginThrottle
     {
         $this->increment('signup_email', $email);
         $this->increment('signup_ip', $ip);
+    }
+
+    /**
+     * @param string $email
+     * @param string $ip
+     * @return bool
+     */
+    public function isResetBlocked(string $email, string $ip): bool
+    {
+        return $this->count('reset_email', $email) >= $this->config->resetMaxPerEmail
+            || $this->count('reset_ip', $ip) >= $this->config->resetMaxPerIp;
+    }
+
+    /**
+     * Count a password reset request, whether the address has an account or not
+     * @param string $email
+     * @param string $ip
+     * @return void
+     */
+    public function recordReset(string $email, string $ip): void
+    {
+        $this->increment('reset_email', $email);
+        $this->increment('reset_ip', $ip);
     }
 
     /**

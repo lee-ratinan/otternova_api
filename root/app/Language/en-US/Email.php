@@ -13,4 +13,8 @@ return [
         'subject' => 'Your OtterNova account',
         'body'    => "Hello {full_name},\n\nSomeone tried to sign up for OtterNova with this email address, but it already has an account. You can sign in here:\n\n{link}\n\nIf you have forgotten your password, use \"Forget Password\" on the sign-in page. If it was not you, you can ignore this email.",
     ],
+    'password_reset'     => [
+        'subject' => 'Reset your OtterNova password',
+        'body'    => "Hello {full_name},\n\nWe received a request to reset the password of your OtterNova account. Please open this link to choose a new password:\n\n{link}\n\nThe link expires in {minutes} minutes and can be used once. If you did not ask for this, you can ignore this email: your password stays the same.",
+    ],
 ];
