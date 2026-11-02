@@ -373,6 +373,73 @@ final class AccountFormTest extends CIUnitTestCase
             ->assertStatus(422);
     }
 
+    public function testSaveNeedsAKnownMode(): void
+    {
+        foreach ([null, '', 'edit', ['self-edit']] as $mode) {
+            $response = $this->send('v1/staff/account/update', ['mode' => $mode, 'uid' => 'adminotternovacom', 'account' => ['full_name' => 'Ada Lovelace']]);
+
+            $response->assertStatus(422);
+            $this->assertSame(lang('Accounts.invalidMode'), $this->body($response)['message']);
+        }
+        $this->seeInDatabase('auth_master', ['id' => $this->staff['id'], 'full_name' => 'Ada Admin']);
+    }
+
+    // ---- self-edit ----
+
+    public function testSelfEditOnlyUpdatesTheCallersOwnAccount(): void
+    {
+        $this->createStaff('other@otternova.com', ['full_name' => 'Other Otter']);
+
+        foreach (['otherotternovacom', null] as $uid) { // another account, or a new one
+            $response = $this->save($uid, ['full_name' => 'Taken Over', 'email_address' => 'new@otternova.com'], [], 'self-edit');
+
+            $response->assertStatus(403);
+            $this->assertSame(lang('Accounts.selfEditOwnOnly'), $this->body($response)['message']);
+        }
+        $this->seeInDatabase('auth_master', ['uid' => 'otherotternovacom', 'full_name' => 'Other Otter']);
+        $this->seeNumRecords(2, 'auth_master', []);
+    }
+
+    public function testSelfEditLeavesTheLockedFieldsOut(): void
+    {
+        $response = $this->save('adminotternovacom', [
+            'full_name'       => 'Ada Lovelace',
+            'password_expiry' => '2099-12-31',
+            'account_status'  => 'S',
+            'admin_notes'     => 'I wrote this myself',
+        ], [
+            'preferred_name'    => 'Ada',
+            'bio'               => 'Counts things.',
+            'job_title'         => 'Chief Executive',
+            'employee_code'     => 'BOSS-1',
+            'department_id'     => 99,
+            'legal_first_name'  => 'Augusta',
+            'tax_id_number'     => '1234567890123',
+            'hr_notes'          => 'Promote me',
+        ], 'self-edit');
+
+        $response->assertStatus(200);
+        $account = $this->db->table('auth_master')->where('id', $this->staff['id'])->get()->getRowArray();
+        $this->assertSame('Ada Lovelace', $account['full_name']);
+        $this->assertSame('A', $account['account_status']); // the locked value is left out, so no ownStatus error either
+        $this->assertSame('2027-01-01', $account['password_expiry']);
+        $this->assertSame('internal note', $account['admin_notes']);
+
+        $profile = $this->db->table('staff_master')->where('auth_id', $this->staff['id'])->get()->getRowArray();
+        $this->assertSame('Ada', $profile['preferred_name']);
+        $this->assertSame('Counts things.', $profile['bio']);
+        $this->assertSame('Engineer', $profile['job_title']);
+        $this->assertSame('EMP-' . $this->staff['id'], $profile['employee_code']);
+        $this->assertSame('1', (string) $profile['department_id']);
+        $this->assertSame('Otter', $profile['legal_first_name']);
+        $this->assertNull($profile['hr_notes']);
+
+        // the same fields are written by an admin-edit
+        $this->save('adminotternovacom', ['admin_notes' => 'Set by an admin'], ['job_title' => 'Chief Executive'])->assertStatus(200);
+        $this->seeInDatabase('auth_master', ['id' => $this->staff['id'], 'admin_notes' => 'Set by an admin']);
+        $this->seeInDatabase('staff_master', ['auth_id' => $this->staff['id'], 'job_title' => 'Chief Executive']);
+    }
+
     // ---- line manager and department ----
 
     public function testFetchReturnsManagerAndDepartment(): void
@@ -913,9 +980,9 @@ final class AccountFormTest extends CIUnitTestCase
         return $this->send('v1/staff/account', ['uid' => $uid]);
     }
 
-    private function save(?string $uid, array $account, array $profile): TestResponse
+    private function save(?string $uid, array $account, array $profile, string $mode = 'admin-edit'): TestResponse
     {
-        return $this->send('v1/staff/account/update', ['uid' => $uid, 'account' => $account, 'profile' => $profile]);
+        return $this->send('v1/staff/account/update', ['mode' => $mode, 'uid' => $uid, 'account' => $account, 'profile' => $profile]);
     }
 
     private function body(TestResponse $response): array

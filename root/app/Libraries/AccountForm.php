@@ -62,20 +62,23 @@ class AccountForm
 
     /**
      * Changes to an existing account. email_address and account_type are fixed, and the profile table
-     * comes from the stored account_type.
+     * comes from the stored account_type. A self-edit also leaves the SELF_EDIT_LOCKED_* fields out.
      * @param array  $record    AuthAccountModel::findForForm()
      * @param array  $accountIn The request's "account"
      * @param array  $profileIn The request's "profile"
      * @param string $callerUid The signed-in staff member, who may not change their own account_status
+     * @param bool   $selfEdit  The caller is editing their own account (the caller checks the uid matches)
      * @return array{account: array, profile: array, errors: array<string, string>} Only the columns to change
      */
-    public function forUpdate(array $record, array $accountIn, array $profileIn, string $callerUid): array
+    public function forUpdate(array $record, array $accountIn, array $profileIn, string $callerUid, bool $selfEdit = false): array
     {
         $this->errors = [];
         $stored  = $record['account'];
         $model   = model(AuthAccountModel::class);
         $fields  = array_diff(AuthAccountModel::FORM_ACCOUNT_FIELDS, ['uid', 'email_address', 'account_type']);
-        $account = $this->clean('account', $accountIn, $fields, AuthAccountModel::FORM_ACCOUNT_NULLABLE, $model->getValidationRules());
+        // locked fields are only left out of what is written; the whole row is still validated below
+        $writable = $selfEdit ? array_diff($fields, AuthAccountModel::SELF_EDIT_LOCKED_ACCOUNT) : $fields;
+        $account  = $this->clean('account', $accountIn, $writable, AuthAccountModel::FORM_ACCOUNT_NULLABLE, $model->getValidationRules());
         if ($stored['uid'] === $callerUid && isset($account['account_status']) && $account['account_status'] !== $stored['account_status']) {
             $this->errors['account.account_status'] = lang('Accounts.ownStatus');
         }
@@ -83,7 +86,8 @@ class AccountForm
         $this->validate('account', $account + $stored, $fields, $model, 'AuthMaster');
 
         $profile = isset(AuthAccountModel::FORM_PROFILES[$stored['account_type']])
-            ? $this->profile($stored['account_type'], $profileIn, $record['profile'] ?? [], $record['profile']['id'] ?? null)
+            ? $this->profile($stored['account_type'], $profileIn, $record['profile'] ?? [], $record['profile']['id'] ?? null,
+                $selfEdit ? AuthAccountModel::SELF_EDIT_LOCKED_PROFILES[$stored['account_type']] ?? [] : [])
             : [];
 
         return ['account' => $account, 'profile' => $profile, 'errors' => $this->errors];
@@ -94,9 +98,10 @@ class AccountForm
      * @param array           $input
      * @param array           $stored      The stored profile row, or [] when there is none yet
      * @param int|string|null $profileId   The stored row's id: is_unique ignores it, and a manager cannot be it
+     * @param array           $locked      Fields left out of what is written (a self-edit)
      * @return array
      */
-    private function profile(string $accountType, array $input, array $stored, int|string|null $profileId): array
+    private function profile(string $accountType, array $input, array $stored, int|string|null $profileId, array $locked = []): array
     {
         $form  = AuthAccountModel::FORM_PROFILES[$accountType];
         $model = model($form['model']);
@@ -105,7 +110,7 @@ class AccountForm
             $rules['department_id'] .= '|is_not_unique[otternova_department.id]';
         }
 
-        $profile = $this->clean('profile', $input, $form['fields'], $form['nullable'], $rules);
+        $profile = $this->clean('profile', $input, array_diff($form['fields'], $locked), $form['nullable'], $rules);
         $data    = ['id' => $profileId === null ? null : (string) $profileId] + $profile + $stored;
         $this->validate('profile', $data, $form['fields'], $model, $accountType === AuthMasterModel::TYPE_STAFF ? 'StaffMaster' : 'ClientMaster', $rules);
         // only a manager being set now is checked, so an untouched reporting line never blocks other changes

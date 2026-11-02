@@ -98,9 +98,11 @@ class Accounts extends BaseController
     }
 
     /**
-     * POST /staff/account/update { uid, account: {...}, profile: {...} }
-     * An empty uid creates a staff account (with its staff_master row); otherwise the account with that uid
-     * is updated and its profile row inserted or updated. See App\Libraries\AccountForm for the checks.
+     * POST /staff/account/update { mode, uid, account: {...}, profile: {...} }
+     * mode "admin-edit": an empty uid creates a staff account (with its staff_master row); otherwise the account
+     * with that uid is updated and its profile row inserted or updated.
+     * mode "self-edit": the signed-in staff member updates their own account only, without the locked fields
+     * (AuthAccountModel::SELF_EDIT_LOCKED_*). See App\Libraries\AccountForm for the checks.
      * @return ResponseInterface
      */
     public function save(): ResponseInterface
@@ -111,6 +113,15 @@ class Accounts extends BaseController
             return ApiResponse::error(lang('Accounts.invalidRequest'), 422);
         }
         $uid       = trim((string) $uid);
+        $mode      = $input['mode'] ?? null;
+        if (! in_array($mode, [AuthAccountModel::MODE_ADMIN_EDIT, AuthAccountModel::MODE_SELF_EDIT], true)) {
+            return ApiResponse::error(lang('Accounts.invalidMode'), 422);
+        }
+        $selfEdit  = $mode === AuthAccountModel::MODE_SELF_EDIT;
+        $callerUid = (string) service('authContext')->claims()->sub;
+        if ($selfEdit && $uid !== $callerUid) {
+            return ApiResponse::error(lang('Accounts.selfEditOwnOnly'), 403);
+        }
         $accountIn = is_array($input['account'] ?? null) ? $input['account'] : [];
         $profileIn = is_array($input['profile'] ?? null) ? $input['profile'] : [];
         $accounts  = model(AuthAccountModel::class);
@@ -131,7 +142,7 @@ class Accounts extends BaseController
             if ($record === null) {
                 return ApiResponse::error(lang('Accounts.notFound'), 404);
             }
-            $result = $form->forUpdate($record, $accountIn, $profileIn, (string) service('authContext')->claims()->sub);
+            $result = $form->forUpdate($record, $accountIn, $profileIn, $callerUid, $selfEdit);
             if ($result['errors'] !== []) {
                 return ApiResponse::error(lang('Accounts.invalidFields'), 422, $result['errors']);
             }

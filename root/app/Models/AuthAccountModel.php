@@ -137,6 +137,28 @@ class AuthAccountModel extends AuthMasterModel
     /** auth_master columns the account form shows but never writes; the avatar upload sets avatar_path */
     public const FORM_ACCOUNT_READONLY = ['avatar_path'];
 
+    /** /staff/account/update modes: an admin editing any account, or the signed-in staff member editing their own */
+    public const MODE_ADMIN_EDIT = 'admin-edit';
+    public const MODE_SELF_EDIT  = 'self-edit';
+
+    /**
+     * Fields a self-edit never writes (on top of uid, email_address and account_type, which no update changes):
+     * auth_master columns, and the profile columns per account_type
+     */
+    public const SELF_EDIT_LOCKED_ACCOUNT  = ['password_expiry', 'account_status', 'admin_notes'];
+    public const SELF_EDIT_LOCKED_PROFILES = [
+        self::TYPE_STAFF  => [
+            'employee_code', 'job_title', 'department_id', 'manager_staff_id', 'employment_type', 'employment_status',
+            'employment_start_date', 'probation_end_date', 'employment_end_date', 'work_country_code',
+            'work_email_address', 'work_telephone_number', 'legal_first_name', 'legal_middle_name', 'legal_last_name',
+            'national_id_type', 'national_id_number', 'tax_id_number', 'hr_notes',
+        ],
+        self::TYPE_CLIENT => [
+            'legal_first_name', 'legal_middle_name', 'legal_last_name', 'national_id_type', 'national_id_number',
+            'internal_notes',
+        ],
+    ];
+
     /**
      * account_type => profile table of the account form: its model (for the validation rules), its columns but
      * id, auth_id and the timestamps, and which of those may be NULL

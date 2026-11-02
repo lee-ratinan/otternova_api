@@ -1,6 +1,8 @@
 <?php
 return [
     'invalidRequest'     => 'The request could not be read. Please reload the page and try again.',
+    'invalidMode'        => 'The request could not be read. Please reload the page and try again.',
+    'selfEditOwnOnly'    => 'You can only edit your own profile here.',
     'listFailed'         => 'Could not load the accounts. Please try again.',
     'uidRequired'        => 'Please choose an account.',
     'notFound'           => 'Account not found.',
