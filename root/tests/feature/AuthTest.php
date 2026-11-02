@@ -703,6 +703,87 @@ final class AuthTest extends CIUnitTestCase
         ], end($logs)['detail']['changes']);
     }
 
+    // ---- /staff/change-password and /client/change-password ----
+
+    public function testChangeOwnPasswordMovesExpiryAndKeepsTheSession(): void
+    {
+        $account = $this->createStaff('own@otternova.com', ['otp_mode' => 'X']);
+        $token   = $this->json($this->login('own@otternova.com'), 200)['access_token'];
+
+        $data = $this->json($this->changeOwnPassword($token, self::PASSWORD), 200);
+
+        $this->assertSame(['password_expiry' => gmdate('Y-m-d', time() + 90 * DAY)], $data);
+        $this->seeInDatabase('auth_master', ['id' => $account['id'], 'password_expiry' => gmdate('Y-m-d', time() + 90 * DAY)]);
+        // still signed in, and only the new password signs in from now on
+        $this->getWithToken('v1/staff/me', $token)->assertStatus(200);
+        $this->login('own@otternova.com')->assertStatus(401);
+        $this->json($this->login('own@otternova.com', self::NEW_PASSWORD), 200);
+
+        $log = $this->activity()[0];
+        $this->assertSame('Changed own password', $log['activity_summary']);
+        $this->assertSame($account['id'], (int) $log['changed_by_acc']);
+        $this->assertSame(['old' => '***', 'new' => '***'], $log['detail']['changes']['password_hash']);
+        foreach ([self::PASSWORD, self::NEW_PASSWORD] as $secret) {
+            $this->assertStringNotContainsString($secret, $log['activity_detail']);
+        }
+    }
+
+    public function testChangeOwnPasswordNeedsTheCurrentOneAndAValidNewOne(): void
+    {
+        $this->createStaff('own@otternova.com', ['otp_mode' => 'X']);
+        $token = $this->json($this->login('own@otternova.com'), 200)['access_token'];
+
+        foreach (['wrong password 1', ''] as $current) {
+            $response = $this->changeOwnPassword($token, $current);
+            $response->assertStatus(422);
+            $this->assertSame(['current_password' => lang('Auth.currentPasswordIncorrect')], json_decode($response->getJSON(), true)['errors']);
+        }
+        foreach (['short1' => lang('Auth.passwordTooShort', [8]), 'no digits here' => lang('Auth.passwordTooWeak')] as $new => $message) {
+            $response = $this->changeOwnPassword($token, self::PASSWORD, (string) $new);
+            $response->assertStatus(422);
+            $this->assertSame(['new_password' => $message], json_decode($response->getJSON(), true)['errors']);
+        }
+
+        // nothing changed
+        $this->json($this->login('own@otternova.com'), 200);
+        $this->seeNumRecords(0, 'log_activity', ['activity_summary' => 'Changed own password']);
+
+        // the fixture password breaks the rules itself, so the same-as-old check is tried from the new one
+        $this->json($this->changeOwnPassword($token, self::PASSWORD), 200);
+        $response = $this->changeOwnPassword($token, self::NEW_PASSWORD, self::NEW_PASSWORD);
+        $response->assertStatus(422);
+        $this->assertSame(['new_password' => lang('Auth.passwordSameAsOld')], json_decode($response->getJSON(), true)['errors']);
+    }
+
+    public function testWrongCurrentPasswordsAreRateLimited(): void
+    {
+        $this->createStaff('own@otternova.com', ['otp_mode' => 'X']);
+        $token = $this->json($this->login('own@otternova.com'), 200)['access_token'];
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->changeOwnPassword($token, 'wrong password ' . $i)->assertStatus(422);
+        }
+
+        // blocked even with the right password now, as sign-in is
+        $response = $this->changeOwnPassword($token, self::PASSWORD);
+        $response->assertStatus(429);
+        $this->assertSame(lang('Auth.tooManyAttempts'), $this->errorMessage($response));
+        $this->login('own@otternova.com')->assertStatus(429);
+    }
+
+    public function testClientChangesTheirOwnPassword(): void
+    {
+        $this->createClient('client@example.com', ['otp_mode' => 'X']);
+        $token = $this->json($this->login('client@example.com', self::PASSWORD, 'C'), 200)['access_token'];
+
+        $this->json($this->changeOwnPassword($token, self::PASSWORD, self::NEW_PASSWORD, 'client'), 200);
+        $this->json($this->login('client@example.com', self::NEW_PASSWORD, 'C'), 200);
+        // a client token does not open the staff route
+        $response = $this->changeOwnPassword($token, self::NEW_PASSWORD, 'another password 3');
+        $response->assertStatus(403);
+        $this->assertSame(lang('Auth.wrongAccountType'), $this->errorMessage($response));
+    }
+
     public function testDeletingAccountDeletesItsChangeChallenge(): void
     {
         $this->createStaff('admin@otternova.com', ['otp_mode' => 'X']);
@@ -792,6 +873,12 @@ final class AuthTest extends CIUnitTestCase
     private function changePassword(string $token, string $newPassword = self::NEW_PASSWORD): TestResponse
     {
         return $this->withBodyFormat('json')->post('v1/change-expired-password', ['password_change_token' => $token, 'new_password' => $newPassword]);
+    }
+
+    private function changeOwnPassword(string $accessToken, string $current, string $newPassword = self::NEW_PASSWORD, string $group = 'staff'): TestResponse
+    {
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $accessToken])->withBodyFormat('json')
+            ->post('v1/' . $group . '/change-password', ['current_password' => $current, 'new_password' => $newPassword]);
     }
 
     private function yesterday(): string

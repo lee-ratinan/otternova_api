@@ -28,6 +28,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
     // Admin app: staff accounts only (a valid token with typ S)
     $routes->group('staff', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');
+        $routes->post('change-password', 'Auth::changePassword');
         $routes->post('accounts', 'Accounts::list');
         $routes->post('account', 'Accounts::show');
         $routes->post('account/update', 'Accounts::save');
@@ -40,6 +41,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
     // Client app: client accounts only (a valid token with typ C)
     $routes->group('client', ['filter' => 'jwt:C'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');
+        $routes->post('change-password', 'Auth::changePassword');
         $routes->post('image-upload', 'Images::upload');
     });
 });

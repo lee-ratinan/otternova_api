@@ -414,6 +414,56 @@ class Auth extends BaseController
     }
 
     /**
+     * POST /staff/change-password and /client/change-password { current_password, new_password }, behind the jwt filter
+     * The signed-in user changes their own password, which then lasts passwordLifetimeDays from today. A wrong current
+     * password counts as a failed sign-in, so this cannot be used to guess it. The session stays signed in.
+     * @return ResponseInterface
+     */
+    public function changePassword(): ResponseInterface
+    {
+        $input       = $this->jsonInput();
+        $current     = is_string($input['current_password'] ?? null) ? $input['current_password'] : '';
+        $newPassword = is_string($input['new_password'] ?? null) ? $input['new_password'] : '';
+        $signedIn    = service('authContext')->account();
+        $accounts    = model(AuthAccountModel::class);
+        $account     = $accounts->findForPasswordChange((int) $signedIn['id'], (string) $signedIn['account_type']);
+        if ($account === null) {
+            return ApiResponse::error(lang('Auth.signInRequired'), 401);
+        }
+
+        $throttle = service('loginThrottle');
+        $ip       = $this->request->getIPAddress();
+        if ($throttle->isBlocked($account['email_address'], $ip)) {
+            return ApiResponse::error(lang('Auth.tooManyAttempts'), 429);
+        }
+        if ($current === '' || ! password_verify($current, $account['password_hash'])) {
+            if ($current !== '') {
+                $throttle->recordFailure($account['email_address'], $ip);
+            }
+            $message = lang('Auth.currentPasswordIncorrect');
+
+            return ApiResponse::error($message, 422, ['current_password' => $message]);
+        }
+        $problem = $this->passwordProblem($newPassword, $account['password_hash']);
+        if ($problem !== null) {
+            return ApiResponse::error($problem, 422, ['new_password' => $problem]);
+        }
+
+        $expiry = gmdate('Y-m-d', time() + config(AuthConfig::class)->passwordLifetimeDays * DAY);
+        try {
+            $accounts->changePassword((int) $account['id'], password_hash($newPassword, PASSWORD_DEFAULT), $expiry);
+        } catch (Throwable $e) {
+            log_message('error', 'change-password: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Auth.passwordSaveFailed'), 500);
+        }
+        // the old password's failed attempts no longer say anything
+        $throttle->clear($account['email_address']);
+
+        return ApiResponse::success(['password_expiry' => $expiry], 200, lang('Auth.passwordChanged'));
+    }
+
+    /**
      * POST /logout, behind the jwt filter: the token stops working now rather than at its exp
      * @return ResponseInterface
      */

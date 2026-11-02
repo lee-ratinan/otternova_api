@@ -406,6 +406,26 @@ class AuthAccountModel extends AuthMasterModel
     }
 
     /**
+     * Set the signed-in account's own new password and its expiry in one transaction, logged to log_activity in it
+     * @param int    $id             auth_master.id, also the actor
+     * @param string $passwordHash
+     * @param string $passwordExpiry Y-m-d
+     * @return void
+     * @throws Throwable When a write fails; nothing is written then
+     */
+    public function changePassword(int $id, string $passwordHash, string $passwordExpiry): void
+    {
+        $log = new ActivityLog();
+        $this->inTransaction(function () use ($id, $passwordHash, $passwordExpiry, $log) {
+            $old = $this->db->table($this->table)->select('password_hash, password_expiry')->where('id', $id)->get()->getRowArray();
+            $new = ['password_hash' => $passwordHash, 'password_expiry' => $passwordExpiry];
+            $this->db->table($this->table)->where('id', $id)->update($new);
+            // password_hash shows only as changed, never its value
+            $log->updated($id, 'Changed own password', $this->table, $id, $old ?? [], $new);
+        });
+    }
+
+    /**
      * Find an account to sign in, password_hash included
      * @param string $email
      * @param string $accountType S or C; an account of the other type, or one without its profile row, is not found
