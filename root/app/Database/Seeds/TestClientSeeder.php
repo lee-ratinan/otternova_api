@@ -74,7 +74,7 @@ class TestClientSeeder extends Seeder
             'nationality_code'   => 'TH',
             'preferred_language' => 'en-US',
             'bio'                => 'Test client account.',
-            'marketing_opt_in'   => 0,
+            'marketing_opt_in'   => 'N',
             'internal_notes'     => 'Created by TestClientSeeder.',
         ]);
 

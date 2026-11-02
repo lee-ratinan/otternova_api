@@ -113,7 +113,7 @@ final class AccountFormTest extends CIUnitTestCase
 
     public function testFetchClientAccount(): void
     {
-        $this->createClient('client@example.com', [], ['display_name' => 'Otter Fan', 'marketing_opt_in' => 1]);
+        $this->createClient('client@example.com', [], ['display_name' => 'Otter Fan', 'marketing_opt_in' => 'Y']);
 
         $data = $this->data($this->fetch('clientexamplecom'));
 
@@ -302,14 +302,14 @@ final class AccountFormTest extends CIUnitTestCase
 
         $response = $this->save('clientexamplecom', ['account_type' => 'S'], [
             'display_name'     => 'Otter Fan',
-            'marketing_opt_in' => true,
+            'marketing_opt_in' => 'Y',
             'nationality_code' => 'sg',
             'job_title'        => 'not a client field',
             'department_id'    => 1,
         ]);
 
         $response->assertStatus(200);
-        $this->seeInDatabase('client_master', ['auth_id' => $client['id'], 'display_name' => 'Otter Fan', 'marketing_opt_in' => 1, 'nationality_code' => 'SG']);
+        $this->seeInDatabase('client_master', ['auth_id' => $client['id'], 'display_name' => 'Otter Fan', 'marketing_opt_in' => 'Y', 'nationality_code' => 'SG']);
         $this->seeNumRecords(0, 'staff_master', ['auth_id' => $client['id']]);
         $this->seeInDatabase('auth_master', ['id' => $client['id'], 'account_type' => 'C']);
 

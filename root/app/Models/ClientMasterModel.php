@@ -22,6 +22,10 @@ class ClientMasterModel extends Model
     public const GENDER_OTHER         = 'X';
     public const GENDER_NOT_SPECIFIED = 'N';
 
+    // marketing_opt_in
+    public const MARKETING_OPTED_IN  = 'Y';
+    public const MARKETING_OPTED_OUT = 'N';
+
     protected $table            = 'client_master';
     protected $primaryKey       = 'id';
     protected $useAutoIncrement = true;
@@ -67,7 +71,7 @@ class ClientMasterModel extends Model
         'date_of_birth'      => 'permit_empty|valid_date[Y-m-d]',
         'nationality_code'   => 'permit_empty|alpha|exact_length[2]',
         'preferred_language' => 'permit_empty|max_length[5]|regex_match[/^[a-z]{2,3}(-[A-Z]{2})?$/]', // BCP 47: en-US, th
-        'marketing_opt_in'   => 'permit_empty|in_list[0,1]',
+        'marketing_opt_in'   => 'permit_empty|in_list[Y,N]',
     ];
     protected $validationMessages   = [];
     protected $skipValidation       = false;
@@ -97,8 +101,8 @@ class ClientMasterModel extends Model
             'bio'                => ['type' => 'textarea', 'rows' => 4, 'orderable' => false],
             'marketing_opt_in'   => [
                 'type'          => 'switch',
-                'checked_value' => '1',
-                'off_value'     => '0',
+                'checked_value' => self::MARKETING_OPTED_IN,
+                'off_value'     => self::MARKETING_OPTED_OUT,
                 'searchable'    => false,
             ],
             'internal_notes'     => ['type' => 'textarea', 'rows' => 4, 'orderable' => false],
