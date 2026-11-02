@@ -5,6 +5,9 @@ use CodeIgniter\Router\RouteCollection;
 /** @var RouteCollection $routes */
 $routes->get('/', 'Home::index');
 
+// Uploaded images, as saved by /v1/staff/image-upload and /v1/client/image-upload; see App\Controllers\Images
+$routes->get('image/(:segment)/(:segment)', 'Images::show/$1/$2');
+
 // Version 1 of the API: every endpoint the apps call lives under /v1
 $routes->group('v1', static function (RouteCollection $routes) {
     // Sign-in for the Admin (staff) and Client apps; see App\Controllers\Auth
@@ -31,10 +34,12 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('account/delete', 'Accounts::delete');
         $routes->post('departments', 'Accounts::departments');
         $routes->post('staff-members', 'Accounts::staffMembers');
+        $routes->post('image-upload', 'Images::upload');
     });
 
     // Client app: client accounts only (a valid token with typ C)
     $routes->group('client', ['filter' => 'jwt:C'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');
+        $routes->post('image-upload', 'Images::upload');
     });
 });

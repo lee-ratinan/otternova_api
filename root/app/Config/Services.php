@@ -4,6 +4,7 @@ namespace Config;
 
 use App\Libraries\AuthContext;
 use App\Libraries\EmailService;
+use App\Libraries\ImageProcessor;
 use App\Libraries\JwtService;
 use App\Libraries\LoginThrottle;
 use CodeIgniter\Config\BaseService;
@@ -64,6 +65,15 @@ class Services extends BaseService
     /**
      * The signed-in account of the current request (set by the jwt filter)
      */
+    public static function imageProcessor(bool $getShared = true): ImageProcessor
+    {
+        if ($getShared) {
+            return static::getSharedInstance('imageProcessor');
+        }
+
+        return new ImageProcessor();
+    }
+
     public static function authContext(bool $getShared = true): AuthContext
     {
         if ($getShared) {
