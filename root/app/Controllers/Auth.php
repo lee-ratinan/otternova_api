@@ -348,8 +348,6 @@ class Auth extends BaseController
         $expiresAt = time() + $config->otpTtl;
         $token     = model(AuthOtpChallengeModel::class)->createChallenge((int) $account['id'], $account['account_type'], $otp, $expiresAt);
 
-        log_message('alert', '=== OTP: ' . $otp . ' ===');
-
         service('emailService')->send(EmailService::TYPE_LOGIN_OTP, $account['email_address'], [
             'full_name' => $account['full_name'],
             'otp'       => $otp,
