@@ -7,7 +7,9 @@ use Config\Auth;
 
 /**
  * Counts failed sign-ins (wrong password or wrong OTP) per email address and per IP address
- * in a fixed window, so /login can answer 429 once either count reaches its limit
+ * in a fixed window, so /login can answer 429 once either count reaches its limit.
+ * Sign-ups are counted the same way, apart from the sign-ins, so /create-client-account cannot be used to flood
+ * an inbox with emails.
  */
 class LoginThrottle
 {
@@ -45,6 +47,29 @@ class LoginThrottle
     public function clear(string $email): void
     {
         $this->cache->delete($this->key('email', $email));
+    }
+
+    /**
+     * @param string $email
+     * @param string $ip
+     * @return bool
+     */
+    public function isSignUpBlocked(string $email, string $ip): bool
+    {
+        return $this->count('signup_email', $email) >= $this->config->signUpMaxPerEmail
+            || $this->count('signup_ip', $ip) >= $this->config->signUpMaxPerIp;
+    }
+
+    /**
+     * Count a sign-up, whether it created an account or not
+     * @param string $email
+     * @param string $ip
+     * @return void
+     */
+    public function recordSignUp(string $email, string $ip): void
+    {
+        $this->increment('signup_email', $email);
+        $this->increment('signup_ip', $ip);
     }
 
     /**

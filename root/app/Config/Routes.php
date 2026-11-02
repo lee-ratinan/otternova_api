@@ -13,6 +13,10 @@ $routes->group('v1', static function (RouteCollection $routes) {
     $routes->post('change-expired-password', 'Auth::changeExpiredPassword');
     $routes->post('logout', 'Auth::logout', ['filter' => 'jwt']);
 
+    // Client app sign-up: no sign-in needed; see App\Controllers\Auth
+    $routes->post('create-client-account', 'Auth::createClientAccount');
+    $routes->post('activate-client-account', 'Auth::activateClientAccount');
+
     // Admin app: staff accounts only (a valid token with typ S)
     $routes->group('staff', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');

@@ -5,7 +5,8 @@ namespace Config;
 use CodeIgniter\Config\BaseConfig;
 
 /**
- * Settings for the /login, /verify-otp, /change-expired-password and /logout endpoints and the jwt filter
+ * Settings for the /login, /verify-otp, /change-expired-password and /logout endpoints and the jwt filter,
+ * and for the client sign-up (/create-client-account, /activate-client-account)
  */
 class Auth extends BaseConfig
 {
@@ -40,6 +41,13 @@ class Auth extends BaseConfig
     public int $throttleMaxPerEmail = 5;
     public int $throttleMaxPerIp    = 20;
     public int $throttleWindow      = 15 * MINUTE;
+
+    /** Sign-ups allowed per email address / per IP address within $throttleWindow seconds, successful or not */
+    public int $signUpMaxPerEmail = 3;
+    public int $signUpMaxPerIp    = 10;
+
+    /** Lifetime in seconds of the activation link emailed after a client signs up */
+    public int $activationTtl = 2 * DAY;
 
     public function __construct()
     {

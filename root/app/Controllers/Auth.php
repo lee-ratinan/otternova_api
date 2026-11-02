@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Libraries\ApiResponse;
 use App\Libraries\EmailService;
 use App\Models\AuthAccountModel;
+use App\Models\AuthActivationModel;
 use App\Models\AuthOtpChallengeModel;
 use App\Models\AuthPasswordChangeModel;
 use App\Models\AuthTokenDenylistModel;
@@ -12,10 +13,11 @@ use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\Auth as AuthConfig;
 use Random\RandomException;
+use Throwable;
 
 /**
- * Sign-in for the Admin app (staff, account_type S) and the Client app (clients, account_type C).
- * The apps keep the access token in their own session and send it back as "Authorization: Bearer <jwt>".
+ * Sign-in for the Admin app (staff, account_type S) and the Client app (clients, account_type C),
+ * and sign-up for the Client app. The apps keep the access token in their own session and send it back as "Authorization: Bearer <jwt>".
  */
 class Auth extends BaseController
 {
@@ -27,6 +29,10 @@ class Auth extends BaseController
     /** New password rules: characters at least, and bytes at most (bcrypt ignores anything past 72 bytes) */
     private const PASSWORD_MIN_LENGTH = 8;
     private const PASSWORD_MAX_BYTES  = 72;
+
+    /** auth_master.full_name and client_master.legal_first_name column lengths */
+    private const FULL_NAME_MAX_LENGTH  = 255;
+    private const FIRST_NAME_MAX_LENGTH = 128;
 
     /**
      * POST /login { email_address, password, account_type }
@@ -60,6 +66,9 @@ class Auth extends BaseController
         }
         unset($account['password_hash']);
 
+        if ($account['account_status'] === AuthAccountModel::STATUS_PENDING) {
+            return ApiResponse::error(lang('Auth.accountPending'), 403);
+        }
         if ($account['account_status'] !== AuthAccountModel::STATUS_ACTIVE) {
             return ApiResponse::error(lang('Auth.accountNotActive'), 403);
         }
@@ -196,6 +205,116 @@ class Auth extends BaseController
     }
 
     /**
+     * POST /create-client-account { full_name, email_address, password }, no sign-in needed
+     * Creates a pending (P) client account and emails it an activation link. When the email address already has an
+     * account, nothing is created and that address is emailed instead (a new activation link if it is a client still
+     * pending, otherwise a note that it already has an account), with the same answer, so the answer does not tell
+     * anyone which addresses have an account.
+     * @return ResponseInterface
+     */
+    public function createClientAccount(): ResponseInterface
+    {
+        $input    = $this->jsonInput();
+        $fullName = is_string($input['full_name'] ?? null) ? trim(preg_replace('/\s+/u', ' ', $input['full_name']) ?? '') : '';
+        $email    = is_string($input['email_address'] ?? null) ? trim($input['email_address']) : '';
+        $password = is_string($input['password'] ?? null) ? $input['password'] : '';
+
+        $errors = [];
+        if ($fullName === '') {
+            $errors['full_name'] = lang('Auth.fullNameRequired');
+        } elseif (mb_strlen($fullName, 'UTF-8') > self::FULL_NAME_MAX_LENGTH) {
+            $errors['full_name'] = lang('Auth.fullNameTooLong', [self::FULL_NAME_MAX_LENGTH]);
+        }
+        if (strlen($email) > 128 || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors['email_address'] = lang('Auth.emailInvalid');
+        }
+        $problem = $this->passwordProblem($password);
+        if ($problem !== null) {
+            $errors['password'] = $problem;
+        }
+        if ($errors !== []) {
+            return ApiResponse::error(lang('Auth.signUpInvalid'), 422, $errors);
+        }
+
+        $ip       = $this->request->getIPAddress();
+        $throttle = service('loginThrottle');
+        if ($throttle->isSignUpBlocked($email, $ip)) {
+            return ApiResponse::error(lang('Auth.tooManySignUps'), 429);
+        }
+        $throttle->recordSignUp($email, $ip);
+
+        $config    = config(AuthConfig::class);
+        $expiresAt = time() + $config->activationTtl;
+        $accounts  = model(AuthAccountModel::class);
+        $existing  = $accounts->where('email_address', $email)->first();
+        if ($existing === null) {
+            $account = [
+                'uid'             => $this->newUid($accounts, $email),
+                'email_address'   => $email,
+                'password_hash'   => password_hash($password, PASSWORD_DEFAULT),
+                'password_expiry' => gmdate('Y-m-d', time() + $config->passwordLifetimeDays * DAY),
+                'full_name'       => $fullName,
+            ];
+            // the rest of client_master keeps its defaults; the client fills in the profile later
+            $profile = ['legal_first_name' => mb_substr($fullName, 0, self::FIRST_NAME_MAX_LENGTH, 'UTF-8')];
+            try {
+                $token = $accounts->createPendingClient($account, $profile, $expiresAt);
+            } catch (Throwable $e) {
+                // most likely the same address signed up at the same moment; that one carries on with its own link
+                log_message('error', 'create-client-account failed: ' . $e->getMessage());
+                if ($accounts->where('email_address', $email)->first() === null) {
+                    return ApiResponse::error(lang('Auth.signUpFailed'), 500);
+                }
+
+                return ApiResponse::success(null, 200, lang('Auth.signUpReceived', [$email]));
+            }
+            $this->sendActivation($email, $fullName, $token);
+        } elseif ($existing['account_type'] === AuthAccountModel::TYPE_CLIENT && $existing['account_status'] === AuthAccountModel::STATUS_PENDING) {
+            // the stored name and password stay: only whoever owns the inbox may activate, and with what they chose first
+            $token = model(AuthActivationModel::class)->createActivation((int) $existing['id'], $expiresAt);
+            $this->sendActivation($existing['email_address'], $existing['full_name'], $token);
+        } else {
+            service('emailService')->send(EmailService::TYPE_ACCOUNT_EXISTS, $existing['email_address'], [
+                'full_name' => $existing['full_name'],
+                'link'      => $this->appLink($existing['account_type']),
+            ]);
+        }
+
+        return ApiResponse::success(null, 200, lang('Auth.signUpReceived', [$email]));
+    }
+
+    /**
+     * POST /activate-client-account { token }, no sign-in needed
+     * The token comes from the emailed link; it flips the pending (P) client account to active (A). Single use.
+     * @return ResponseInterface
+     */
+    public function activateClientAccount(): ResponseInterface
+    {
+        $input = $this->jsonInput();
+        $token = is_string($input['token'] ?? null) ? trim($input['token']) : '';
+        if (! preg_match('/^[0-9a-f]{64}$/', $token)) {
+            return ApiResponse::error(lang('Auth.activationInvalid'), 410);
+        }
+
+        $activations = model(AuthActivationModel::class);
+        $activation  = $activations->findByToken($token);
+        if ($activation === null) {
+            return ApiResponse::error(lang('Auth.activationInvalid'), 410);
+        }
+        if ($activation['expires_at'] <= time()) {
+            $activations->consume((int) $activation['id']);
+
+            return ApiResponse::error(lang('Auth.activationInvalid'), 410);
+        }
+        // false: another click got here first, or the account was changed from pending meanwhile
+        if (! $activations->consumeAndActivate((int) $activation['id'])) {
+            return ApiResponse::error(lang('Auth.activationInvalid'), 410);
+        }
+
+        return ApiResponse::success(null, 200, lang('Auth.accountActivated'));
+    }
+
+    /**
      * POST /logout, behind the jwt filter: the token stops working now rather than at its exp
      * @return ResponseInterface
      */
@@ -276,12 +395,58 @@ class Auth extends BaseController
     }
 
     /**
+     * Email the activation link, which points at the Client app (LINK_CLIENT in .env)
+     * @param string $email
+     * @param string $fullName
+     * @param string $token
+     * @return void
+     */
+    private function sendActivation(string $email, string $fullName, string $token): void
+    {
+        service('emailService')->send(EmailService::TYPE_ACCOUNT_ACTIVATION, $email, [
+            'full_name' => $fullName,
+            'link'      => $this->appLink(AuthAccountModel::TYPE_CLIENT) . 'activate-account?token=' . $token,
+            'hours'     => intdiv(config(AuthConfig::class)->activationTtl, HOUR),
+        ]);
+    }
+
+    /**
+     * Base URL of the app an account type signs in to, with a trailing slash
+     * @param string $accountType
+     * @return string
+     */
+    private function appLink(string $accountType): string
+    {
+        $link = (string) env($accountType === AuthAccountModel::TYPE_STAFF ? 'LINK_ADMIN' : 'LINK_CLIENT', '');
+
+        return rtrim($link, '/') . '/';
+    }
+
+    /**
+     * The uid for a new account: from the email address, with a number added when another address already gives it
+     * (a.b@x.com and ab@x.com both give abxcom)
+     * @param AuthAccountModel $accounts
+     * @param string           $email
+     * @return string
+     */
+    private function newUid(AuthAccountModel $accounts, string $email): string
+    {
+        $base = substr($accounts->generateUid($email), 0, 120);
+        $uid  = $base;
+        for ($n = 2; $accounts->where('uid', $uid)->countAllResults() > 0; $n++) {
+            $uid = $base . $n;
+        }
+
+        return $uid;
+    }
+
+    /**
      * What is wrong with a new password, as the message shown to the user
-     * @param string $password
-     * @param string $currentHash
+     * @param string      $password
+     * @param string|null $currentHash Null for a new account, which has no current password
      * @return string|null null when it is fine
      */
-    private function passwordProblem(string $password, string $currentHash): ?string
+    private function passwordProblem(string $password, ?string $currentHash = null): ?string
     {
         if (mb_strlen($password, 'UTF-8') < self::PASSWORD_MIN_LENGTH) {
             return lang('Auth.passwordTooShort', [self::PASSWORD_MIN_LENGTH]);
@@ -293,7 +458,7 @@ class Auth extends BaseController
         if (preg_match('/\p{L}/u', $password) !== 1 || preg_match('/\p{Nd}/u', $password) !== 1) {
             return lang('Auth.passwordTooWeak');
         }
-        if (password_verify($password, $currentHash)) {
+        if ($currentHash !== null && password_verify($password, $currentHash)) {
             return lang('Auth.passwordSameAsOld');
         }
 

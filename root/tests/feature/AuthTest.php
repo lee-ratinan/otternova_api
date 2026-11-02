@@ -152,7 +152,8 @@ final class AuthTest extends CIUnitTestCase
             $response = $this->login("inactive{$i}@otternova.com");
 
             $response->assertStatus(403);
-            $this->assertSame(lang('Auth.accountNotActive'), $this->errorMessage($response));
+            // a pending account is waiting for its activation link, the others for support
+            $this->assertSame(lang($status === 'P' ? 'Auth.accountPending' : 'Auth.accountNotActive'), $this->errorMessage($response));
         }
     }
 
