@@ -57,12 +57,26 @@ return [
         'greeting' => 'Signed in as {0}.',
         'sign-out' => 'Sign out',
     ],
-    'forget-password' => [
-        'title' => 'Forget Password'
+    'forgot-password' => [
+        'title'      => 'Forgot Password',
+        'subtitle'   => 'Enter the email address of your account and we will send you a link to reset your password.',
+        'submit-btn' => 'Send Reset Link',
+        'back'       => 'Back to sign in',
+        'sent'       => 'If {0} has an account, we have sent it a link to reset the password. Please check your email (and the spam folder) and follow the steps in it. The link expires in 60 minutes.',
+        'failed'     => 'Unable to send the reset link. Please try again.',
+    ],
+    'reset-password'  => [
+        'title'       => 'Reset Password',
+        'subtitle'    => 'Choose a new password for your account.',
+        'submit-btn'  => 'Reset Password',
+        'invalid'     => 'This password reset link is invalid or has expired. Please ask for a new one.',
+        'request-new' => 'Request a new link',
+        'failed'      => 'Unable to reset your password. Please try again.',
+        'success'     => 'Your password has been changed. You can now sign in with your new password.',
     ],
     'create-account'  => [
         'title'                      => 'Create an account',
-        'subtitle'                   => 'Start using your free-tier features<br/>no credit card needed',
+        'subtitle'                   => 'Start using your free-tier features<br/>No credit card needed',
         'full-name'                  => 'Full name',
         'full-name-placeholder'      => 'Your name',
         'full-name-invalid-feedback' => 'Please enter your name.',
