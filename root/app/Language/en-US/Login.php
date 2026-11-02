@@ -38,6 +38,19 @@ return [
         'sign-in-failed'      => 'Unable to sign in. Please try again.',
         'service-unavailable' => 'The authentication service is unavailable. Please try again later.',
         'network'             => 'Network error. Please check your connection and try again.',
+        'password-change-start-failed' => 'Unable to start the password change. Please try again.',
+        'password-change-expired'      => 'Your password change has expired. Please sign in again.',
+        'password-change-failed'       => 'Unable to change your password. Please try again.',
+        'password-too-short'           => 'The new password must be at least {0} characters.',
+        'password-mismatch'            => 'The new passwords do not match.',
+    ],
+    'password-change' => [
+        'required'                     => 'Your password has expired. Please choose a new password to continue.',
+        'new-password'                 => 'New password',
+        'new-password-placeholder'     => 'Enter a new password',
+        'confirm-password'             => 'Confirm new password',
+        'confirm-password-placeholder' => 'Enter the new password again',
+        'submit-btn'                   => 'Change Password',
     ],
     'dashboard'       => [
         'title'    => 'You are signed in',
@@ -46,5 +59,28 @@ return [
     ],
     'forget-password' => [
         'title' => 'Forget Password'
-    ]
+    ],
+    'create-account'  => [
+        'title'                      => 'Create an account',
+        'subtitle'                   => 'Start your 30-day free trial — no credit card needed',
+        'full-name'                  => 'Full name',
+        'full-name-placeholder'      => 'Your name',
+        'full-name-invalid-feedback' => 'Please enter your name.',
+        'password-placeholder'       => 'Create a password',
+        'password-hint'              => 'Use 8+ characters with a mix of letters, numbers & symbols.',
+        'terms'                      => 'I agree to the {0} and {1}',
+        'terms-of-service'           => 'Terms of Service',
+        'privacy-policy'             => 'Privacy Policy',
+        'terms-invalid-feedback'     => 'Please agree to the Terms of Service and Privacy Policy.',
+        'submit-btn'                 => 'Create Account',
+        'have-account'               => 'Already have an account?',
+        'sign-in'                    => 'Sign in',
+        'invalid-input'              => 'Please check the highlighted fields.',
+        'failed'                     => 'Unable to create your account. Please try again.',
+        'received'                   => 'We have sent an activation link to {0}. Please open it to activate your account.',
+    ],
+    'activate'        => [
+        'success' => 'Your account is active. You can now sign in.',
+        'invalid' => 'This activation link is invalid or has expired. Please sign up again to get a new link.',
+    ],
 ];
