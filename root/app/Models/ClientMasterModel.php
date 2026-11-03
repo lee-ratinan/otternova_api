@@ -26,6 +26,12 @@ class ClientMasterModel extends Model
     public const MARKETING_OPTED_IN  = 'Y';
     public const MARKETING_OPTED_OUT = 'N';
 
+    /**
+     * status_emoji: exactly one emoji, with its skin tone / variation selectors and ZWJ sequences (👍🏽, 👨‍👩‍👧, 🏳️‍🌈),
+     * a flag (🇹🇭) or a keycap (1️⃣). Its | would split a CI4 rule string, so it is checked on its own.
+     */
+    public const EMOJI_PATTERN = '/^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}{2}|[0-9#*]\x{FE0F}?\x{20E3})(?:[\x{FE0E}\x{FE0F}\x{1F3FB}-\x{1F3FF}\x{E0020}-\x{E007F}]|\x{200D}\p{Extended_Pictographic})*$/u';
+
     protected $table            = 'client_master';
     protected $primaryKey       = 'id';
     protected $useAutoIncrement = true;

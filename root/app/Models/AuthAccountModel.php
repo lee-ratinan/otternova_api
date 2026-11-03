@@ -161,6 +161,19 @@ class AuthAccountModel extends AuthMasterModel
     ];
 
     /**
+     * The fields a client may change on their own account through /client/account/update; anything else in the
+     * request is ignored. email_address and password_expiry are shown but fixed (the password flow sets the expiry).
+     */
+    public const CLIENT_SELF_EDIT_ACCOUNT = ['full_name', 'otp_mode'];
+    public const CLIENT_SELF_EDIT_PROFILE = [
+        'legal_first_name', 'legal_middle_name', 'legal_last_name', 'display_name', 'status_message', 'status_emoji',
+        'gender', 'date_of_birth', 'nationality_code', 'preferred_language', 'bio', 'marketing_opt_in',
+    ];
+
+    /** Columns of findForForm() that /client/account never sends to the account holder */
+    public const CLIENT_SELF_HIDDEN = ['admin_notes', 'national_id_type', 'national_id_number', 'internal_notes'];
+
+    /**
      * account_type => profile table of the account form: its model (for the validation rules), its columns but
      * id, auth_id and the timestamps, and which of those may be NULL
      */

@@ -4,6 +4,7 @@ namespace App\Libraries;
 
 use App\Models\AuthAccountModel;
 use App\Models\AuthMasterModel;
+use App\Models\ClientMasterModel;
 use App\Models\StaffMasterModel;
 use libphonenumber\NumberParseException;
 use libphonenumber\PhoneNumberFormat;
@@ -89,6 +90,40 @@ class AccountForm
             ? $this->profile($stored['account_type'], $profileIn, $record['profile'] ?? [], $record['profile']['id'] ?? null,
                 $selfEdit ? AuthAccountModel::SELF_EDIT_LOCKED_PROFILES[$stored['account_type']] ?? [] : [])
             : [];
+
+        return ['account' => $account, 'profile' => $profile, 'errors' => $this->errors];
+    }
+
+    /**
+     * A client's changes to their own account, from the Client app's profile page: only the CLIENT_SELF_EDIT_*
+     * fields are written, telephone OTP cannot be picked yet, status_emoji must be one emoji and preferred_language
+     * one of the UI languages (it picks the Client app's language)
+     * @param array $record    AuthAccountModel::findForForm() of the signed-in client
+     * @param array $accountIn The request's "account"
+     * @param array $profileIn The request's "profile"
+     * @return array{account: array, profile: array, errors: array<string, string>} Only the columns to change
+     */
+    public function forClientSelfEdit(array $record, array $accountIn, array $profileIn): array
+    {
+        $this->errors = [];
+        $stored  = $record['account'];
+        $model   = model(AuthAccountModel::class);
+        $account = $this->clean('account', $accountIn, AuthAccountModel::CLIENT_SELF_EDIT_ACCOUNT, AuthAccountModel::FORM_ACCOUNT_NULLABLE, $model->getValidationRules());
+        if (($account['otp_mode'] ?? null) === AuthMasterModel::OTP_TELEPHONE && $stored['otp_mode'] !== AuthMasterModel::OTP_TELEPHONE) {
+            $this->errors['account.otp_mode'] = lang('Accounts.otpModeUnavailable');
+        }
+        // the whole row is validated, so a change cannot leave it invalid
+        $this->validate('account', $account + $stored, array_diff(AuthAccountModel::FORM_ACCOUNT_FIELDS, ['uid', 'email_address', 'account_type']), $model, 'AuthMaster');
+
+        $locked  = array_diff(AuthAccountModel::FORM_PROFILES[AuthMasterModel::TYPE_CLIENT]['fields'], AuthAccountModel::CLIENT_SELF_EDIT_PROFILE);
+        $profile = $this->profile(AuthMasterModel::TYPE_CLIENT, $profileIn, $record['profile'] ?? [], $record['profile']['id'] ?? null, $locked);
+        if (isset($profile['status_emoji']) && ! preg_match(ClientMasterModel::EMOJI_PATTERN, $profile['status_emoji'])) {
+            $this->errors['profile.status_emoji'] ??= lang('Accounts.invalidEmoji');
+        }
+        helper('list');
+        if (isset($profile['preferred_language']) && ! isset(listSupportedLanguages()[$profile['preferred_language']])) {
+            $this->errors['profile.preferred_language'] ??= lang('Accounts.invalidLanguage');
+        }
 
         return ['account' => $account, 'profile' => $profile, 'errors' => $this->errors];
     }

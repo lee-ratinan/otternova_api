@@ -14,7 +14,8 @@ use CodeIgniter\HTTP\ResponseInterface;
 use stdClass;
 
 /**
- * auth_master accounts for the Admin app, behind the jwt:S filter (staff only)
+ * auth_master accounts for the Admin app, behind the jwt:S filter (staff only);
+ * showOwn() and saveOwn() are the Client app's own profile, behind jwt:C
  */
 class Accounts extends BaseController
 {
@@ -195,6 +196,74 @@ class Accounts extends BaseController
     }
 
     /**
+     * POST /client/account {}
+     * The signed-in client's own account and client_master profile, for the Client app's profile page.
+     * The uid comes from the token; admin notes, ID documents and internal notes are left out (CLIENT_SELF_HIDDEN).
+     * @return ResponseInterface
+     */
+    public function showOwn(): ResponseInterface
+    {
+        if ($this->jsonInput() === null) {
+            return ApiResponse::error(lang('Accounts.invalidRequest'), 422);
+        }
+
+        try {
+            $record = model(AuthAccountModel::class)->findForForm((string) service('authContext')->claims()->sub);
+        } catch (DatabaseException|EncryptionException $e) {
+            log_message('error', 'v1/client/account: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Accounts.loadFailed'), 500);
+        }
+        if ($record === null) {
+            return ApiResponse::error(lang('Accounts.notFound'), 404);
+        }
+
+        $hidden  = array_flip(array_merge(['id'], AuthAccountModel::CLIENT_SELF_HIDDEN));
+        $profile = array_diff_key($record['profile'] ?? [], $hidden);
+
+        return ApiResponse::success([
+            'account' => array_diff_key($record['account'], $hidden),
+            'profile' => $profile ?: new stdClass(),
+        ]);
+    }
+
+    /**
+     * POST /client/account/update { account: {...}, profile: {...} }
+     * The signed-in client updates their own account (the uid comes from the token): only the CLIENT_SELF_EDIT_*
+     * fields are written, see AccountForm::forClientSelfEdit(). The client_master row is inserted when missing.
+     * @return ResponseInterface
+     */
+    public function saveOwn(): ResponseInterface
+    {
+        $input = $this->jsonInput();
+        if ($input === null) {
+            return ApiResponse::error(lang('Accounts.invalidRequest'), 422);
+        }
+        $accountIn = is_array($input['account'] ?? null) ? $input['account'] : [];
+        $profileIn = is_array($input['profile'] ?? null) ? $input['profile'] : [];
+        $accounts  = model(AuthAccountModel::class);
+        $uid       = (string) service('authContext')->claims()->sub;
+
+        try {
+            $record = $accounts->findForForm($uid);
+            if ($record === null) {
+                return ApiResponse::error(lang('Accounts.notFound'), 404);
+            }
+            $result = (new AccountForm())->forClientSelfEdit($record, $accountIn, $profileIn);
+            if ($result['errors'] !== []) {
+                return ApiResponse::error(lang('Accounts.invalidFields'), 422, $result['errors']);
+            }
+            $accounts->updateWithProfile($record, $result['account'], $result['profile'], $this->actorId());
+        } catch (DatabaseException|EncryptionException $e) {
+            log_message('error', 'v1/client/account/update: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Accounts.saveFailed'), 500);
+        }
+
+        return ApiResponse::success(['uid' => $uid], 200, lang('Accounts.profileUpdated'));
+    }
+
+    /**
      * POST /staff/departments {}
      * Every department, by name, for the account form's Department dropdown
      * @return ResponseInterface
@@ -240,7 +309,7 @@ class Accounts extends BaseController
     }
 
     /**
-     * auth_master.id of the signed-in staff member, for log_activity.changed_by_acc
+     * auth_master.id of the signed-in account, for log_activity.changed_by_acc
      * @return int
      */
     private function actorId(): int

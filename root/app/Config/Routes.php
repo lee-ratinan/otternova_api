@@ -45,6 +45,8 @@ $routes->group('v1', static function (RouteCollection $routes) {
     $routes->group('client', ['filter' => 'jwt:C'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');
         $routes->post('change-password', 'Auth::changePassword');
+        $routes->post('account', 'Accounts::showOwn');
+        $routes->post('account/update', 'Accounts::saveOwn');
         $routes->post('image-upload', 'Images::upload');
         $routes->post('image-delete', 'Images::delete');
     });

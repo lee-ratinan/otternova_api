@@ -24,4 +24,8 @@ return [
     'managerNotFound'    => 'Please choose a line manager from the list.',
     'managerLoop'        => 'This line manager already reports to this staff member, directly or indirectly.',
     'departmentNotFound' => 'Please choose a department from the list.',
+    'otpModeUnavailable' => 'This sign-in verification method is not available yet.',
+    'invalidEmoji'       => 'Please enter a single emoji.',
+    'invalidLanguage'    => 'Please choose a language from the list.',
+    'profileUpdated'     => 'Your profile has been saved.',
 ];
