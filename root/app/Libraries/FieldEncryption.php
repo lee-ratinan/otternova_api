@@ -6,7 +6,7 @@ use CodeIgniter\Encryption\EncrypterInterface;
 use CodeIgniter\Encryption\Exceptions\EncryptionException;
 
 /**
- * Encrypts the profile columns that hold identity numbers, so the database only ever holds ciphertext.
+ * Encrypts the columns that hold identity and tax numbers, so the database only ever holds ciphertext.
  * Uses the framework encrypter (Config\Encryption: AES-256-CTR with an HMAC-SHA512, keyed by encryption.key
  * in .env); a stored value is "enc:v1:" + base64(ciphertext). Values without the prefix are read as they are,
  * for rows written before encryption (the EncryptIdentityNumbers migration encrypts those).
@@ -15,8 +15,9 @@ class FieldEncryption
 {
     /** table => its encrypted columns */
     public const FIELDS = [
-        'staff_master'  => ['national_id_number', 'tax_id_number'],
-        'client_master' => ['national_id_number'],
+        'staff_master'    => ['national_id_number', 'tax_id_number'],
+        'client_master'   => ['national_id_number'],
+        'business_master' => ['tax_id'],
     ];
 
     public const PREFIX = 'enc:v1:';

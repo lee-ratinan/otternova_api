@@ -17,7 +17,8 @@ class EncryptIdentityNumbers extends Migration
     /** Ciphertext of the longest value the validation rules allow (255 characters), with the prefix */
     private const ENCRYPTED_LENGTH = 512;
 
-    /** column => its length before encryption, per table */
+    /** column => its length before encryption, per table; the columns this migration encrypts, fixed here as
+     *  FieldEncryption::FIELDS grows with tables created after it */
     private const PLAINTEXT_LENGTHS = [
         'staff_master'  => ['national_id_number' => 255, 'tax_id_number' => 255],
         'client_master' => ['national_id_number' => 64],
@@ -25,7 +26,8 @@ class EncryptIdentityNumbers extends Migration
 
     public function up()
     {
-        foreach (FieldEncryption::FIELDS as $table => $fields) {
+        foreach (self::PLAINTEXT_LENGTHS as $table => $lengths) {
+            $fields = array_keys($lengths);
             $this->resize($table, array_fill_keys($fields, self::ENCRYPTED_LENGTH));
             $this->convert($table, $fields, true);
         }
@@ -33,9 +35,9 @@ class EncryptIdentityNumbers extends Migration
 
     public function down()
     {
-        foreach (FieldEncryption::FIELDS as $table => $fields) {
-            $this->convert($table, $fields, false);
-            $this->resize($table, self::PLAINTEXT_LENGTHS[$table]);
+        foreach (self::PLAINTEXT_LENGTHS as $table => $lengths) {
+            $this->convert($table, array_keys($lengths), false);
+            $this->resize($table, $lengths);
         }
     }
 
