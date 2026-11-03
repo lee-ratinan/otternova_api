@@ -81,7 +81,15 @@ class App extends BaseConfig
     | DO NOT CHANGE THIS UNLESS YOU FULLY UNDERSTAND THE REPERCUSSIONS!!
     |
     */
-    public string $permittedURIChars = 'a-z 0-9~%.:_\-';
+    public string $permittedURIChars = 'a-z 0-9~%.:_\-'
+    . '\x{0E00}-\x{0E7F}'  // Thai
+    . '\x{3400}-\x{4DBF}'  // CJK Extension A
+    . '\x{4E00}-\x{9FFF}'  // CJK Unified Ideographs
+    . '\x{3040}-\x{309F}'  // Hiragana
+    . '\x{30A0}-\x{30FF}'  // Katakana
+    . '\x{AC00}-\x{D7AF}'  // Hangul
+    . '\x{00C0}-\x{024F}'  // Latin-1 Supplement + Latin Extended-A/B
+    . '\x{1E00}-\x{1EFF}'; // Latin Extended Additional (Vietnamese)
 
     /**
      * --------------------------------------------------------------------------
