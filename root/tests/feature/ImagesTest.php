@@ -1,6 +1,7 @@
 <?php
 
 use App\Libraries\ImageProcessor;
+use App\Libraries\InitialsAvatar;
 use CodeIgniter\HTTP\Files\UploadedFile;
 use CodeIgniter\Test\CIUnitTestCase;
 use CodeIgniter\Test\DatabaseTestTrait;
@@ -74,7 +75,7 @@ final class ImagesTest extends CIUnitTestCase
         foreach ($this->sources as $source) {
             @unlink($source);
         }
-        foreach (glob($this->uploads . '{,.}*/{,.}*.webp', GLOB_BRACE) ?: [] as $file) {
+        foreach (glob($this->uploads . '{,.}*/{,.}*.{webp,svg}', GLOB_BRACE) ?: [] as $file) {
             unlink($file);
         }
         foreach (glob($this->uploads . '*', GLOB_ONLYDIR) ?: [] as $folder) {
@@ -254,7 +255,9 @@ final class ImagesTest extends CIUnitTestCase
         $response = $this->deleteImage(['used-for' => 'profile-picture', 'id' => $this->client['id']]);
 
         $response->assertStatus(200);
-        $this->assertSame(['used_for' => 'profile-picture'], $this->body($response)['data']);
+        // the app shows the initials avatar of "Otter Tester" in place of the deleted picture
+        $this->assertSame(['used_for' => 'profile-picture', 'url' => base_url('image/initials-avatar/OT.svg')], $this->body($response)['data']);
+        $this->assertFileExists($this->uploads . 'initials-avatar/OT.svg');
         $this->assertFileDoesNotExist($this->uploads . 'profile-picture/me.webp');
         $this->assertNull($this->avatarOf($this->client['id']));
         $this->seeInDatabase('log_activity', ['activity_summary' => 'Deleted profile-picture me', 'table_id_updated' => $this->client['id'], 'changed_by_acc' => $this->client['id']]);
@@ -390,6 +393,31 @@ final class ImagesTest extends CIUnitTestCase
         foreach (['image/banner/x.webp', 'image/profile-picture/nobody.webp', 'image/profile-picture/me.png', 'image/profile-picture/..webp'] as $uri) {
             $this->withHeaders($auth)->get($uri)->assertStatus(404);
         }
+    }
+
+    public function testInitialsAvatarIsPublicAndAnswersNotModified(): void
+    {
+        $url  = InitialsAvatar::urlFor('สมชาย ใจดี');
+        $path = $this->uploads . 'initials-avatar/สจ.svg';
+        $this->assertSame(base_url('image/initials-avatar/' . rawurlencode('สจ') . '.svg'), $url);
+
+        $response = $this->withHeaders([])->get('image/initials-avatar/' . rawurlencode('สจ') . '.svg');
+        $response->assertStatus(200);
+        $response->assertHeader('Content-Type', 'image/svg+xml');
+        $this->assertSame('public, max-age=300', $response->response()->getHeaderLine('Cache-Control'));
+        $this->assertSame(file_get_contents($path), $response->response()->getBody());
+
+        $etag = $response->response()->getHeaderLine('ETag');
+        $this->withHeaders(['If-None-Match' => $etag])->get('image/initials-avatar/' . rawurlencode('สจ') . '.svg')->assertStatus(304);
+    }
+
+    public function testInitialsAvatarIsOnlyServedWhenMade(): void
+    {
+        InitialsAvatar::urlFor('Otter Tester');
+        foreach (['image/initials-avatar/AB.svg', 'image/initials-avatar/OT.webp', 'image/initials-avatar/..svg', 'image/initials-avatar/O.T.svg'] as $uri) {
+            $this->withHeaders([])->get($uri)->assertStatus(404);
+        }
+        $this->assertSame(['OT.svg'], array_map('basename', glob($this->uploads . 'initials-avatar/*')));
     }
 
     // ---- helpers ----

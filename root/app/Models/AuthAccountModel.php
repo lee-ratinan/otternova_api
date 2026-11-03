@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Libraries\ActivityLog;
 use App\Libraries\FieldEncryption;
+use App\Libraries\InitialsAvatar;
 use Throwable;
 
 /**
@@ -468,7 +469,7 @@ class AuthAccountModel extends AuthMasterModel
     }
 
     /**
-     * The user object of the signed-in response
+     * The user object of the signed-in response; an empty avatar_path becomes the initials avatar of full_name
      * @param array $account A row from one of the find methods above
      * @return array
      */
@@ -477,6 +478,9 @@ class AuthAccountModel extends AuthMasterModel
         $fields = array_merge(self::ACCOUNT_FIELDS, self::PROFILES[$account['account_type']]['fields']);
         $user   = array_intersect_key($account, array_flip($fields));
         $user['id'] = (int) $user['id'];
+        if ($user['avatar_path'] === null || $user['avatar_path'] === '') {
+            $user['avatar_path'] = InitialsAvatar::urlFor($user['full_name']);
+        }
 
         return $user;
     }

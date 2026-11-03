@@ -7,6 +7,7 @@ use CodeIgniter\Test\FeatureTestTrait;
 use CodeIgniter\Test\TestLogger;
 use CodeIgniter\Test\TestResponse;
 use Config\Auth as AuthConfig;
+use Config\ImageUpload;
 use Config\Services;
 use Firebase\JWT\JWT;
 
@@ -29,6 +30,9 @@ final class AuthTest extends CIUnitTestCase
     /** Captures emails instead of logging them */
     private EmailService $mailer;
 
+    /** Stands in for writable/uploads/, where the initials avatars are made */
+    private string $uploads;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -49,6 +53,20 @@ final class AuthTest extends CIUnitTestCase
             }
         };
         Services::injectMock('emailService', $this->mailer);
+
+        $this->uploads                            = sys_get_temp_dir() . '/otternova-auth-' . bin2hex(random_bytes(4)) . '/';
+        config(ImageUpload::class)->uploadPath = $this->uploads;
+    }
+
+    protected function tearDown(): void
+    {
+        foreach (glob($this->uploads . 'initials-avatar/*.svg') ?: [] as $file) {
+            unlink($file);
+        }
+        @rmdir($this->uploads . 'initials-avatar');
+        @rmdir($this->uploads);
+
+        parent::tearDown();
     }
 
     // ---- /login ----
@@ -67,7 +85,10 @@ final class AuthTest extends CIUnitTestCase
             'job_title', 'employment_status', 'gender', 'date_of_birth', 'status_message',
         ], array_keys($data['user']));
         $this->assertSame('none@otternova.com', $data['user']['email_address']);
-        $this->assertNull($data['user']['avatar_path']); // empty: the app shows its default avatar
+        // no picture uploaded: the initials avatar of "Otter Tester"
+        $this->assertSame(base_url('image/initials-avatar/OT.svg'), $data['user']['avatar_path']);
+        $this->assertFileExists($this->uploads . 'initials-avatar/OT.svg');
+        $this->assertNull($this->db->table('auth_master')->select('avatar_path')->where('email_address', 'none@otternova.com')->get()->getRow()->avatar_path);
         $this->assertSame('EMP-1', $data['user']['employee_code']);
         $this->assertIsInt($data['user']['id']);
 
@@ -77,6 +98,24 @@ final class AuthTest extends CIUnitTestCase
         $this->assertSame($data['expires_at'], $claims->exp);
         $this->assertLessThanOrEqual(8 * HOUR, $claims->exp - $claims->iat);
         $this->assertSame([], $this->mailer->sent);
+    }
+
+    public function testUsersWithTheSameInitialsShareOneAvatarAndAnUploadedOneIsKept(): void
+    {
+        $this->createStaff('mjw@otternova.com', ['otp_mode' => 'X', 'full_name' => 'Mary Jane Watson']);
+        $this->createStaff('mw@otternova.com', ['otp_mode' => 'X', 'full_name' => 'Molly Weasley']);
+        $this->createStaff('pic@otternova.com', ['otp_mode' => 'X', 'full_name' => 'Has Picture', 'avatar_path' => 'https://example.com/me.webp']);
+
+        $first = $this->json($this->login('mjw@otternova.com'), 200)['user']['avatar_path'];
+        $svg   = file_get_contents($this->uploads . 'initials-avatar/MW.svg');
+        touch($this->uploads . 'initials-avatar/MW.svg', 1_000_000);
+        $this->assertSame($first, $this->json($this->login('mw@otternova.com'), 200)['user']['avatar_path']);
+        clearstatcache();
+        $this->assertSame(1_000_000, filemtime($this->uploads . 'initials-avatar/MW.svg')); // re-used, not re-made
+        $this->assertSame($svg, file_get_contents($this->uploads . 'initials-avatar/MW.svg'));
+        $this->assertSame(['MW.svg'], array_map('basename', glob($this->uploads . 'initials-avatar/*')));
+
+        $this->assertSame('https://example.com/me.webp', $this->json($this->login('pic@otternova.com'), 200)['user']['avatar_path']);
     }
 
     public function testLoginWithTelephoneOtpSignsInStraightAway(): void

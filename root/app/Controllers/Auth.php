@@ -37,7 +37,8 @@ class Auth extends BaseController
 
     /**
      * POST /login { email_address, password, account_type }
-     * The user object carries avatar_path, null when no avatar is set (the app shows its default avatar then)
+     * The user object carries avatar_path: the uploaded picture, else the initials avatar of full_name
+     * (InitialsAvatar), null only when full_name gives no initials (the app shows its default avatar then)
      * @return ResponseInterface
      * @throws RandomException
      */

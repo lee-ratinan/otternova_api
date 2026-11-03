@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Filters\JwtAuth;
 use App\Libraries\ApiResponse;
 use App\Libraries\ImageProcessor;
+use App\Libraries\InitialsAvatar;
 use App\Models\ImageTargetModel;
 use CodeIgniter\Database\Exceptions\DatabaseException;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
@@ -117,6 +118,8 @@ class Images extends BaseController
      * Upload in reverse: the same checks of used-for and row, then the target column of row id is set to null and
      * the file it pointed at is deleted. A column that points somewhere other than an uploaded file of this
      * used-for is set to null too, leaving the files alone.
+     * A used-for kept in auth_master.avatar_path answers with the url of the account's initials avatar, the
+     * avatar_path the app now shows in place of the deleted picture (null when full_name gives no initials).
      * @return ResponseInterface
      */
     public function delete(): ResponseInterface
@@ -156,7 +159,13 @@ class Images extends BaseController
             return $this->failed('v1/image-delete', $e, 'ImageUpload.deleteFailed');
         }
 
-        return ApiResponse::success(['used_for' => $usedFor], 200, lang('ImageUpload.deleted'));
+        $data = ['used_for' => $usedFor];
+        if ($rule['target'] === 'auth_master.avatar_path') {
+            $account     = model(ImageTargetModel::class)->findTarget('auth_master', ['full_name'], $id);
+            $data['url'] = InitialsAvatar::urlFor($account['full_name'] ?? null);
+        }
+
+        return ApiResponse::success($data, 200, lang('ImageUpload.deleted'));
     }
 
     /**
@@ -189,6 +198,36 @@ class Images extends BaseController
             return ApiResponse::error(lang('ImageUpload.notFound'), 404);
         }
 
+        return $this->sendFile($path, 'image/webp', $public);
+    }
+
+    /**
+     * GET image/initials-avatar/{initials}.svg
+     * An initials avatar made by InitialsAvatar, public like profile-picture. Only files already made are served:
+     * they are made when a user object goes out, never here.
+     * @param string $file
+     * @return ResponseInterface
+     */
+    public function initials(string $file): ResponseInterface
+    {
+        $name = substr($file, 0, -strlen('.svg'));
+        $path = InitialsAvatar::folder() . $name . '.svg';
+        if (! str_ends_with($file, '.svg') || ! preg_match(InitialsAvatar::NAME_PATTERN, $name) || ! is_file($path)) {
+            return ApiResponse::error(lang('ImageUpload.notFound'), 404);
+        }
+
+        return $this->sendFile($path, 'image/svg+xml', true);
+    }
+
+    /**
+     * The file with its caching headers, or 304 when the caller already has it
+     * @param string $path
+     * @param string $contentType
+     * @param bool   $public
+     * @return ResponseInterface
+     */
+    private function sendFile(string $path, string $contentType, bool $public): ResponseInterface
+    {
         $etag = '"' . dechex((int) filemtime($path)) . '-' . dechex((int) filesize($path)) . '"';
         // removed first: the response starts with a no-store Cache-Control that setHeader() would add to
         $this->response
@@ -200,7 +239,7 @@ class Images extends BaseController
             return $this->response->setStatusCode(304);
         }
 
-        return $this->response->setContentType('image/webp', '')->setBody((string) file_get_contents($path));
+        return $this->response->setContentType($contentType, '')->setBody((string) file_get_contents($path));
     }
 
     /**

@@ -6,6 +6,8 @@ use CodeIgniter\Router\RouteCollection;
 $routes->get('/', 'Home::index');
 
 // Uploaded images, as saved by /v1/staff/image-upload and /v1/client/image-upload; see App\Controllers\Images
+// The initials avatar shown when auth_master.avatar_path is empty; see App\Libraries\InitialsAvatar
+$routes->get('image/initials-avatar/(:segment)', 'Images::initials/$1');
 $routes->get('image/(:segment)/(:segment)', 'Images::show/$1/$2');
 
 // Version 1 of the API: every endpoint the apps call lives under /v1
