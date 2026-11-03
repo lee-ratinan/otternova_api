@@ -7,13 +7,14 @@ use App\Libraries\ApiResponse;
 use App\Libraries\ImageProcessor;
 use App\Models\ImageTargetModel;
 use CodeIgniter\Database\Exceptions\DatabaseException;
+use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\ImageUpload as ImageUploadConfig;
 use RuntimeException;
 use Throwable;
 
 /**
- * Image uploads for both apps, and the image/{used-for}/{image-name}.webp route that serves them back.
+ * Image uploads and deletes for both apps, and the image/{used-for}/{image-name}.webp route that serves them back.
  * What each used-for allows is set in Config\ImageUpload.
  */
 class Images extends BaseController
@@ -37,22 +38,17 @@ class Images extends BaseController
     {
         $config  = config(ImageUploadConfig::class);
         $usedFor = $this->request->getPost('used-for');
-        $rule    = is_string($usedFor) ? ($config->usedFor[$usedFor] ?? null) : null;
-        if ($rule === null) {
-            return ApiResponse::error(lang('ImageUpload.invalidUsedFor'), 422, ['used-for' => lang('ImageUpload.invalidUsedFor')]);
-        }
-        $account     = service('authContext')->account();
-        $accountType = (string) service('authContext')->claims()->typ;
-        if (! in_array($accountType, $rule['uploaders'], true)) {
-            return ApiResponse::error(lang('ImageUpload.usedForNotAllowed'), 403);
+        $rule    = $this->ruleFor($usedFor);
+        if ($rule instanceof ResponseInterface) {
+            return $rule;
         }
 
         $name = $this->request->getPost('image-name');
         if (! is_string($name) || ! preg_match(self::NAME_PATTERN, $name)) {
             return ApiResponse::error(lang('ImageUpload.invalidImageName'), 422, ['image-name' => lang('ImageUpload.invalidImageName')]);
         }
-        $id = filter_var($this->request->getPost('id'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($id === false) {
+        $id = $this->validId($this->request->getPost('id'));
+        if ($id === null) {
             return ApiResponse::error(lang('ImageUpload.invalidId'), 422, ['id' => lang('ImageUpload.invalidId')]);
         }
 
@@ -70,22 +66,12 @@ class Images extends BaseController
         }
 
         [$table, $column] = explode('.', $rule['target'], 2);
-        $targets          = model(ImageTargetModel::class);
-        try {
-            $row = $targets->findTarget($table, [$column, $rule['ownerColumn']], $id);
-        } catch (DatabaseException $e) {
-            log_message('error', 'v1/image-upload: {message}', ['message' => $e->getMessage()]);
-
-            return ApiResponse::error(lang('ImageUpload.saveFailed'), 500);
-        }
-        if ($row === null) {
-            return ApiResponse::error(lang('ImageUpload.targetNotFound'), 404);
-        }
-        if (in_array($accountType, $rule['ownRowOnly'], true) && (int) $row[$rule['ownerColumn']] !== (int) $account['id']) {
-            return ApiResponse::error(lang('ImageUpload.notOwnRecord'), 403);
+        $row              = $this->targetRow($rule, $id, 'v1/image-upload');
+        if ($row instanceof ResponseInterface) {
+            return $row;
         }
 
-        $folder = rtrim($config->uploadPath, '/') . '/' . $usedFor . '/';
+        $folder = $this->folderOf($usedFor);
         $path   = $folder . $name . '.webp';
         $url    = base_url('image/' . $usedFor . '/' . $name . '.webp');
         $oldUrl = $row[$column];
@@ -102,7 +88,7 @@ class Images extends BaseController
         $temp = $folder . '.' . $name . '.' . bin2hex(random_bytes(6)) . '.webp';
         try {
             $processor->convert($file->getTempName(), $temp, $rule['width'], $rule['height'], $config->quality);
-            $targets->setImageUrl($table, $column, $row, $url, (int) $account['id'], 'Uploaded ' . $usedFor . ' ' . $name, static function () use ($temp, $path) {
+            model(ImageTargetModel::class)->setImageUrl($table, $column, $row, $url, $this->actorId(), 'Uploaded ' . $usedFor . ' ' . $name, static function () use ($temp, $path) {
                 if (! @rename($temp, $path)) {
                     throw new RuntimeException(ImageProcessor::ERROR_SAVE);
                 }
@@ -113,13 +99,64 @@ class Images extends BaseController
             return match ($e->getMessage()) {
                 ImageProcessor::ERROR_TOO_SMALL  => ApiResponse::error(lang('ImageUpload.tooSmall', [$rule['width'], $rule['height']]), 422),
                 ImageProcessor::ERROR_UNREADABLE => ApiResponse::error(lang('ImageUpload.unreadable'), 422),
-                default                          => $this->saveFailed($e),
+                default                          => $this->failed('v1/image-upload', $e, 'ImageUpload.saveFailed'),
             };
         }
 
-        $this->removeReplacedFile($oldUrl, $url, $usedFor, $folder);
+        // a new name leaves the previous file behind; safe to delete, as an image-name belongs to one row only
+        $oldPath = $this->fileOf($oldUrl, $usedFor);
+        if ($oldPath !== null && $oldPath !== $path) {
+            @unlink($oldPath);
+        }
 
         return ApiResponse::success(['used_for' => $usedFor, 'url' => $url], 200, lang('ImageUpload.uploaded'));
+    }
+
+    /**
+     * POST /staff/image-delete and /client/image-delete { used-for, id }, as JSON or form fields
+     * Upload in reverse: the same checks of used-for and row, then the target column of row id is set to null and
+     * the file it pointed at is deleted. A column that points somewhere other than an uploaded file of this
+     * used-for is set to null too, leaving the files alone.
+     * @return ResponseInterface
+     */
+    public function delete(): ResponseInterface
+    {
+        try {
+            $usedFor = $this->request->getVar('used-for');
+            $id      = $this->validId($this->request->getVar('id'));
+        } catch (HTTPException) {
+            return ApiResponse::error(lang('ImageUpload.invalidUsedFor'), 422); // JSON that could not be read
+        }
+        $rule = $this->ruleFor($usedFor);
+        if ($rule instanceof ResponseInterface) {
+            return $rule;
+        }
+        if ($id === null) {
+            return ApiResponse::error(lang('ImageUpload.invalidId'), 422, ['id' => lang('ImageUpload.invalidId')]);
+        }
+
+        [$table, $column] = explode('.', $rule['target'], 2);
+        $row              = $this->targetRow($rule, $id, 'v1/image-delete');
+        if ($row instanceof ResponseInterface) {
+            return $row;
+        }
+        if ($row[$column] === null || $row[$column] === '') {
+            return ApiResponse::error(lang('ImageUpload.noImage'), 404);
+        }
+
+        $path = $this->fileOf($row[$column], $usedFor);
+        try {
+            // deleted inside the transaction, so a file that will not go leaves the row as it was
+            model(ImageTargetModel::class)->setImageUrl($table, $column, $row, null, $this->actorId(), 'Deleted ' . $usedFor . ' ' . basename((string) $path, '.webp'), static function () use ($path) {
+                if ($path !== null && is_file($path) && ! @unlink($path)) {
+                    throw new RuntimeException('Cannot delete ' . $path);
+                }
+            });
+        } catch (Throwable $e) {
+            return $this->failed('v1/image-delete', $e, 'ImageUpload.deleteFailed');
+        }
+
+        return ApiResponse::success(['used_for' => $usedFor], 200, lang('ImageUpload.deleted'));
     }
 
     /**
@@ -147,7 +184,7 @@ class Images extends BaseController
         }
 
         $name = substr($file, 0, -strlen('.webp'));
-        $path = rtrim($config->uploadPath, '/') . '/' . $usedFor . '/' . $name . '.webp';
+        $path = $this->folderOf($usedFor) . $name . '.webp';
         if (! str_ends_with($file, '.webp') || ! preg_match(self::NAME_PATTERN, $name) || ! is_file($path)) {
             return ApiResponse::error(lang('ImageUpload.notFound'), 404);
         }
@@ -167,34 +204,106 @@ class Images extends BaseController
     }
 
     /**
-     * @param Throwable $e
-     * @return ResponseInterface
+     * The config of a used-for the signed-in account type may upload (and so delete)
+     * @param mixed $usedFor From the request
+     * @return array|ResponseInterface The refusal when not
      */
-    private function saveFailed(Throwable $e): ResponseInterface
+    private function ruleFor(mixed $usedFor): array|ResponseInterface
     {
-        log_message('error', 'v1/image-upload: {message}', ['message' => $e->getMessage()]);
+        $rule = is_string($usedFor) ? (config(ImageUploadConfig::class)->usedFor[$usedFor] ?? null) : null;
+        if ($rule === null) {
+            return ApiResponse::error(lang('ImageUpload.invalidUsedFor'), 422, ['used-for' => lang('ImageUpload.invalidUsedFor')]);
+        }
+        if (! in_array((string) service('authContext')->claims()->typ, $rule['uploaders'], true)) {
+            return ApiResponse::error(lang('ImageUpload.usedForNotAllowed'), 403);
+        }
 
-        return ApiResponse::error(lang('ImageUpload.saveFailed'), 500);
+        return $rule;
     }
 
     /**
-     * Delete the file the row pointed at before, when it was another image of the same used-for.
-     * Safe as an image-name belongs to one row only (see upload()).
-     * @param string|null $oldUrl
-     * @param string      $url
-     * @param string      $usedFor
-     * @param string      $folder
-     * @return void
+     * @param mixed $id From the request
+     * @return int|null Null unless a positive integer
      */
-    private function removeReplacedFile(?string $oldUrl, string $url, string $usedFor, string $folder): void
+    private function validId(mixed $id): ?int
+    {
+        $id = is_int($id) || is_string($id) ? filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) : false;
+
+        return $id === false ? null : $id;
+    }
+
+    /**
+     * Row id of the used-for's target table, when the signed-in account may change it: an account type in
+     * ownRowOnly only the row it owns
+     * @param array  $rule
+     * @param int    $id
+     * @param string $endpoint For the error log
+     * @return array|ResponseInterface The row's id, target column and owner column, or the refusal
+     */
+    private function targetRow(array $rule, int $id, string $endpoint): array|ResponseInterface
+    {
+        [$table, $column] = explode('.', $rule['target'], 2);
+        try {
+            $row = model(ImageTargetModel::class)->findTarget($table, [$column, $rule['ownerColumn']], $id);
+        } catch (DatabaseException $e) {
+            return $this->failed($endpoint, $e, 'ImageUpload.loadFailed');
+        }
+        if ($row === null) {
+            return ApiResponse::error(lang('ImageUpload.targetNotFound'), 404);
+        }
+        $accountType = (string) service('authContext')->claims()->typ;
+        if (in_array($accountType, $rule['ownRowOnly'], true) && (int) $row[$rule['ownerColumn']] !== $this->actorId()) {
+            return ApiResponse::error(lang('ImageUpload.notOwnRecord'), 403);
+        }
+
+        return $row;
+    }
+
+    /**
+     * @param string $usedFor
+     * @return string With a trailing slash
+     */
+    private function folderOf(string $usedFor): string
+    {
+        return rtrim(config(ImageUploadConfig::class)->uploadPath, '/') . '/' . $usedFor . '/';
+    }
+
+    /**
+     * The file behind a URL saved by upload(): base_url('image/{used-for}/{image-name}.webp')
+     * @param string|null $url
+     * @param string      $usedFor
+     * @return string|null Null for any other value
+     */
+    private function fileOf(?string $url, string $usedFor): ?string
     {
         $prefix = base_url('image/' . $usedFor . '/');
-        if ($oldUrl === null || $oldUrl === $url || ! str_starts_with($oldUrl, $prefix) || ! str_ends_with($oldUrl, '.webp')) {
-            return;
+        if ($url === null || ! str_starts_with($url, $prefix) || ! str_ends_with($url, '.webp')) {
+            return null;
         }
-        $oldName = substr($oldUrl, strlen($prefix), -strlen('.webp'));
-        if (preg_match(self::NAME_PATTERN, $oldName)) {
-            @unlink($folder . $oldName . '.webp');
-        }
+        $name = substr($url, strlen($prefix), -strlen('.webp'));
+
+        return preg_match(self::NAME_PATTERN, $name) ? $this->folderOf($usedFor) . $name . '.webp' : null;
+    }
+
+    /**
+     * auth_master.id of the signed-in account, for log_activity.changed_by_acc and the ownRowOnly check
+     * @return int
+     */
+    private function actorId(): int
+    {
+        return (int) service('authContext')->account()['id'];
+    }
+
+    /**
+     * @param string    $endpoint For the error log
+     * @param Throwable $e
+     * @param string    $message  Language key shown to the user
+     * @return ResponseInterface
+     */
+    private function failed(string $endpoint, Throwable $e, string $message): ResponseInterface
+    {
+        log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
+
+        return ApiResponse::error(lang($message), 500);
     }
 }

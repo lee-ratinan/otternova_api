@@ -10,7 +10,8 @@ use Config\ImageUpload;
 use Config\Services;
 
 /**
- * POST /staff/image-upload and /client/image-upload, and GET image/{used-for}/{image-name}.webp
+ * POST /staff/image-upload, /client/image-upload, /staff/image-delete and /client/image-delete,
+ * and GET image/{used-for}/{image-name}.webp
  *
  * @internal
  */
@@ -244,6 +245,105 @@ final class ImagesTest extends CIUnitTestCase
         $this->assertSame(base_url('image/profile-picture/second.webp'), $this->avatarOf($this->client['id']));
     }
 
+    // ---- deleting ----
+
+    public function testClientDeletesOwnImage(): void
+    {
+        $this->upload(['used-for' => 'profile-picture', 'image-name' => 'me', 'id' => $this->client['id']], $this->image('jpeg', 600, 600))->assertStatus(200);
+
+        $response = $this->deleteImage(['used-for' => 'profile-picture', 'id' => $this->client['id']]);
+
+        $response->assertStatus(200);
+        $this->assertSame(['used_for' => 'profile-picture'], $this->body($response)['data']);
+        $this->assertFileDoesNotExist($this->uploads . 'profile-picture/me.webp');
+        $this->assertNull($this->avatarOf($this->client['id']));
+        $this->seeInDatabase('log_activity', ['activity_summary' => 'Deleted profile-picture me', 'table_id_updated' => $this->client['id'], 'changed_by_acc' => $this->client['id']]);
+        $this->withHeaders([])->get('image/profile-picture/me.webp')->assertStatus(404);
+    }
+
+    public function testDeleteTakesFormFieldsToo(): void
+    {
+        $this->upload(['used-for' => 'profile-picture', 'image-name' => 'me', 'id' => $this->client['id']], $this->image('jpeg', 600, 600))->assertStatus(200);
+
+        $this->deleteImage(['used-for' => 'profile-picture', 'id' => (string) $this->client['id']], null, 'client', false)->assertStatus(200);
+        $this->assertNull($this->avatarOf($this->client['id']));
+    }
+
+    public function testDeletedNameIsFreeAgain(): void
+    {
+        $other = $this->createClient('other@example.com');
+        $this->upload(['used-for' => 'profile-picture', 'image-name' => 'taken', 'id' => $other['id']], $this->image('jpeg', 600, 600), $this->staffToken, 'staff')->assertStatus(200);
+        $this->deleteImage(['used-for' => 'profile-picture', 'id' => $other['id']], $this->staffToken, 'staff')->assertStatus(200);
+
+        $this->upload(['used-for' => 'profile-picture', 'image-name' => 'taken', 'id' => $this->client['id']], $this->image('jpeg', 600, 600))->assertStatus(200);
+    }
+
+    public function testStaffDeletesAnyAccountsImage(): void
+    {
+        $this->upload(['used-for' => 'profile-picture', 'image-name' => 'me', 'id' => $this->client['id']], $this->image('jpeg', 600, 600))->assertStatus(200);
+
+        $this->deleteImage(['used-for' => 'profile-picture', 'id' => $this->client['id']], $this->staffToken, 'staff')->assertStatus(200);
+        $this->assertFileDoesNotExist($this->uploads . 'profile-picture/me.webp');
+        $this->seeInDatabase('log_activity', ['activity_summary' => 'Deleted profile-picture me', 'changed_by_acc' => $this->staff['id']]);
+    }
+
+    public function testClientCannotDeleteAnotherAccountsImage(): void
+    {
+        $other = $this->createClient('other@example.com');
+        $this->upload(['used-for' => 'profile-picture', 'image-name' => 'theirs', 'id' => $other['id']], $this->image('jpeg', 600, 600), $this->staffToken, 'staff')->assertStatus(200);
+
+        $this->deleteImage(['used-for' => 'profile-picture', 'id' => $other['id']])->assertStatus(403);
+        $this->assertFileExists($this->uploads . 'profile-picture/theirs.webp');
+        $this->assertSame(base_url('image/profile-picture/theirs.webp'), $this->avatarOf($other['id']));
+    }
+
+    public function testDeleteChecksUsedForAndId(): void
+    {
+        $this->deleteImage(['id' => $this->client['id']])->assertStatus(422);
+        $this->deleteImage(['used-for' => 'banner', 'id' => $this->client['id']])->assertStatus(422);
+        $this->deleteImage(['used-for' => 'staff-badge', 'id' => $this->client['id']])->assertStatus(403);
+        $this->deleteImage(['used-for' => 'client-card', 'id' => $this->staff['id']], $this->staffToken, 'staff')->assertStatus(403);
+        foreach ([null, 0, -1, 'abc', 1.5] as $id) {
+            $this->deleteImage(['used-for' => 'profile-picture', 'id' => $id])->assertStatus(422);
+        }
+        $this->deleteImage(['used-for' => 'profile-picture', 'id' => 99999], $this->staffToken, 'staff')->assertStatus(404);
+        $this->withHeaders(['Authorization' => 'Bearer ' . $this->clientToken, 'Content-Type' => 'application/json'])
+            ->withBody('{not json')->post('v1/client/image-delete')->assertStatus(422);
+    }
+
+    public function testFileThatWillNotGoLeavesTheRowAsItWas(): void
+    {
+        $this->upload(['used-for' => 'profile-picture', 'image-name' => 'stuck', 'id' => $this->client['id']], $this->image('jpeg', 600, 600))->assertStatus(200);
+        chmod($this->uploads . 'profile-picture', 0555); // a file cannot be deleted from a read-only folder
+
+        try {
+            $this->deleteImage(['used-for' => 'profile-picture', 'id' => $this->client['id']])->assertStatus(500);
+        } finally {
+            chmod($this->uploads . 'profile-picture', 0755);
+        }
+        $this->assertFileExists($this->uploads . 'profile-picture/stuck.webp');
+        $this->assertSame(base_url('image/profile-picture/stuck.webp'), $this->avatarOf($this->client['id']));
+        $this->dontSeeInDatabase('log_activity', ['activity_summary' => 'Deleted profile-picture stuck']);
+    }
+
+    public function testNothingToDeleteIsNotFound(): void
+    {
+        $response = $this->deleteImage(['used-for' => 'profile-picture', 'id' => $this->client['id']]);
+
+        $response->assertStatus(404);
+        $this->assertSame(lang('ImageUpload.noImage'), $this->body($response)['message']);
+    }
+
+    public function testValueThatIsNotAnUploadIsClearedWithoutTouchingFiles(): void
+    {
+        $this->upload(['used-for' => 'profile-picture', 'image-name' => 'keep', 'id' => $this->staff['id']], $this->image('jpeg', 600, 600), $this->staffToken, 'staff')->assertStatus(200);
+        $this->db->table('auth_master')->where('id', $this->client['id'])->update(['avatar_path' => 'https://elsewhere.example/keep.webp']);
+
+        $this->deleteImage(['used-for' => 'profile-picture', 'id' => $this->client['id']])->assertStatus(200);
+        $this->assertNull($this->avatarOf($this->client['id']));
+        $this->assertFileExists($this->uploads . 'profile-picture/keep.webp');
+    }
+
     // ---- serving ----
 
     public function testSignedInImageNeedsAToken(): void
@@ -293,6 +393,19 @@ final class ImagesTest extends CIUnitTestCase
     }
 
     // ---- helpers ----
+
+    /**
+     * @param bool $json JSON body; false sends form fields
+     */
+    private function deleteImage(array $body, ?string $token = null, string $app = 'client', bool $json = true): TestResponse
+    {
+        $request = $this->withHeaders(['Authorization' => 'Bearer ' . ($token ?? $this->clientToken)]);
+        if ($json) {
+            $request = $request->withBodyFormat('json');
+        }
+
+        return $request->post('v1/' . $app . '/image-delete', $body);
+    }
 
     /** A staff-badge (signed-in only) for the staff account */
     private function uploadBadge(): void

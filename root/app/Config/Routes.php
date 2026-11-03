@@ -36,6 +36,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('departments', 'Accounts::departments');
         $routes->post('staff-members', 'Accounts::staffMembers');
         $routes->post('image-upload', 'Images::upload');
+        $routes->post('image-delete', 'Images::delete');
     });
 
     // Client app: client accounts only (a valid token with typ C)
@@ -43,5 +44,6 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');
         $routes->post('change-password', 'Auth::changePassword');
         $routes->post('image-upload', 'Images::upload');
+        $routes->post('image-delete', 'Images::delete');
     });
 });

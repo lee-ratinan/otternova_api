@@ -12,7 +12,11 @@ return [
     'nameTaken'         => 'Another image already has this name. Please use a different name.',
     'unreadable'        => 'The image could not be read. Please choose another one.',
     'tooSmall'          => 'The image is too small. Please choose one at least {0} × {1} pixels.',
+    'loadFailed'        => 'Could not load the record for this image. Please try again.',
     'saveFailed'        => 'Could not save the image. Please try again.',
+    'deleteFailed'      => 'Could not delete the image. Please try again.',
+    'noImage'           => 'There is no image to delete.',
     'uploaded'          => 'Image uploaded.',
+    'deleted'           => 'Image deleted.',
     'notFound'          => 'Image not found.',
 ];
