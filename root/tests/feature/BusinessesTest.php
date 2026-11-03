@@ -26,7 +26,8 @@ final class BusinessesTest extends CIUnitTestCase
     private int $clientId;
     private string $token;
 
-    private int $typeId;
+    /** public_id of the business type */
+    private string $typeId;
 
     protected function setUp(): void
     {
@@ -41,7 +42,8 @@ final class BusinessesTest extends CIUnitTestCase
         $this->token    = service('jwt')->issue($this->client)['access_token'];
 
         $staff        = $this->createAccount('admin@otternova.com', 'S');
-        $this->typeId = (new BusinessTypeModel())->createWithNames(['type_code' => 'cafe'], ['en-US' => 'Café', 'th' => 'คาเฟ่'], (int) $staff['id']);
+        $types        = new BusinessTypeModel();
+        $this->typeId = $types->publicIdOf($types->createWithNames(['type_code' => 'cafe'], ['en-US' => 'Café', 'th' => 'คาเฟ่'], (int) $staff['id']));
     }
 
     public function testOnlyClientsGetIn(): void
@@ -147,6 +149,31 @@ final class BusinessesTest extends CIUnitTestCase
         $this->assertSame('Otter Café', $this->db->table('business_master')->where('id', $id)->get()->getRow()->business_name);
     }
 
+    public function testBusinessTypeIsTakenByItsPublicId(): void
+    {
+        $response = $this->send(['business' => $this->business(['business_type_public_id' => 'zzzz'])]);
+        $response->assertStatus(422);
+        $this->assertSame(['business_type_public_id' => lang('Business.typeNotFound')], $this->body($response)['errors']);
+
+        // the internal id is not taken
+        $typeId   = $this->db->table('business_type')->get()->getRow()->id;
+        $business = $this->business(['business_type_id' => $typeId]);
+        unset($business['business_type_public_id']);
+        $response = $this->send(['business' => $business]);
+        $response->assertStatus(422);
+        $this->assertSame(['business_type_public_id'], array_keys($this->body($response)['errors']));
+
+        // left out of an edit, the type stays; given, it changes
+        $this->send(['business' => $this->business()])->assertStatus(200);
+        $staff  = $this->db->table('auth_master')->where('account_type', 'S')->get()->getRow()->id;
+        $types  = new BusinessTypeModel();
+        $salon  = $types->publicIdOf($types->createWithNames(['type_code' => 'salon'], ['en-US' => 'Salon', 'th' => 'ร้านเสริมสวย'], (int) $staff));
+        $this->send(['business_slug' => 'otter-cafe-sg', 'business' => ['contact_city' => 'Singapore']], null, 'v1/client/business/edit')->assertStatus(200);
+        $this->assertSame((string) $typeId, (string) $this->db->table('business_master')->get()->getRow()->business_type_id);
+        $this->send(['business_slug' => 'otter-cafe-sg', 'business' => ['business_type_public_id' => $salon]], null, 'v1/client/business/edit')->assertStatus(200);
+        $this->assertSame((string) $types->idOfPublicId($salon), (string) $this->db->table('business_master')->get()->getRow()->business_type_id);
+    }
+
     public function testCountryAndCurrencyAreFixed(): void
     {
         $this->send(['business' => $this->business()])->assertStatus(200);
@@ -211,7 +238,7 @@ final class BusinessesTest extends CIUnitTestCase
     private function business(array $overrides = []): array
     {
         return $overrides + [
-            'business_type_id'      => $this->typeId,
+            'business_type_public_id' => $this->typeId,
             'business_name'         => 'OtterCafe',
             'business_slug'         => 'otter-cafe-sg',
             'contact_email_address' => 'hello@ottercafe.sg',

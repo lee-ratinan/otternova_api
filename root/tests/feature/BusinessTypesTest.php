@@ -62,10 +62,11 @@ final class BusinessTypesTest extends CIUnitTestCase
         $data = $this->body($response)['data'];
         $this->assertSame('cafe', $data['type_code']);
 
-        $row = $this->db->table('business_type')->where('id', $data['id'])->get()->getRowArray();
+        $this->assertSame(['public_id', 'type_code'], array_keys($data));
+        $row = $this->db->table('business_type')->where('public_id', $data['public_id'])->get()->getRowArray();
         $this->assertSame(['cafe', 'A'], [$row['type_code'], $row['type_status']]);
 
-        $names = $this->db->table('business_type_translation')->where('business_type_id', $data['id'])->get()->getResultArray();
+        $names = $this->db->table('business_type_translation')->where('business_type_id', $row['id'])->get()->getResultArray();
         $this->assertEqualsCanonicalizing(['en-US' => 'Café', 'th' => 'คาเฟ่'], array_column($names, 'type_name', 'language_code'));
 
         $this->assertSame(3, $this->db->table('log_activity')->where('changed_by_acc', $this->staff['id'])->countAllResults()); // the type and two names
@@ -109,42 +110,44 @@ final class BusinessTypesTest extends CIUnitTestCase
 
     public function testTypeStatusAndNamesAreEdited(): void
     {
-        $id = $this->body($this->send($this->type()))['data']['id'];
+        $id = $this->body($this->send($this->type()))['data']['public_id'];
 
-        $response = $this->send(['id' => $id, 'type_status' => 'I', 'translations' => ['en-US' => 'Coffee Shop', 'th' => 'คาเฟ่']], null, 'v1/staff/business-type/edit');
+        $response = $this->send(['public_id' => $id, 'type_status' => 'I', 'translations' => ['en-US' => 'Coffee Shop', 'th' => 'คาเฟ่']], null, 'v1/staff/business-type/edit');
         $response->assertStatus(200);
-        $this->assertSame(['id' => $id, 'type_code' => 'cafe'], $this->body($response)['data']);
+        $this->assertSame(['public_id' => $id, 'type_code' => 'cafe'], $this->body($response)['data']);
 
-        $this->assertSame('I', $this->db->table('business_type')->where('id', $id)->get()->getRow()->type_status);
-        $names = $this->db->table('business_type_translation')->where('business_type_id', $id)->get()->getResultArray();
+        $this->assertSame('I', $this->db->table('business_type')->where('public_id', $id)->get()->getRow()->type_status);
+        $typeId = $this->db->table('business_type')->where('public_id', $id)->get()->getRow()->id;
+        $names  = $this->db->table('business_type_translation')->where('business_type_id', $typeId)->get()->getResultArray();
         $this->assertEqualsCanonicalizing(['en-US' => 'Coffee Shop', 'th' => 'คาเฟ่'], array_column($names, 'type_name', 'language_code'));
 
         // the status and one name changed: two more log rows, the unchanged Thai name none
         $this->assertSame(5, $this->db->table('log_activity')->where('changed_by_acc', $this->staff['id'])->countAllResults());
 
         // left out, the status stays
-        $this->send(['id' => (string) $id, 'translations' => ['en-US' => 'Coffee Shop', 'th' => 'ร้านกาแฟ']], null, 'v1/staff/business-type/edit')->assertStatus(200);
-        $this->assertSame('I', $this->db->table('business_type')->where('id', $id)->get()->getRow()->type_status);
+        $this->send(['public_id' => $id, 'translations' => ['en-US' => 'Coffee Shop', 'th' => 'ร้านกาแฟ']], null, 'v1/staff/business-type/edit')->assertStatus(200);
+        $this->assertSame('I', $this->db->table('business_type')->where('public_id', $id)->get()->getRow()->type_status);
     }
 
     public function testEditKeepsTheCodeAndEveryLanguage(): void
     {
-        $id = $this->body($this->send($this->type()))['data']['id'];
+        $id = $this->body($this->send($this->type()))['data']['public_id'];
         $this->send($this->type(['type_code' => 'salon', 'translations' => ['en-US' => 'Salon', 'th' => 'ร้านเสริมสวย']]))->assertStatus(200);
 
-        $response = $this->send(['id' => $id, 'type_code' => 'coffee_shop', 'translations' => ['en-US' => 'Café']], null, 'v1/staff/business-type/edit');
+        $response = $this->send(['public_id' => $id, 'type_code' => 'coffee_shop', 'translations' => ['en-US' => 'Café']], null, 'v1/staff/business-type/edit');
         $response->assertStatus(422);
         $this->assertSame(['translations.th' => lang('Business.translationRequired'), 'type_code' => lang('Business.fixedField')], $this->body($response)['errors']);
 
-        $response = $this->send(['id' => $id, 'translations' => ['en-US' => 'Salon', 'th' => 'คาเฟ่']], null, 'v1/staff/business-type/edit');
+        $response = $this->send(['public_id' => $id, 'translations' => ['en-US' => 'Salon', 'th' => 'คาเฟ่']], null, 'v1/staff/business-type/edit');
         $response->assertStatus(422);
         $this->assertSame(['translations.en-US' => lang('Business.typeNameTaken')], $this->body($response)['errors']);
 
         // its own names are not taken, and its own code may be sent back
-        $this->send(['id' => $id, 'type_code' => 'cafe'] + $this->type(), null, 'v1/staff/business-type/edit')->assertStatus(200);
+        $this->send(['public_id' => $id, 'type_code' => 'cafe'] + $this->type(), null, 'v1/staff/business-type/edit')->assertStatus(200);
 
         $this->send(['translations' => []], null, 'v1/staff/business-type/edit')->assertStatus(400);
-        $this->send(['id' => 999] + $this->type(), null, 'v1/staff/business-type/edit')->assertStatus(404);
+        $this->send(['public_id' => 'zzzz'] + $this->type(), null, 'v1/staff/business-type/edit')->assertStatus(404);
+        $this->send(['id' => 1] + $this->type(), null, 'v1/staff/business-type/edit')->assertStatus(400); // the old numeric id is not taken
     }
 
     private function type(array $overrides = []): array

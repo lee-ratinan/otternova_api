@@ -14,6 +14,7 @@ return [
     'created'              => 'Saved.',
     'updated'              => 'Saved.',
     'counterpartyRequired' => 'Please choose the counterparty: one of the accounts is external.',
+    'referenceNotFound'    => 'Not found. It may have been removed; please choose again.',
     'receiptRequired'      => 'Please choose a PDF file.',
     'receiptTooLarge'      => 'The file is too large. It can be at most {0} MB.',
     'receiptNotPdf'        => 'Only PDF files can be uploaded.',

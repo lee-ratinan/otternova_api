@@ -72,17 +72,15 @@ class OtternovaLedgerAccountModel extends Model
 
     /**
      * Every account, by name, for the ledger's account list and dropdowns
-     * @return list<array{id: int, account_name: string, account_type: string, currency_code: string, account_class: string|null}>
+     * @return list<array{public_id: string, account_name: string, account_type: string, currency_code: string, account_class: string|null}>
      */
     public function listForLookup(): array
     {
-        $rows = $this->db->table($this->table)
-            ->select('id, account_name, account_type, currency_code, account_class')
+        return $this->db->table($this->table)
+            ->select('public_id, account_name, account_type, currency_code, account_class')
             ->orderBy('account_name', 'ASC')
             ->orderBy('id', 'ASC')
             ->get()
             ->getResultArray();
-
-        return array_map(static fn (array $row) => ['id' => (int) $row['id']] + $row, $rows);
     }
 }

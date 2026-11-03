@@ -95,14 +95,14 @@ class BusinessTypeModel extends Model
      * The business types with their names in $language, for a Business Type dropdown
      * @param string $language   A key of listSupportedLanguages(); any other falls back to DEFAULT_LANGUAGE
      * @param bool   $activeOnly Leave out the inactive types, as for a new business
-     * @return list<array{id: int, type_code: string, type_status: string, type_name: string}>
+     * @return list<array{id: int, public_id: string, type_code: string, type_status: string, type_name: string}>
      */
     public function listForLookup(string $language, bool $activeOnly = true): array
     {
         helper('list');
         $language = isset(listSupportedLanguages()[$language]) ? $language : self::DEFAULT_LANGUAGE;
         $builder  = $this->db->table($this->table . ' t')
-            ->select('t.id, t.type_code, t.type_status, n.type_name')
+            ->select('t.id, t.public_id, t.type_code, t.type_status, n.type_name')
             ->join('business_type_translation n', 'n.business_type_id = t.id AND n.language_code = ' . $this->db->escape($language), 'left');
         if ($activeOnly) {
             $builder->where('t.type_status', self::STATUS_ACTIVE);

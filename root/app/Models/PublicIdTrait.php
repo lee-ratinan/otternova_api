@@ -6,9 +6,10 @@ use CodeIgniter\Database\Exceptions\DatabaseException;
 use RuntimeException;
 
 /**
- * public_id for models whose table has one: a NanoID (generateNanoId() of id_helper) unique within the table.
- * The model sets $publicIdLength to the column's length and lists 'fillPublicId' in $beforeInsert, so that
- * Model::insert() gets one too; its own writes take one through withPublicId(), which retries on a clash.
+ * public_id for models whose table has one: a NanoID (generateNanoId() of id_helper) unique within the table,
+ * the only ID the API sends and takes for these rows. The model sets $publicIdLength to the column's length and
+ * lists 'fillPublicId' in $beforeInsert, so that Model::insert() gets one too; its own writes take one through
+ * withPublicId(), which retries on a clash.
  */
 trait PublicIdTrait
 {
@@ -34,6 +35,44 @@ trait PublicIdTrait
         }
 
         throw new RuntimeException('No free public_id found in ' . $this->table);
+    }
+
+    /**
+     * The row with this public_id, as stored
+     * @param mixed $publicId From the request; anything but a well-formed public_id finds nothing
+     * @return array|null
+     */
+    public function findByPublicId(mixed $publicId): ?array
+    {
+        if (! is_string($publicId) || ! preg_match('/^[0-9A-Za-z_-]{' . $this->publicIdLength . '}$/', $publicId)) {
+            return null;
+        }
+
+        return $this->db->table($this->table)->where('public_id', $publicId)->get()->getRowArray();
+    }
+
+    /**
+     * The id of the row with this public_id, for the columns that point at it
+     * @param mixed $publicId From the request
+     * @return int|null
+     */
+    public function idOfPublicId(mixed $publicId): ?int
+    {
+        $row = $this->findByPublicId($publicId);
+
+        return $row === null ? null : (int) $row['id'];
+    }
+
+    /**
+     * The public_id of the row with this id, for the response to a create
+     * @param int $id
+     * @return string|null
+     */
+    public function publicIdOf(int $id): ?string
+    {
+        $row = $this->db->table($this->table)->select('public_id')->where('id', $id)->get()->getRowArray();
+
+        return $row['public_id'] ?? null;
     }
 
     /**

@@ -99,11 +99,11 @@ final class LedgerTest extends CIUnitTestCase
         $id = $this->createRecord('account', ['account_name' => 'Company account', 'account_type' => 'I', 'currency_code' => 'thb', 'account_class' => '']);
 
         $this->assertSame(
-            ['id' => $id, 'account_name' => 'Company account', 'account_type' => 'I', 'currency_code' => 'THB', 'account_class' => null],
+            ['public_id' => $id, 'account_name' => 'Company account', 'account_type' => 'I', 'currency_code' => 'THB', 'account_class' => null],
             $this->rows('v1/staff/ledger/accounts')[0]
         );
 
-        $response = $this->send('v1/staff/ledger/account/update', ['id' => $id, 'account_name' => 'Company account', 'account_type' => 'I', 'currency_code' => 'THB', 'account_class' => 'A']);
+        $response = $this->send('v1/staff/ledger/account/update', ['public_id' => $id, 'account_name' => 'Company account', 'account_type' => 'I', 'currency_code' => 'THB', 'account_class' => 'A']);
         $response->assertStatus(200);
         $this->assertSame('A', $this->rows('v1/staff/ledger/accounts')[0]['account_class']);
 
@@ -125,8 +125,12 @@ final class LedgerTest extends CIUnitTestCase
 
     public function testUpdatingAMissingRecordIs404(): void
     {
-        $this->send('v1/staff/ledger/category/update', ['id' => 99, 'category_code' => 'INF', 'category_name' => 'Infrastructure'])->assertStatus(404);
-        $this->send('v1/staff/ledger/category/update', ['id' => 'abc', 'category_code' => 'INF', 'category_name' => 'Infrastructure'])->assertStatus(422);
+        $this->send('v1/staff/ledger/category/update', ['public_id' => 'zzzz', 'category_code' => 'INF', 'category_name' => 'Infrastructure'])->assertStatus(404);
+        $this->send('v1/staff/ledger/category/update', ['public_id' => 'not a public id', 'category_code' => 'INF', 'category_name' => 'Infrastructure'])->assertStatus(404);
+        $this->send('v1/staff/ledger/category/update', ['public_id' => 99, 'category_code' => 'INF', 'category_name' => 'Infrastructure'])->assertStatus(422);
+        // the old numeric id finds nothing, so it creates
+        $this->send('v1/staff/ledger/category/update', ['id' => 1, 'category_code' => 'INF', 'category_name' => 'Infrastructure'])->assertStatus(200);
+        $this->assertSame(1, $this->db->table('otternova_ledger_category')->countAllResults());
     }
 
     public function testCategoryCodeIsUniqueButKeptOnItsOwnUpdate(): void
@@ -134,9 +138,9 @@ final class LedgerTest extends CIUnitTestCase
         $id = $this->createRecord('category', ['category_code' => 'inf', 'category_name' => 'Infrastructure']);
 
         $this->send('v1/staff/ledger/category/update', ['category_code' => 'INF', 'category_name' => 'Other'])->assertStatus(422);
-        $this->send('v1/staff/ledger/category/update', ['id' => $id, 'category_code' => 'INF', 'category_name' => 'Cloud'])->assertStatus(200);
+        $this->send('v1/staff/ledger/category/update', ['public_id' => $id, 'category_code' => 'INF', 'category_name' => 'Cloud'])->assertStatus(200);
 
-        $this->assertSame([['id' => $id, 'category_code' => 'INF', 'category_name' => 'Cloud']], $this->rows('v1/staff/ledger/categories'));
+        $this->assertSame([['public_id' => $id, 'category_code' => 'INF', 'category_name' => 'Cloud']], $this->rows('v1/staff/ledger/categories'));
     }
 
     public function testCounterpartyIsCreated(): void
@@ -144,7 +148,7 @@ final class LedgerTest extends CIUnitTestCase
         $id = $this->createRecord('counterparty', ['counterparty_name' => 'Amazon Web Services', 'counterparty_description' => '']);
 
         $this->assertSame(
-            [['id' => $id, 'counterparty_name' => 'Amazon Web Services', 'counterparty_description' => null]],
+            [['public_id' => $id, 'counterparty_name' => 'Amazon Web Services', 'counterparty_description' => null]],
             $this->rows('v1/staff/ledger/counterparties')
         );
     }
@@ -156,10 +160,17 @@ final class LedgerTest extends CIUnitTestCase
         $ids      = $this->basics();
         $response = $this->send('v1/staff/ledger/entry/update', $this->entry($ids, ['transaction_amount' => 12.5, 'billed_amount' => '12']));
         $response->assertStatus(200);
-        $id = $this->body($response)['data']['id'];
+        $id = $this->body($response)['data']['public_id'];
 
-        $entry = $this->body($this->send('v1/staff/ledger/entry', ['id' => $id]))['data']['entry'];
+        $entry = $this->body($this->send('v1/staff/ledger/entry', ['public_id' => $id]))['data']['entry'];
 
+        $this->assertSame($id, $entry['public_id']);
+        $this->assertSame([$ids['category'], $ids['company'], $ids['aws'], $ids['counterparty']], [$entry['category_public_id'], $entry['from_account_public_id'], $entry['to_account_public_id'], $entry['counterparty_public_id']]);
+        foreach (['id', 'category_id', 'from_account_id', 'to_account_id', 'counterparty_id'] as $internal) {
+            $this->assertArrayNotHasKey($internal, $entry);
+        }
+        $this->assertSame(4, strlen($ids['category']));
+        $this->assertSame(12, strlen($id));
         $this->assertSame('2026-11-01', $entry['transaction_date']);
         $this->assertSame('INV-001', $entry['reference_number']);
         $this->assertSame('INF', $entry['category_code']);
@@ -176,14 +187,14 @@ final class LedgerTest extends CIUnitTestCase
     public function testEntryWithAnExternalAccountNeedsACounterparty(): void
     {
         $ids      = $this->basics();
-        $response = $this->send('v1/staff/ledger/entry/update', $this->entry($ids, ['counterparty_id' => null]));
+        $response = $this->send('v1/staff/ledger/entry/update', $this->entry($ids, ['counterparty_public_id' => null]));
 
         $response->assertStatus(422);
-        $this->assertSame(['counterparty_id' => lang('Ledger.counterpartyRequired')], $this->body($response)['errors']);
+        $this->assertSame(['counterparty_public_id' => lang('Ledger.counterpartyRequired')], $this->body($response)['errors']);
 
         // between two internal accounts there is no other party
         $personal = $this->createRecord('account', ['account_name' => 'Personal account', 'account_type' => 'I', 'currency_code' => 'THB']);
-        $this->send('v1/staff/ledger/entry/update', $this->entry($ids, ['to_account_id' => $personal, 'counterparty_id' => '']))->assertStatus(200);
+        $this->send('v1/staff/ledger/entry/update', $this->entry($ids, ['to_account_public_id' => $personal, 'counterparty_public_id' => '']))->assertStatus(200);
     }
 
     public function testEntryFieldsAreChecked(): void
@@ -193,27 +204,28 @@ final class LedgerTest extends CIUnitTestCase
             'transaction_date'   => '2026-02-30',
             'transaction_amount' => '0',
             'billed_amount'      => '1.23456',
-            'to_account_id'      => $ids['company'],
-            'category_id'        => 999,
+            'to_account_public_id' => $ids['company'],
+            'category_public_id'   => 'zzzz',
         ]));
 
         $response->assertStatus(422);
         $this->assertEqualsCanonicalizing(
-            ['transaction_date', 'transaction_amount', 'billed_amount', 'to_account_id', 'category_id'],
+            ['transaction_date', 'transaction_amount', 'billed_amount', 'to_account_public_id', 'category_public_id'],
             array_keys($this->body($response)['errors'])
         );
+        $this->assertSame(lang('Ledger.referenceNotFound'), $this->body($response)['errors']['category_public_id']);
     }
 
     public function testEntryIsUpdatedKeepingItsCreator(): void
     {
         $ids = $this->basics();
-        $id  = $this->body($this->send('v1/staff/ledger/entry/update', $this->entry($ids)))['data']['id'];
+        $id  = $this->body($this->send('v1/staff/ledger/entry/update', $this->entry($ids)))['data']['public_id'];
 
         $finance = $this->createStaff('fin@otternova.com', 'FIN');
-        $this->send('v1/staff/ledger/entry/update', ['id' => $id] + $this->entry($ids, ['reference_number' => '']), service('jwt')->issue($finance)['access_token'])
+        $this->send('v1/staff/ledger/entry/update', ['public_id' => $id] + $this->entry($ids, ['reference_number' => '']), service('jwt')->issue($finance)['access_token'])
             ->assertStatus(200);
 
-        $row = $this->db->table('otternova_ledger_master')->where('id', $id)->get()->getRowArray();
+        $row = $this->db->table('otternova_ledger_master')->where('public_id', $id)->get()->getRowArray();
         $this->assertNull($row['reference_number']);
         $this->assertSame((string) $this->staff['id'], (string) $row['created_by']);
     }
@@ -225,18 +237,18 @@ final class LedgerTest extends CIUnitTestCase
         foreach (['2026-10-01', '2026-11-02', '2026-10-15'] as $date) {
             $this->send('v1/staff/ledger/entry/update', $this->entry($ids, ['transaction_date' => $date, 'transaction_detail' => 'Paid on ' . $date]))->assertStatus(200);
         }
-        $this->send('v1/staff/ledger/entry/update', $this->entry($ids, ['transaction_date' => '2026-10-20', 'from_account_id' => $personal, 'to_account_id' => $ids['company'], 'counterparty_id' => null]))
+        $this->send('v1/staff/ledger/entry/update', $this->entry($ids, ['transaction_date' => '2026-10-20', 'from_account_public_id' => $personal, 'to_account_public_id' => $ids['company'], 'counterparty_public_id' => null]))
             ->assertStatus(200);
 
         $all = $this->body($this->send('v1/staff/ledger/entries', []))['data'];
         $this->assertSame(4, $all['records_total']);
         $this->assertSame(['2026-11-02', '2026-10-20', '2026-10-15', '2026-10-01'], array_column($all['rows'], 'transaction_date'));
 
-        $october = $this->body($this->send('v1/staff/ledger/entries', ['filters' => ['date_from' => '2026-10-01', 'date_to' => '2026-10-31', 'account_id' => $ids['aws']]]))['data'];
+        $october = $this->body($this->send('v1/staff/ledger/entries', ['filters' => ['date_from' => '2026-10-01', 'date_to' => '2026-10-31', 'account_public_id' => $ids['aws']]]))['data'];
         $this->assertSame(2, $october['records_filtered']);
         $this->assertSame(['2026-10-15', '2026-10-01'], array_column($october['rows'], 'transaction_date'));
 
-        $personalRows = $this->body($this->send('v1/staff/ledger/entries', ['filters' => ['account_id' => $personal, 'date_from' => 'nope']]))['data'];
+        $personalRows = $this->body($this->send('v1/staff/ledger/entries', ['filters' => ['account_public_id' => $personal, 'date_from' => 'nope']]))['data'];
         $this->assertSame(['2026-10-20'], array_column($personalRows['rows'], 'transaction_date'));
 
         $searched = $this->body($this->send('v1/staff/ledger/entries', ['search' => '11-02']))['data'];
@@ -248,48 +260,49 @@ final class LedgerTest extends CIUnitTestCase
     public function testReceiptIsUploadedServedReplacedAndDeleted(): void
     {
         $ids = $this->basics();
-        $id  = $this->body($this->send('v1/staff/ledger/entry/update', $this->entry($ids)))['data']['id'];
+        $id  = $this->body($this->send('v1/staff/ledger/entry/update', $this->entry($ids)))['data']['public_id'];
 
-        $this->uploadReceipt(['id' => $id], $this->pdf('first'))->assertStatus(200);
-        $first = $this->db->table('otternova_ledger_master')->where('id', $id)->get()->getRow()->receipt_file_path;
-        $this->assertTrue($this->body($this->send('v1/staff/ledger/entry', ['id' => $id]))['data']['entry']['has_receipt']);
+        $this->uploadReceipt(['public_id' => $id], $this->pdf('first'))->assertStatus(200);
+        $first = $this->db->table('otternova_ledger_master')->where('public_id', $id)->get()->getRow()->receipt_file_path;
+        $this->assertTrue($this->body($this->send('v1/staff/ledger/entry', ['public_id' => $id]))['data']['entry']['has_receipt']);
 
         $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])->get('v1/staff/ledger/receipt/' . $id);
         $response->assertStatus(200);
         $this->assertStringStartsWith('application/pdf', $response->response()->getHeaderLine('Content-Type'));
+        $this->assertStringContainsString('receipt-' . $id . '.pdf', $response->response()->getHeaderLine('Content-Disposition'));
         $this->assertStringContainsString('first', $response->getBody());
 
-        $this->uploadReceipt(['id' => $id], $this->pdf('second'))->assertStatus(200);
+        $this->uploadReceipt(['public_id' => $id], $this->pdf('second'))->assertStatus(200);
         $this->assertFileDoesNotExist($this->uploads . $first);
         $this->assertStringContainsString('second', $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])->get('v1/staff/ledger/receipt/' . $id)->getBody());
 
-        $this->send('v1/staff/ledger/receipt-delete', ['id' => $id])->assertStatus(200);
+        $this->send('v1/staff/ledger/receipt-delete', ['public_id' => $id])->assertStatus(200);
         $this->assertSame([], glob($this->uploads . '*'));
         $this->withHeaders(['Authorization' => 'Bearer ' . $this->token])->get('v1/staff/ledger/receipt/' . $id)->assertStatus(404);
-        $this->send('v1/staff/ledger/receipt-delete', ['id' => $id])->assertStatus(404);
+        $this->send('v1/staff/ledger/receipt-delete', ['public_id' => $id])->assertStatus(404);
     }
 
     public function testReceiptMustBeAPdfForAnExistingEntry(): void
     {
         $ids = $this->basics();
-        $id  = $this->body($this->send('v1/staff/ledger/entry/update', $this->entry($ids)))['data']['id'];
+        $id  = $this->body($this->send('v1/staff/ledger/entry/update', $this->entry($ids)))['data']['public_id'];
 
         $text = tempnam(sys_get_temp_dir(), 'receipt');
         file_put_contents($text, 'just some text');
         $this->sources[] = $text;
-        $this->uploadReceipt(['id' => $id], $text)->assertStatus(415);
-        $this->uploadReceipt(['id' => $id], null)->assertStatus(422);
-        $this->uploadReceipt(['id' => 999], $this->pdf('x'))->assertStatus(404);
+        $this->uploadReceipt(['public_id' => $id], $text)->assertStatus(415);
+        $this->uploadReceipt(['public_id' => $id], null)->assertStatus(422);
+        $this->uploadReceipt(['public_id' => 'missing00000'], $this->pdf('x'))->assertStatus(404);
         $this->uploadReceipt([], $this->pdf('x'))->assertStatus(400);
 
-        $this->assertNull($this->db->table('otternova_ledger_master')->where('id', $id)->get()->getRow()->receipt_file_path);
+        $this->assertNull($this->db->table('otternova_ledger_master')->where('public_id', $id)->get()->getRow()->receipt_file_path);
     }
 
     // ---- helpers ----
 
     /**
      * Two accounts (one external), a category and a counterparty
-     * @return array{company: int, aws: int, category: int, counterparty: int}
+     * @return array{company: string, aws: string, category: string, counterparty: string} public_ids
      */
     private function basics(): array
     {
@@ -307,23 +320,26 @@ final class LedgerTest extends CIUnitTestCase
             'transaction_date'          => '2026-11-01',
             'transaction_detail'        => 'AWS bill for October',
             'reference_number'          => 'INV-001',
-            'category_id'               => $ids['category'],
+            'category_public_id'        => $ids['category'],
             'transaction_currency_code' => 'THB',
             'transaction_amount'        => '3600.50',
             'billed_currency_code'      => 'USD',
             'billed_amount'             => '100',
-            'from_account_id'           => $ids['company'],
-            'to_account_id'             => $ids['aws'],
-            'counterparty_id'           => $ids['counterparty'],
+            'from_account_public_id'    => $ids['company'],
+            'to_account_public_id'      => $ids['aws'],
+            'counterparty_public_id'    => $ids['counterparty'],
         ];
     }
 
-    private function createRecord(string $kind, array $fields): int
+    /**
+     * @return string The new record's public_id
+     */
+    private function createRecord(string $kind, array $fields): string
     {
         $response = $this->send('v1/staff/ledger/' . $kind . '/update', $fields);
         $response->assertStatus(200);
 
-        return $this->body($response)['data']['id'];
+        return $this->body($response)['data']['public_id'];
     }
 
     private function createAccount(string $email, string $type): array

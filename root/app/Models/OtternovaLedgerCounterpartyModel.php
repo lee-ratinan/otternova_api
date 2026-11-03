@@ -60,17 +60,15 @@ class OtternovaLedgerCounterpartyModel extends Model
 
     /**
      * Every counterparty, by name, for the ledger's counterparty list and dropdowns
-     * @return list<array{id: int, counterparty_name: string, counterparty_description: string|null}>
+     * @return list<array{public_id: string, counterparty_name: string, counterparty_description: string|null}>
      */
     public function listForLookup(): array
     {
-        $rows = $this->db->table($this->table)
-            ->select('id, counterparty_name, counterparty_description')
+        return $this->db->table($this->table)
+            ->select('public_id, counterparty_name, counterparty_description')
             ->orderBy('counterparty_name', 'ASC')
             ->orderBy('id', 'ASC')
             ->get()
             ->getResultArray();
-
-        return array_map(static fn (array $row) => ['id' => (int) $row['id']] + $row, $rows);
     }
 }

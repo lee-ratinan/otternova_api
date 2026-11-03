@@ -50,7 +50,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('entry/update', 'Ledger::saveEntry');
         $routes->post('receipt-upload', 'Ledger::uploadReceipt');
         $routes->post('receipt-delete', 'Ledger::deleteReceipt');
-        $routes->get('receipt/(:num)', 'Ledger::receipt/$1');
+        $routes->get('receipt/(:segment)', 'Ledger::receipt/$1');
         $routes->post('accounts', 'Ledger::accounts');
         $routes->post('account/update', 'Ledger::saveAccount');
         $routes->post('categories', 'Ledger::categories');

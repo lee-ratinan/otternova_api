@@ -188,11 +188,12 @@ class OtternovaLedgerMasterModel extends Model
     private function joinedBuilder()
     {
         return $this->db->table($this->table . ' e')
-            ->select('e.id, e.transaction_date, e.transaction_detail, e.reference_number, e.category_id, c.category_code, c.category_name')
+            ->select('e.public_id, e.transaction_date, e.transaction_detail, e.reference_number')
+            ->select('c.public_id AS category_public_id, c.category_code, c.category_name')
             ->select('e.transaction_currency_code, e.transaction_amount, e.billed_currency_code, e.billed_amount')
-            ->select('e.from_account_id, f.account_name AS from_account_name, f.account_type AS from_account_type')
-            ->select('e.to_account_id, t.account_name AS to_account_name, t.account_type AS to_account_type')
-            ->select('e.counterparty_id, p.counterparty_name, e.receipt_file_path, e.created_by, a.full_name AS created_by_name')
+            ->select('f.public_id AS from_account_public_id, f.account_name AS from_account_name, f.account_type AS from_account_type')
+            ->select('t.public_id AS to_account_public_id, t.account_name AS to_account_name, t.account_type AS to_account_type')
+            ->select('p.public_id AS counterparty_public_id, p.counterparty_name, e.receipt_file_path, e.created_by, a.full_name AS created_by_name')
             ->select('e.created_at, e.updated_at')
             ->join('otternova_ledger_category c', 'c.id = e.category_id', 'inner')
             ->join('otternova_ledger_account f', 'f.id = e.from_account_id', 'inner')
@@ -202,15 +203,14 @@ class OtternovaLedgerMasterModel extends Model
     }
 
     /**
-     * IDs as integers; the receipt's file name stays inside, has_receipt says whether there is one
+     * The rows it points at by their public_id; the receipt's file name stays inside, has_receipt says whether
+     * there is one
      * @param array $row
      * @return array
      */
     private static function toPayload(array $row): array
     {
-        foreach (['id', 'category_id', 'from_account_id', 'to_account_id', 'counterparty_id', 'created_by'] as $field) {
-            $row[$field] = $row[$field] === null ? null : (int) $row[$field];
-        }
+        $row['created_by'] = $row['created_by'] === null ? null : (int) $row['created_by'];
         $row['has_receipt'] = $row['receipt_file_path'] !== null && $row['receipt_file_path'] !== '';
         unset($row['receipt_file_path']);
 

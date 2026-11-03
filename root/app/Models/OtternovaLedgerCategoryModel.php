@@ -60,17 +60,15 @@ class OtternovaLedgerCategoryModel extends Model
 
     /**
      * Every category, by name, for the ledger's category list and dropdowns
-     * @return list<array{id: int, category_code: string, category_name: string}>
+     * @return list<array{public_id: string, category_code: string, category_name: string}>
      */
     public function listForLookup(): array
     {
-        $rows = $this->db->table($this->table)
-            ->select('id, category_code, category_name')
+        return $this->db->table($this->table)
+            ->select('public_id, category_code, category_name')
             ->orderBy('category_name', 'ASC')
             ->orderBy('id', 'ASC')
             ->get()
             ->getResultArray();
-
-        return array_map(static fn (array $row) => ['id' => (int) $row['id']] + $row, $rows);
     }
 }

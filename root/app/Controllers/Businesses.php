@@ -13,7 +13,8 @@ use Throwable;
 
 /**
  * Businesses and their types: create() and edit() are the Client app's, behind the jwt:C filter (clients only);
- * createType() and editType() are the Admin app's, behind jwt:S (staff only)
+ * createType() and editType() are the Admin app's, behind jwt:S (staff only).
+ * A business goes out and comes in by its business_slug, a business type by its public_id; the ids stay inside.
  */
 class Businesses extends BaseController
 {
@@ -62,8 +63,8 @@ class Businesses extends BaseController
     /**
      * POST /client/business/create { business: {...}, translations: {language_code: business_name} }
      * Creates a business with the signed-in client as its owner (business_client_link), and its names in other
-     * languages (business_master_translation). "translations" is optional; each key must be a language of
-     * listLanguages(), and an empty name is left out.
+     * languages (business_master_translation). The business type is business.business_type_public_id.
+     * "translations" is optional; each key must be a language of listLanguages(), and an empty name is left out.
      * @return ResponseInterface
      */
     public function create(): ResponseInterface
@@ -96,8 +97,8 @@ class Businesses extends BaseController
     }
 
     /**
-     * POST /staff/business-type/edit { id, type_status, translations: {language_code: type_name} }
-     * Updates the business type with that id: its status (kept when left out) and its names, again one for every
+     * POST /staff/business-type/edit { public_id, type_status, translations: {language_code: type_name} }
+     * Updates the business type with that public_id: its status (kept when left out) and its names, again one for every
      * language of listSupportedLanguages(). type_code is fixed once created.
      * @return ResponseInterface
      */
@@ -154,8 +155,25 @@ class Businesses extends BaseController
             return ApiResponse::error(lang('Business.loadFailed'), 500);
         }
 
+        // the type is only ever set from its public_id; left out of an edit, it stays
+        unset($businessIn['business_type_id']);
+        $errors = [];
+        if ($stored === null || array_key_exists('business_type_public_id', $businessIn)) {
+            $typePublicId = $businessIn['business_type_public_id'] ?? null;
+            try {
+                $typeId = $typePublicId === null || $typePublicId === '' ? null : model(BusinessTypeModel::class)->idOfPublicId($typePublicId);
+            } catch (Throwable $e) {
+                log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
+
+                return ApiResponse::error(lang('Business.loadFailed'), 500);
+            }
+            if ($typeId === null && $typePublicId !== null && $typePublicId !== '') {
+                $errors['business_type_public_id'] = lang('Business.typeNotFound');
+            }
+            $businessIn['business_type_id'] = $typeId; // none: the rules say it is required
+        }
+
         $business = [];
-        $errors   = [];
         foreach (self::FORM_FIELDS as $field) {
             $business[$field] = $stored !== null && ! array_key_exists($field, $businessIn)
                 ? $stored[$field]
@@ -180,7 +198,12 @@ class Businesses extends BaseController
         // the business's own id, for is_unique[...,id,{id}]
         $validation = single_service('validation')->setRules($rules);
         if (! $validation->run($business + ['id' => $stored === null ? '' : (string) $stored['id']])) {
-            $errors = $validation->getErrors() + $errors;
+            $ruleErrors = $validation->getErrors();
+            if (isset($ruleErrors['business_type_id'])) {
+                $ruleErrors['business_type_public_id'] = $ruleErrors['business_type_id'];
+                unset($ruleErrors['business_type_id']);
+            }
+            $errors += $ruleErrors;
         }
         if ($errors !== []) {
             return ApiResponse::error(lang('Business.invalidFields'), 422, $errors);
@@ -226,9 +249,8 @@ class Businesses extends BaseController
         if (! $this->isObject($translationsIn)) {
             return ApiResponse::error(lang('Business.invalidRequest'), 422);
         }
-        $id = $input['id'] ?? null;
-        $id = is_int($id) || is_string($id) ? filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) : false;
-        if ($edit && $id === false) {
+        $publicId = $input['public_id'] ?? null;
+        if ($edit && (! is_string($publicId) || $publicId === '')) {
             return ApiResponse::error(lang('Business.typeIdRequired'), 400);
         }
 
@@ -236,7 +258,7 @@ class Businesses extends BaseController
         $stored = null;
         if ($edit) {
             try {
-                $stored = $types->find($id);
+                $stored = $types->findByPublicId($publicId);
             } catch (Throwable $e) {
                 log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
 
@@ -284,7 +306,7 @@ class Businesses extends BaseController
             }
 
             if ($stored === null) {
-                $id = $types->createWithNames($type, $names, $this->actorId());
+                $publicId = $types->publicIdOf($types->createWithNames($type, $names, $this->actorId()));
             } else {
                 $types->updateWithNames($stored, $type, $names, $this->actorId());
             }
@@ -294,8 +316,8 @@ class Businesses extends BaseController
             return ApiResponse::error(lang('Business.typeSaveFailed'), 500);
         }
 
-        // the id is what business_master.business_type_id takes, as /client/business/create does
-        return ApiResponse::success(['id' => $id, 'type_code' => $type['type_code']], 200, lang($edit ? 'Business.typeUpdated' : 'Business.typeCreated'));
+        // what /client/business/create and edit take as business.business_type_public_id
+        return ApiResponse::success(['public_id' => $publicId, 'type_code' => $type['type_code']], 200, lang($edit ? 'Business.typeUpdated' : 'Business.typeCreated'));
     }
 
     /**
@@ -357,7 +379,7 @@ class Businesses extends BaseController
      */
     private function normalize(string $field, mixed $value): ?string
     {
-        // a number counts too: business_type_id and the phone number may arrive as JSON numbers
+        // a number counts too: the phone number may arrive as a JSON number, and business_type_id is the id found here
         $value = is_string($value) || is_int($value) ? trim((string) $value) : '';
         if (in_array($field, self::UPPERCASE_FIELDS, true)) {
             $value = strtoupper($value);

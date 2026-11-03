@@ -19,7 +19,9 @@ use Throwable;
 /**
  * The internal ledger of the Admin app, behind the jwt:S and department:EXE,FIN filters: the entries
  * (otternova_ledger_master) with their PDF receipts, and the accounts, categories and counterparties they point at.
- * Each .../update endpoint creates the record when the body has no id and updates the record with that id otherwise.
+ * Every record goes out and comes in by its public_id; the ids stay inside.
+ * Each .../update endpoint creates the record when the body has no public_id and updates the record with that
+ * public_id otherwise.
  */
 class Ledger extends BaseController
 {
@@ -35,10 +37,27 @@ class Ledger extends BaseController
     /** A receipt_file_path as uploadReceipt() names it; anything else is never served or deleted */
     private const RECEIPT_PATTERN = '/^\d+-[0-9a-f]{16}\.pdf$/';
 
+    /** The entry's columns that point at other ledger records: the body's field => [column, model of the record] */
+    private const ENTRY_REFERENCES = [
+        'category_public_id'     => ['category_id', OtternovaLedgerCategoryModel::class],
+        'from_account_public_id' => ['from_account_id', OtternovaLedgerAccountModel::class],
+        'to_account_public_id'   => ['to_account_id', OtternovaLedgerAccountModel::class],
+        'counterparty_public_id' => ['counterparty_id', OtternovaLedgerCounterpartyModel::class],
+    ];
+
+    /** Filters of the entry list that name a record: the body's filter => [OtternovaLedgerMasterModel::LIST_FILTERS name, model] */
+    private const FILTER_REFERENCES = [
+        'account_public_id'      => ['account_id', OtternovaLedgerAccountModel::class],
+        'category_public_id'     => ['category_id', OtternovaLedgerCategoryModel::class],
+        'counterparty_public_id' => ['counterparty_id', OtternovaLedgerCounterpartyModel::class],
+    ];
+
     /**
-     * POST /staff/ledger/entries { start, length, search, filters: {date_from, date_to, account_id, category_id, counterparty_id} }
-     * One page of entries, newest transaction first. Every part of the body is optional, and a filter with a value
-     * that is not a date (Y-m-d) or an ID is ignored rather than rejected. account_id matches either side.
+     * POST /staff/ledger/entries { start, length, search, filters: {date_from, date_to, account_public_id,
+     * category_public_id, counterparty_public_id} }
+     * One page of entries, newest transaction first. Every part of the body is optional, and a date filter that is
+     * not a date (Y-m-d) is ignored rather than rejected; a public_id filter naming no record matches no entry.
+     * account_public_id matches either side.
      * @return ResponseInterface
      */
     public function entries(): ResponseInterface
@@ -56,7 +75,8 @@ class Ledger extends BaseController
         $search = is_string($search) || is_int($search) ? trim((string) $search) : '';
 
         try {
-            $data = model(OtternovaLedgerMasterModel::class)->listEntries($start, $length, $search, $this->listFilters($input['filters'] ?? null));
+            $filters = $this->listFilters($input['filters'] ?? null);
+            $data    = model(OtternovaLedgerMasterModel::class)->listEntries($start, $length, $search, $filters);
         } catch (DatabaseException $e) {
             return $this->failed('v1/staff/ledger/entries', $e, 'Ledger.listFailed');
         }
@@ -65,9 +85,9 @@ class Ledger extends BaseController
     }
 
     /**
-     * POST /staff/ledger/entry { id }
+     * POST /staff/ledger/entry { public_id }
      * One entry with the names of its category, accounts, counterparty and creator. has_receipt says whether
-     * GET /staff/ledger/receipt/{id} has a PDF.
+     * GET /staff/ledger/receipt/{public_id} has a PDF.
      * @return ResponseInterface
      */
     public function entry(): ResponseInterface
@@ -76,13 +96,15 @@ class Ledger extends BaseController
         if ($input === null) {
             return ApiResponse::error(lang('Ledger.invalidRequest'), 422);
         }
-        $id = $this->validId($input['id'] ?? null);
-        if ($id === null) {
+        $publicId = $input['public_id'] ?? null;
+        if (! is_string($publicId) || $publicId === '') {
             return ApiResponse::error(lang('Ledger.idRequired'), 400);
         }
 
         try {
-            $entry = model(OtternovaLedgerMasterModel::class)->findEntry($id);
+            $entries = model(OtternovaLedgerMasterModel::class);
+            $id      = $entries->idOfPublicId($publicId);
+            $entry   = $id === null ? null : $entries->findEntry($id);
         } catch (DatabaseException $e) {
             return $this->failed('v1/staff/ledger/entry', $e, 'Ledger.loadFailed');
         }
@@ -94,11 +116,11 @@ class Ledger extends BaseController
     }
 
     /**
-     * POST /staff/ledger/entry/update { id, transaction_date, transaction_detail, reference_number, category_id,
-     * transaction_currency_code, transaction_amount, billed_currency_code, billed_amount, from_account_id,
-     * to_account_id, counterparty_id }
-     * Amounts are best sent as strings ("1234.5"), up to 4 decimal places. counterparty_id is required when either
-     * account is external. The receipt has its own endpoints.
+     * POST /staff/ledger/entry/update { public_id, transaction_date, transaction_detail, reference_number,
+     * category_public_id, transaction_currency_code, transaction_amount, billed_currency_code, billed_amount,
+     * from_account_public_id, to_account_public_id, counterparty_public_id }
+     * Amounts are best sent as strings ("1234.5"), up to 4 decimal places. counterparty_public_id is required when
+     * either account is external. The receipt has its own endpoints.
      * @return ResponseInterface
      */
     public function saveEntry(): ResponseInterface
@@ -122,20 +144,21 @@ class Ledger extends BaseController
 
                 return [];
             },
-            fn (array $row) => $row + ['created_by' => $this->actorId()]
+            fn (array $row) => $row + ['created_by' => $this->actorId()],
+            self::ENTRY_REFERENCES
         );
     }
 
     /**
-     * POST /staff/ledger/receipt-upload, multipart/form-data { id, receipt }
+     * POST /staff/ledger/receipt-upload, multipart/form-data { public_id, receipt }
      * Saves the PDF as the entry's receipt, replacing the one it had
      * @return ResponseInterface
      */
     public function uploadReceipt(): ResponseInterface
     {
-        $config = config(LedgerReceiptConfig::class);
-        $id     = $this->validId($this->request->getPost('id'));
-        if ($id === null) {
+        $config   = config(LedgerReceiptConfig::class);
+        $publicId = $this->request->getPost('public_id');
+        if (! is_string($publicId) || $publicId === '') {
             return ApiResponse::error(lang('Ledger.idRequired'), 400);
         }
         // the image upload's check of a genuine upload, which the tests replace for their files
@@ -153,13 +176,14 @@ class Ledger extends BaseController
 
         $entries = model(OtternovaLedgerMasterModel::class);
         try {
-            $stored = $entries->findStored($id);
+            $stored = $entries->findByPublicId($publicId);
         } catch (DatabaseException $e) {
             return $this->failed('v1/staff/ledger/receipt-upload', $e, 'Ledger.loadFailed');
         }
         if ($stored === null) {
             return ApiResponse::error(lang('Ledger.entryNotFound'), 404);
         }
+        $id = (int) $stored['id'];
 
         $folder = $this->receiptFolder();
         if (! is_dir($folder) && ! @mkdir($folder, 0750, true) && ! is_dir($folder)) {
@@ -187,11 +211,11 @@ class Ledger extends BaseController
             @unlink($old);
         }
 
-        return ApiResponse::success(['id' => $id, 'has_receipt' => true], 200, lang('Ledger.receiptUploaded'));
+        return ApiResponse::success(['public_id' => $publicId, 'has_receipt' => true], 200, lang('Ledger.receiptUploaded'));
     }
 
     /**
-     * POST /staff/ledger/receipt-delete { id }
+     * POST /staff/ledger/receipt-delete { public_id }
      * Removes the entry's receipt
      * @return ResponseInterface
      */
@@ -201,14 +225,14 @@ class Ledger extends BaseController
         if ($input === null) {
             return ApiResponse::error(lang('Ledger.invalidRequest'), 422);
         }
-        $id = $this->validId($input['id'] ?? null);
-        if ($id === null) {
+        $publicId = $input['public_id'] ?? null;
+        if (! is_string($publicId) || $publicId === '') {
             return ApiResponse::error(lang('Ledger.idRequired'), 400);
         }
 
         $entries = model(OtternovaLedgerMasterModel::class);
         try {
-            $stored = $entries->findStored($id);
+            $stored = $entries->findByPublicId($publicId);
         } catch (DatabaseException $e) {
             return $this->failed('v1/staff/ledger/receipt-delete', $e, 'Ledger.loadFailed');
         }
@@ -222,7 +246,7 @@ class Ledger extends BaseController
         $path = $this->receiptPath($stored['receipt_file_path']);
         try {
             // deleted inside the transaction, so a file that will not go leaves the row as it was
-            $entries->setReceipt($stored, null, $this->actorId(), 'Deleted receipt of ledger entry ' . $id, static function () use ($path) {
+            $entries->setReceipt($stored, null, $this->actorId(), 'Deleted receipt of ledger entry ' . $stored['id'], static function () use ($path) {
                 if ($path !== null && is_file($path) && ! @unlink($path)) {
                     throw new RuntimeException('Cannot delete ' . $path);
                 }
@@ -231,20 +255,19 @@ class Ledger extends BaseController
             return $this->failed('v1/staff/ledger/receipt-delete', $e, 'Ledger.receiptDeleteFailed');
         }
 
-        return ApiResponse::success(['id' => $id, 'has_receipt' => false], 200, lang('Ledger.receiptDeleted'));
+        return ApiResponse::success(['public_id' => $publicId, 'has_receipt' => false], 200, lang('Ledger.receiptDeleted'));
     }
 
     /**
-     * GET /staff/ledger/receipt/{id}
+     * GET /staff/ledger/receipt/{public_id}
      * The entry's receipt as application/pdf, never cached: the app fetches it with its Bearer token
-     * @param string $id
+     * @param string $publicId
      * @return ResponseInterface
      */
-    public function receipt(string $id): ResponseInterface
+    public function receipt(string $publicId): ResponseInterface
     {
-        $id = $this->validId($id);
         try {
-            $stored = $id === null ? null : model(OtternovaLedgerMasterModel::class)->findStored($id);
+            $stored = model(OtternovaLedgerMasterModel::class)->findByPublicId($publicId);
         } catch (DatabaseException $e) {
             return $this->failed('v1/staff/ledger/receipt', $e, 'Ledger.loadFailed');
         }
@@ -257,7 +280,7 @@ class Ledger extends BaseController
         return $this->response
             ->removeHeader('Cache-Control')
             ->setHeader('Cache-Control', 'private, no-store')
-            ->setHeader('Content-Disposition', 'inline; filename="receipt-' . $id . '.pdf"')
+            ->setHeader('Content-Disposition', 'inline; filename="receipt-' . $publicId . '.pdf"')
             ->setHeader('X-Content-Type-Options', 'nosniff')
             ->setContentType('application/pdf', '')
             ->setBody((string) file_get_contents($path));
@@ -274,7 +297,7 @@ class Ledger extends BaseController
     }
 
     /**
-     * POST /staff/ledger/account/update { id, account_name, account_type, currency_code, account_class }
+     * POST /staff/ledger/account/update { public_id, account_name, account_type, currency_code, account_class }
      * @return ResponseInterface
      */
     public function saveAccount(): ResponseInterface
@@ -301,7 +324,7 @@ class Ledger extends BaseController
     }
 
     /**
-     * POST /staff/ledger/category/update { id, category_code, category_name }
+     * POST /staff/ledger/category/update { public_id, category_code, category_name }
      * @return ResponseInterface
      */
     public function saveCategory(): ResponseInterface
@@ -328,7 +351,7 @@ class Ledger extends BaseController
     }
 
     /**
-     * POST /staff/ledger/counterparty/update { id, counterparty_name, counterparty_description }
+     * POST /staff/ledger/counterparty/update { public_id, counterparty_name, counterparty_description }
      * @return ResponseInterface
      */
     public function saveCounterparty(): ResponseInterface
@@ -365,30 +388,60 @@ class Ledger extends BaseController
     }
 
     /**
-     * The create-or-update of every .../update endpoint: no id creates, an id updates that record.
+     * The create-or-update of every .../update endpoint: no public_id creates, a public_id updates that record.
      * Every field is required in the body; an empty string saves NULL in a nullable field.
-     * @param Model         $model    One with LedgerWriteTrait
-     * @param list<string>  $fields   Columns written
-     * @param list<string>  $nullable Columns of $fields that may be NULL
-     * @param string        $langFile For the field labels in the error messages
-     * @param string        $notFound Language key when the id has no record
-     * @param string        $endpoint For the error log
-     * @param callable      $summary  fn (array $row, ?array $stored): string, for log_activity
-     * @param callable|null $check    fn (array $row): array, field => error for what the rules cannot check
-     * @param callable|null $onCreate fn (array $row): array, the row with the columns only a create sets
+     * @param Model         $model      One with LedgerWriteTrait
+     * @param list<string>  $fields     Columns written
+     * @param list<string>  $nullable   Columns of $fields that may be NULL
+     * @param string        $langFile   For the field labels in the error messages
+     * @param string        $notFound   Language key when the public_id has no record
+     * @param string        $endpoint   For the error log
+     * @param callable      $summary    fn (array $row, ?array $stored): string, for log_activity
+     * @param callable|null $check      fn (array $row): array, column => error for what the rules cannot check
+     * @param callable|null $onCreate   fn (array $row): array, the row with the columns only a create sets
+     * @param array         $references Columns of $fields the body names by the public_id of another record:
+     *                                  the body's field => [column, model of the record]; their errors go back
+     *                                  under the body's field
      * @return ResponseInterface
      */
-    private function saveRecord(Model $model, array $fields, array $nullable, string $langFile, string $notFound, string $endpoint, callable $summary, ?callable $check = null, ?callable $onCreate = null): ResponseInterface
+    private function saveRecord(Model $model, array $fields, array $nullable, string $langFile, string $notFound, string $endpoint, callable $summary, ?callable $check = null, ?callable $onCreate = null, array $references = []): ResponseInterface
     {
         $input = $this->jsonInput();
         if ($input === null) {
             return ApiResponse::error(lang('Ledger.invalidRequest'), 422);
         }
-        $id = $input['id'] ?? null;
-        if ($id !== null && $id !== '' && $this->validId($id) === null) {
+        $publicId = $input['public_id'] ?? null;
+        if ($publicId !== null && ! is_string($publicId)) {
             return ApiResponse::error(lang('Ledger.invalidRequest'), 422);
         }
-        $id = $id === null || $id === '' ? null : $this->validId($id);
+        // the columns are only ever set from the public_ids
+        $input   = array_diff_key($input, array_flip(array_column($references, 0)));
+        $toField = array_combine(array_column($references, 0), array_keys($references));
+        $errors  = [];
+
+        try {
+            $stored = null;
+            if ($publicId !== null && $publicId !== '') {
+                $stored = $model->findByPublicId($publicId);
+                if ($stored === null) {
+                    return ApiResponse::error(lang($notFound), 404);
+                }
+            }
+            foreach ($references as $field => [$column, $class]) {
+                $value = $input[$field] ?? null;
+                if ($value === null || $value === '') {
+                    continue; // the rules of the column say whether it is required
+                }
+                $id = model($class)->idOfPublicId($value);
+                if ($id === null) {
+                    $errors[$field] = lang('Ledger.referenceNotFound');
+                } else {
+                    $input[$column] = $id;
+                }
+            }
+        } catch (DatabaseException $e) {
+            return $this->failed($endpoint, $e, 'Ledger.loadFailed');
+        }
 
         $row = [];
         foreach ($fields as $field) {
@@ -401,19 +454,15 @@ class Ledger extends BaseController
         }
         // the record's own id, for is_unique[...,id,{id}]
         $validation = single_service('validation')->setRules($rules);
-        if (! $validation->run($row + ['id' => $id === null ? '' : (string) $id])) {
-            return ApiResponse::error(lang('Ledger.invalidFields'), 422, $validation->getErrors());
+        if (! $validation->run($row + ['id' => $stored === null ? '' : (string) $stored['id']])) {
+            $errors += $this->renameKeys($validation->getErrors(), $toField);
+        }
+        if ($errors !== []) {
+            return ApiResponse::error(lang('Ledger.invalidFields'), 422, $errors);
         }
 
         try {
-            $stored = null;
-            if ($id !== null) {
-                $stored = $model->where('id', $id)->first();
-                if ($stored === null) {
-                    return ApiResponse::error(lang($notFound), 404);
-                }
-            }
-            $errors = $check === null ? [] : $check($row);
+            $errors = $check === null ? [] : $this->renameKeys($check($row), $toField);
             if ($errors !== []) {
                 return ApiResponse::error(lang('Ledger.invalidFields'), 422, $errors);
             }
@@ -421,14 +470,30 @@ class Ledger extends BaseController
             if ($stored === null) {
                 $id = $model->createLogged($onCreate === null ? $row : $onCreate($row), $this->actorId(), $summary($row, null));
 
-                return ApiResponse::success(['id' => $id], 200, lang('Ledger.created'));
+                return ApiResponse::success(['public_id' => $model->publicIdOf($id)], 200, lang('Ledger.created'));
             }
             $model->updateLogged($stored, $row, $this->actorId(), $summary($row, $stored));
 
-            return ApiResponse::success(['id' => $id], 200, lang('Ledger.updated'));
+            return ApiResponse::success(['public_id' => $stored['public_id']], 200, lang('Ledger.updated'));
         } catch (Throwable $e) {
             return $this->failed($endpoint, $e, 'Ledger.saveFailed');
         }
+    }
+
+    /**
+     * $errors with the keys of $names renamed: column => the body's field
+     * @param array<string, string> $errors
+     * @param array<string, string> $names
+     * @return array<string, string>
+     */
+    private function renameKeys(array $errors, array $names): array
+    {
+        $renamed = [];
+        foreach ($errors as $key => $error) {
+            $renamed[$names[$key] ?? $key] = $error;
+        }
+
+        return $renamed;
     }
 
     /**
@@ -455,7 +520,9 @@ class Ledger extends BaseController
     }
 
     /**
-     * The valid entries of "filters": a date (Y-m-d) for date_from and date_to, an ID for the rest
+     * The valid entries of "filters" as OtternovaLedgerMasterModel::LIST_FILTERS takes them: a date (Y-m-d) for
+     * date_from and date_to, the id of the record a public_id filter names; one that names none gives 0, which no
+     * entry points at
      * @param mixed $filters
      * @return array<string, string|int>
      */
@@ -466,15 +533,17 @@ class Ledger extends BaseController
         }
 
         $valid = [];
-        foreach (OtternovaLedgerMasterModel::LIST_FILTERS as $name) {
+        foreach (['date_from', 'date_to'] as $name) {
             $value = $filters[$name] ?? null;
-            if (in_array($name, ['date_from', 'date_to'], true)) {
-                $date = is_string($value) ? DateTimeImmutable::createFromFormat('!Y-m-d', $value) : false;
-                if ($date !== false && $date->format('Y-m-d') === $value) {
-                    $valid[$name] = $value;
-                }
-            } elseif (($id = $this->validId($value)) !== null) {
-                $valid[$name] = $id;
+            $date  = is_string($value) ? DateTimeImmutable::createFromFormat('!Y-m-d', $value) : false;
+            if ($date !== false && $date->format('Y-m-d') === $value) {
+                $valid[$name] = $value;
+            }
+        }
+        foreach (self::FILTER_REFERENCES as $field => [$name, $class]) {
+            $value = $filters[$field] ?? null;
+            if ($value !== null && $value !== '') {
+                $valid[$name] = model($class)->idOfPublicId($value) ?? 0;
             }
         }
 
@@ -496,17 +565,6 @@ class Ledger extends BaseController
     private function receiptFolder(): string
     {
         return rtrim(config(LedgerReceiptConfig::class)->uploadPath, '/') . '/';
-    }
-
-    /**
-     * @param mixed $id From the request
-     * @return int|null Null unless a positive integer
-     */
-    private function validId(mixed $id): ?int
-    {
-        $id = is_int($id) || is_string($id) ? filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) : false;
-
-        return $id === false ? null : $id;
     }
 
     /**
