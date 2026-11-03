@@ -125,6 +125,23 @@ class BusinessTypeModel extends Model
     }
 
     /**
+     * Whether a type already has this name in $language (the database refuses it; this tells the form first)
+     * @param string   $language
+     * @param string   $name
+     * @param int|null $exceptId The type being edited
+     * @return bool
+     */
+    public function nameTaken(string $language, string $name, ?int $exceptId = null): bool
+    {
+        $builder = $this->db->table('business_type_translation')->where('language_code', $language)->where('type_name', $name);
+        if ($exceptId !== null) {
+            $builder->where('business_type_id !=', $exceptId);
+        }
+
+        return $builder->countAllResults() > 0;
+    }
+
+    /**
      * Create a business type with its names in one transaction, logged to log_activity in it
      * @param array $type    Checked business_type columns
      * @param array $names   language_code => type_name, for every language of listSupportedLanguages()

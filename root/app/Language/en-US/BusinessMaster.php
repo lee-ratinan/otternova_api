@@ -4,6 +4,8 @@ return [
         'business_type_id'         => 'Business Type',
         'business_name'            => 'Business Name',
         'business_slug'            => 'Business URL Name',
+        'business_description'     => 'Business Description',
+        'business_mood_and_tone'   => 'Mood and Tone',
         'contact_person_name'      => 'Contact Person',
         'contact_email_address'    => 'Contact Email Address',
         'contact_phone_number'     => 'Contact Phone Number',

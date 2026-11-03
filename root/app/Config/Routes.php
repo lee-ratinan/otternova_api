@@ -37,6 +37,8 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('account/delete', 'Accounts::delete');
         $routes->post('departments', 'Accounts::departments');
         $routes->post('staff-members', 'Accounts::staffMembers');
+        $routes->post('business-type/create', 'Businesses::createType');
+        $routes->post('business-type/edit', 'Businesses::editType');
         $routes->post('image-upload', 'Images::upload');
         $routes->post('image-delete', 'Images::delete');
     });
@@ -63,6 +65,8 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('change-password', 'Auth::changePassword');
         $routes->post('account', 'Accounts::showOwn');
         $routes->post('account/update', 'Accounts::saveOwn');
+        $routes->post('business/create', 'Businesses::create');
+        $routes->post('business/edit', 'Businesses::edit');
         $routes->post('image-upload', 'Images::upload');
         $routes->post('image-delete', 'Images::delete');
     });
