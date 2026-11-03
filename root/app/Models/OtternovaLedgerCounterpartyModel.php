@@ -35,6 +35,10 @@ class OtternovaLedgerCounterpartyModel extends Model
         'counterparty_name'        => 'required|max_length[255]',
         'counterparty_description' => 'permit_empty|max_length[65535]',
     ];
+
+    /** public_id: CHAR(8), see PublicIdTrait */
+    protected int $publicIdLength = 8;
+    protected $beforeInsert       = ['fillPublicId'];
     protected $validationMessages   = [];
     protected $skipValidation       = false;
     protected $cleanValidationRules = true;

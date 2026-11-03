@@ -50,6 +50,10 @@ class OtternovaLedgerMasterModel extends Model
         'created_by',
     ];
 
+    /** public_id: CHAR(12), see PublicIdTrait */
+    protected int $publicIdLength = 12;
+    protected $beforeInsert       = ['fillPublicId'];
+
     // created_at and updated_at are maintained by the database
     protected $useTimestamps = false;
     protected $dateFormat    = 'datetime';

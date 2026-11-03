@@ -41,6 +41,10 @@ class OtternovaLedgerAccountModel extends Model
         'currency_code' => 'required|regex_match[/^[A-Z]{3}$/]', // any ISO 4217 code: bills come in currencies OtterNova does not sell in
         'account_class' => 'permit_empty|in_list[A,L,E,R,X]',
     ];
+
+    /** public_id: CHAR(4), see PublicIdTrait */
+    protected int $publicIdLength = 4;
+    protected $beforeInsert       = ['fillPublicId'];
     protected $validationMessages   = [];
     protected $skipValidation       = false;
     protected $cleanValidationRules = true;

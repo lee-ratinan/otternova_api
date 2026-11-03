@@ -14,6 +14,7 @@ use Throwable;
 class BusinessTypeModel extends Model
 {
     use FieldConfigurationTrait;
+    use PublicIdTrait;
     use TransactionTrait;
 
     // type_status
@@ -33,6 +34,10 @@ class BusinessTypeModel extends Model
         'type_code',
         'type_status',
     ];
+
+    /** public_id: CHAR(4), see PublicIdTrait */
+    protected int $publicIdLength = 4;
+    protected $beforeInsert       = ['fillPublicId'];
 
     // created_at and updated_at are maintained by the database
     protected $useTimestamps = false;
@@ -155,14 +160,15 @@ class BusinessTypeModel extends Model
         $this->checkNames($names);
         $log = new ActivityLog();
 
-        return $this->inTransaction(function () use ($type, $names, $actorId, $log) {
+        return $this->withPublicId(fn (string $publicId) => $this->inTransaction(function () use ($type, $names, $actorId, $log, $publicId) {
+            $type = ['public_id' => $publicId] + $type;
             $this->db->table($this->table)->insert($type);
             $id = (int) $this->db->insertID();
             $log->inserted($actorId, 'Created business type ' . $type['type_code'], $this->table, $id, $type);
             $this->writeNames($id, $type['type_code'], [], $names, $actorId, $log);
 
             return $id;
-        });
+        }));
     }
 
     /**

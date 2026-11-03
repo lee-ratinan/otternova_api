@@ -35,6 +35,10 @@ class OtternovaLedgerCategoryModel extends Model
         'category_code' => 'required|regex_match[/^[A-Z0-9]{3}$/]|is_unique[otternova_ledger_category.category_code,id,{id}]', // e.g. INF
         'category_name' => 'required|max_length[128]',
     ];
+
+    /** public_id: CHAR(4), see PublicIdTrait */
+    protected int $publicIdLength = 4;
+    protected $beforeInsert       = ['fillPublicId'];
     protected $validationMessages   = [];
     protected $skipValidation       = false;
     protected $cleanValidationRules = true;

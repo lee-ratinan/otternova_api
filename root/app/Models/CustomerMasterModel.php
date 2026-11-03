@@ -10,6 +10,7 @@ use CodeIgniter\Model;
 class CustomerMasterModel extends Model
 {
     use FieldConfigurationTrait;
+    use PublicIdTrait;
 
     protected $table            = 'customer_master';
     protected $primaryKey       = 'id';
@@ -23,6 +24,10 @@ class CustomerMasterModel extends Model
         'customer_name',
         'last_activity',
     ];
+
+    /** public_id: CHAR(12), see PublicIdTrait */
+    protected int $publicIdLength = 12;
+    protected $beforeInsert       = ['fillPublicId'];
 
     // created_at and updated_at are maintained by the database
     protected $useTimestamps = false;

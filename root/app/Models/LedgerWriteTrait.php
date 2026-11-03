@@ -7,14 +7,15 @@ use Throwable;
 
 /**
  * Inserts and updates for the otternova_ledger_* models, each logged to log_activity in the same transaction.
- * Used by models that have $table; the rows must already be checked.
+ * Used by models that have $table and $publicIdLength (see PublicIdTrait); the rows must already be checked.
  */
 trait LedgerWriteTrait
 {
+    use PublicIdTrait;
     use TransactionTrait;
 
     /**
-     * @param array  $row     Checked columns
+     * @param array  $row     Checked columns; public_id is generated here
      * @param int    $actorId auth_master.id of the staff member creating it
      * @param string $summary For log_activity
      * @return int The new id
@@ -24,13 +25,14 @@ trait LedgerWriteTrait
     {
         $log = new ActivityLog();
 
-        return $this->inTransaction(function () use ($row, $actorId, $summary, $log) {
+        return $this->withPublicId(fn (string $publicId) => $this->inTransaction(function () use ($row, $actorId, $summary, $log, $publicId) {
+            $row = ['public_id' => $publicId] + $row;
             $this->db->table($this->table)->insert($row);
             $id = (int) $this->db->insertID();
             $log->inserted($actorId, $summary, $this->table, $id, $row);
 
             return $id;
-        });
+        }));
     }
 
     /**
