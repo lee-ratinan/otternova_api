@@ -82,6 +82,51 @@ final class BusinessModelsTest extends CIUnitTestCase
         $this->assertStringNotContainsString('0105561234567', json_encode($logs));
     }
 
+    public function testAClientsFirstLinkIsAlwaysTheirDefault(): void
+    {
+        $owner  = $this->createClient('harry.potter@example.com');
+        $first  = $this->createBusiness($owner);
+        $second = $this->createBusiness($owner, ['business_name' => 'Otter Bakery', 'business_slug' => 'otter-bakery-sg']);
+        $this->assertSame('Y', $this->links->findLink($first, $owner)['is_default_business']);
+        $this->assertSame('N', $this->links->findLink($second, $owner)['is_default_business']);
+
+        // hired into a business that is already someone else's default: it is theirs too
+        $employee = $this->createClient('ron@example.com');
+        $this->links->link($first, $employee, BusinessClientLinkModel::ROLE_EMPLOYEE, '2026-01-01', $this->actor);
+        $this->assertSame('Y', $this->links->findLink($first, $employee)['is_default_business']);
+
+        // a terminated link still counts as their first
+        $this->links->terminate($this->links->findLink($first, $employee), '2026-06-30', $this->actor);
+        $this->links->link($second, $employee, BusinessClientLinkModel::ROLE_EMPLOYEE, '2026-07-01', $this->actor);
+        $this->assertSame('N', $this->links->findLink($second, $employee)['is_default_business']);
+        $own = $this->createBusiness($employee, ['business_name' => 'Ron Cafe', 'business_slug' => 'ron-cafe-sg']);
+        $this->assertSame('N', $this->links->findLink($own, $employee)['is_default_business']);
+    }
+
+    public function testSignInBusinessIsTheDefaultElseTheFirstActiveOne(): void
+    {
+        $client = $this->createClient('harry.potter@example.com');
+        $this->assertNull($this->links->signInBusinessOf($client));
+
+        $default = $this->createBusiness($client, ['tax_id' => '0105561234567']);
+        $this->createBusiness($client, ['business_name' => 'Arctic Otters', 'business_slug' => 'arctic-otters-sg']);
+        $this->createBusiness($client, ['business_name' => 'Bay Otters', 'business_slug' => 'bay-otters-sg']);
+
+        $business = $this->links->signInBusinessOf($client);
+        $this->assertSame(['Y', 'O', 'A'], [$business['is_default_business'], $business['client_role'], $business['client_status']]);
+        $this->assertSame('ottercafe-sg', $business['business']['business_slug']);
+        $this->assertSame($this->types->listForLookup('en-US')[0]['public_id'], $business['business']['business_type_public_id']);
+        $this->assertArrayNotHasKey('tax_id', $business['business']);
+        $this->assertArrayNotHasKey('id', $business['business']);
+
+        // the default terminated: the first business still active
+        $co = $this->createClient('ron@example.com');
+        $this->links->link($default, $co, BusinessClientLinkModel::ROLE_OWNER, '2026-01-01', $this->actor);
+        $this->links->terminate($this->links->findLink($default, $client), date('Y-m-d'), $this->actor);
+        $business = $this->links->signInBusinessOf($client);
+        $this->assertSame(['N', 'arctic-otters-sg'], [$business['is_default_business'], $business['business']['business_slug']]);
+    }
+
     public function testCountryAndCurrencyAreFixed(): void
     {
         $id = $this->createBusiness($this->createClient('harry.potter@example.com'));

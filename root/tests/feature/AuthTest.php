@@ -78,6 +78,7 @@ final class AuthTest extends CIUnitTestCase
         $data = $this->json($this->login('none@otternova.com'), 200);
 
         $this->assertFalse($data['otp_required']);
+        $this->assertArrayNotHasKey('business', $data);
         $this->assertNotEmpty($data['access_token']);
         $this->assertSame([
             'id', 'uid', 'email_address', 'telephone_number', 'full_name', 'avatar_path', 'otp_mode',
@@ -140,6 +141,35 @@ final class AuthTest extends CIUnitTestCase
         $this->assertSame('Otter Fan', $data['user']['display_name']);
         $this->assertArrayNotHasKey('employee_code', $data['user']);
         $this->assertSame('C', service('jwt')->decode($data['access_token'])->typ);
+        $this->assertNull($data['business']);
+    }
+
+    public function testClientLoginReturnsTheirSelectedBusiness(): void
+    {
+        $account  = $this->createClient('client@example.com', ['otp_mode' => 'X']);
+        $clientId = (int) $this->db->table('client_master')->where('auth_id', $account['id'])->get()->getRowArray()['id'];
+        $this->db->table('business_type')->insert(['public_id' => 'cafe', 'type_code' => 'cafe']);
+        $this->db->table('business_master')->insert([
+            'business_type_id'      => $this->db->insertID(),
+            'business_name'         => 'OtterCafe',
+            'business_slug'         => 'ottercafe-sg',
+            'contact_email_address' => 'support@example.com',
+            'country_code'          => 'SG',
+            'currency_code'         => 'SGD',
+        ]);
+        $this->db->table('business_client_link')->insert([
+            'business_id'         => $this->db->insertID(),
+            'client_id'           => $clientId,
+            'client_role'         => 'O',
+            'is_default_business' => 'Y',
+            'start_date'          => '2026-11-01',
+        ]);
+
+        $data = $this->json($this->login('client@example.com', self::PASSWORD, 'C'), 200);
+
+        $this->assertSame(['O', 'A', 'Y'], [$data['business']['client_role'], $data['business']['client_status'], $data['business']['is_default_business']]);
+        $this->assertSame('ottercafe-sg', $data['business']['business']['business_slug']);
+        $this->assertSame('cafe', $data['business']['business']['business_type_public_id']);
     }
 
     public function testLoginWithEmailOtpReturnsChallengeAndEmailsCode(): void

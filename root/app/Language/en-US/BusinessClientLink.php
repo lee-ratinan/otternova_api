@@ -1,16 +1,18 @@
 <?php
 return [
     'fields' => [
-        'business_id'      => 'Business',
-        'client_id'        => 'Client',
-        'client_status'    => 'Status',
-        'client_role'      => 'Role',
-        'start_date'       => 'Start Date',
-        'termination_date' => 'Termination Date',
-        'owner_notes'      => 'Owner\'s Notes',
+        'business_id'         => 'Business',
+        'client_id'           => 'Client',
+        'client_status'       => 'Status',
+        'client_role'         => 'Role',
+        'is_default_business' => 'Default Business',
+        'start_date'          => 'Start Date',
+        'termination_date'    => 'Termination Date',
+        'owner_notes'         => 'Owner\'s Notes',
     ],
     'enum'   => [
-        'client_status' => ['A' => 'Active', 'T' => 'Terminated'],
-        'client_role'   => ['O' => 'Owner', 'M' => 'Manager', 'E' => 'Employee'],
+        'client_status'       => ['A' => 'Active', 'T' => 'Terminated'],
+        'client_role'         => ['O' => 'Owner', 'M' => 'Manager', 'E' => 'Employee'],
+        'is_default_business' => ['Y' => 'Yes', 'N' => 'No'],
     ],
 ];

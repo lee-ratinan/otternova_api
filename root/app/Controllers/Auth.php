@@ -10,6 +10,8 @@ use App\Models\AuthOtpChallengeModel;
 use App\Models\AuthPasswordChangeModel;
 use App\Models\AuthPasswordResetModel;
 use App\Models\AuthTokenDenylistModel;
+use App\Models\BusinessClientLinkModel;
+use App\Models\ClientMasterModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\Auth as AuthConfig;
@@ -652,11 +654,24 @@ class Auth extends BaseController
     }
 
     /**
+     * A client also gets "business": the business selected on sign-in (BusinessClientLinkModel::signInBusinessOf()),
+     * null when they are active in none
      * @param array $account
      * @return ResponseInterface
      */
     private function signedIn(array $account): ResponseInterface
     {
+        $business = [];
+        if ($account['account_type'] === AuthAccountModel::TYPE_CLIENT) {
+            try {
+                $client   = model(ClientMasterModel::class)->findByAuthId((int) $account['id']);
+                $business = ['business' => $client === null ? null : model(BusinessClientLinkModel::class)->signInBusinessOf((int) $client['id'])];
+            } catch (Throwable $e) {
+                log_message('error', 'sign-in: {message}', ['message' => $e->getMessage()]);
+
+                return ApiResponse::error(lang('Auth.signInFailed'), 500);
+            }
+        }
         $token = service('jwt')->issue($account);
 
         return ApiResponse::success([
@@ -665,7 +680,7 @@ class Auth extends BaseController
             'access_token'             => $token['access_token'],
             'expires_at'               => $token['expires_at'],
             'user'                     => AuthAccountModel::toUserPayload($account),
-        ]);
+        ] + $business);
     }
 
     /**

@@ -26,6 +26,10 @@ class BusinessClientLinkModel extends Model
     public const ROLE_MANAGER  = 'M';
     public const ROLE_EMPLOYEE = 'E';
 
+    // is_default_business
+    public const DEFAULT_YES = 'Y';
+    public const DEFAULT_NO  = 'N';
+
     protected $table            = 'business_client_link';
     protected $primaryKey       = 'id';
     protected $useAutoIncrement = true;
@@ -37,6 +41,7 @@ class BusinessClientLinkModel extends Model
         'client_id',
         'client_status',
         'client_role',
+        'is_default_business',
         'start_date',
         'termination_date',
         'owner_notes',
@@ -49,13 +54,14 @@ class BusinessClientLinkModel extends Model
     protected $updatedField  = 'updated_at';
 
     protected $validationRules = [
-        'id'               => 'permit_empty|is_natural_no_zero',
-        'business_id'      => 'required|is_natural_no_zero',
-        'client_id'        => 'required|is_natural_no_zero',
-        'client_status'    => 'permit_empty|in_list[A,T]',
-        'client_role'      => 'permit_empty|in_list[O,M,E]',
-        'start_date'       => 'required|valid_date[Y-m-d]',
-        'termination_date' => 'permit_empty|valid_date[Y-m-d]',
+        'id'                  => 'permit_empty|is_natural_no_zero',
+        'business_id'         => 'required|is_natural_no_zero',
+        'client_id'           => 'required|is_natural_no_zero',
+        'client_status'       => 'permit_empty|in_list[A,T]',
+        'client_role'         => 'permit_empty|in_list[O,M,E]',
+        'is_default_business' => 'permit_empty|in_list[Y,N]',
+        'start_date'          => 'required|valid_date[Y-m-d]',
+        'termination_date'    => 'permit_empty|valid_date[Y-m-d]',
     ];
     protected $validationMessages   = [];
     protected $skipValidation       = false;
@@ -64,23 +70,26 @@ class BusinessClientLinkModel extends Model
     /**
      * Field configuration shared by the Form Builder (as 'fields') and the Table Builder (via toColumns()),
      * keyed by field name so a controller can unset() what it does not need.
-     * client_status and termination_date are set by terminate() and link(), not edited directly.
+     * client_status and termination_date are set by terminate() and link(), not edited directly;
+     * is_default_business by firstLinkDefault() when the link is inserted.
      * @return array
      */
     public function getConfiguration(): array
     {
         $fields = [
-            'business_id'      => ['type' => 'number', 'readonly_in' => ['edit']],
-            'client_id'        => ['type' => 'number', 'readonly_in' => ['edit']],
-            'client_status'    => ['type' => 'select', 'readonly_in' => ['add', 'edit']],
-            'client_role'      => ['type' => 'select'],
-            'start_date'       => ['type' => 'date', 'searchable' => false],
-            'termination_date' => ['type' => 'date', 'readonly_in' => ['add', 'edit'], 'searchable' => false],
-            'owner_notes'      => ['type' => 'textarea', 'rows' => 4, 'orderable' => false],
+            'business_id'         => ['type' => 'number', 'readonly_in' => ['edit']],
+            'client_id'           => ['type' => 'number', 'readonly_in' => ['edit']],
+            'client_status'       => ['type' => 'select', 'readonly_in' => ['add', 'edit']],
+            'client_role'         => ['type' => 'select'],
+            'is_default_business' => ['type' => 'select', 'readonly_in' => ['add', 'edit']],
+            'start_date'          => ['type' => 'date', 'searchable' => false],
+            'termination_date'    => ['type' => 'date', 'readonly_in' => ['add', 'edit'], 'searchable' => false],
+            'owner_notes'         => ['type' => 'textarea', 'rows' => 4, 'orderable' => false],
         ];
         $enums  = [
-            'client_status' => [self::STATUS_ACTIVE => 'success', self::STATUS_TERMINATED => 'danger'],
-            'client_role'   => [self::ROLE_OWNER => 'primary', self::ROLE_MANAGER => 'info', self::ROLE_EMPLOYEE => 'secondary'],
+            'client_status'       => [self::STATUS_ACTIVE => 'success', self::STATUS_TERMINATED => 'danger'],
+            'client_role'         => [self::ROLE_OWNER => 'primary', self::ROLE_MANAGER => 'info', self::ROLE_EMPLOYEE => 'secondary'],
+            'is_default_business' => [self::DEFAULT_YES => 'primary', self::DEFAULT_NO => 'secondary'],
         ];
 
         return $this->buildConfiguration('BusinessClientLink', $fields, $enums);
@@ -95,6 +104,43 @@ class BusinessClientLinkModel extends Model
     public function findLink(int $businessId, int $clientId): ?array
     {
         return $this->where('business_id', $businessId)->where('client_id', $clientId)->first();
+    }
+
+    /**
+     * The business a client's app opens on after sign-in: their default one (is_default_business), else the first
+     * they were linked to, among those they are active in.
+     * Only public keys go out (business_slug, business_type_public_id), and tax_id stays in, encrypted as it is.
+     * @param int $clientId
+     * @return array|null business_client_link columns, and the business_master ones under "business";
+     *                    null when the client is active in no business
+     */
+    public function signInBusinessOf(int $clientId): ?array
+    {
+        $businessFields = [
+            'business_name', 'business_slug', 'business_description', 'business_mood_and_tone', 'contact_person_name',
+            'contact_email_address', 'contact_phone_number', 'contact_website', 'contact_address_line_1',
+            'contact_address_line_2', 'contact_city', 'contact_subdivision_code', 'contact_postal_code', 'country_code',
+            'currency_code',
+        ];
+        $row = $this->db->table($this->table . ' l')
+            ->select('l.client_role, l.client_status, l.is_default_business, l.start_date, t.public_id AS business_type_public_id')
+            ->select(implode(', ', array_map(static fn ($field) => 'b.' . $field, $businessFields)))
+            ->join('business_master b', 'b.id = l.business_id')
+            ->join('business_type t', 't.id = b.business_type_id')
+            ->where('l.client_id', $clientId)
+            ->where('l.client_status', self::STATUS_ACTIVE)
+            ->orderBy('l.is_default_business', 'DESC') // Y before N
+            ->orderBy('l.id')
+            ->limit(1)
+            ->get()
+            ->getRowArray();
+        if ($row === null) {
+            return null;
+        }
+
+        $linkFields = ['client_role' => true, 'client_status' => true, 'is_default_business' => true, 'start_date' => true];
+
+        return array_intersect_key($row, $linkFields) + ['business' => array_diff_key($row, $linkFields)];
     }
 
     /**
@@ -131,12 +177,13 @@ class BusinessClientLinkModel extends Model
             $what   = 'client ' . $clientId . ' to business ' . $businessId;
             if ($stored === null) {
                 $row = [
-                    'business_id'   => $businessId,
-                    'client_id'     => $clientId,
-                    'client_status' => self::STATUS_ACTIVE,
-                    'client_role'   => $role,
-                    'start_date'    => $startDate,
-                    'owner_notes'   => $ownerNotes,
+                    'business_id'         => $businessId,
+                    'client_id'           => $clientId,
+                    'client_status'       => self::STATUS_ACTIVE,
+                    'client_role'         => $role,
+                    'is_default_business' => $this->firstLinkDefault($clientId),
+                    'start_date'          => $startDate,
+                    'owner_notes'         => $ownerNotes,
                 ];
                 $this->db->table($this->table)->insert($row);
                 $log->inserted($actorId, 'Linked ' . $what, $this->table, (int) $this->db->insertID(), $row);
@@ -158,6 +205,17 @@ class BusinessClientLinkModel extends Model
 
             return true;
         });
+    }
+
+    /**
+     * is_default_business of a new link of a client: a client's first link, whatever became of it since, is always
+     * their default; any later one is not. Call it inside the transaction that inserts the link.
+     * @param int $clientId
+     * @return string DEFAULT_YES or DEFAULT_NO
+     */
+    public function firstLinkDefault(int $clientId): string
+    {
+        return $this->db->table($this->table)->where('client_id', $clientId)->countAllResults() === 0 ? self::DEFAULT_YES : self::DEFAULT_NO;
     }
 
     /**

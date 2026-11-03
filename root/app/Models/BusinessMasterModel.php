@@ -200,7 +200,8 @@ class BusinessMasterModel extends Model
     }
 
     /**
-     * Create a business, its owner's link and its names in one transaction, logged to log_activity in it
+     * Create a business, its owner's link and its names in one transaction, logged to log_activity in it.
+     * The link is the owner's default business when it is their first link (BusinessClientLinkModel::firstLinkDefault()).
      * @param array $business      Checked business_master columns (localeErrors() included), tax_id as plaintext
      * @param int   $ownerClientId client_master.id of its first owner
      * @param int   $actorId       auth_master.id of whoever creates it
@@ -219,11 +220,12 @@ class BusinessMasterModel extends Model
             $log->inserted($actorId, 'Created business ' . $business['business_slug'], $this->table, $id, $business);
 
             $link = [
-                'business_id'   => $id,
-                'client_id'     => $ownerClientId,
-                'client_status' => BusinessClientLinkModel::STATUS_ACTIVE,
-                'client_role'   => BusinessClientLinkModel::ROLE_OWNER,
-                'start_date'    => date('Y-m-d'),
+                'business_id'         => $id,
+                'client_id'           => $ownerClientId,
+                'client_status'       => BusinessClientLinkModel::STATUS_ACTIVE,
+                'client_role'         => BusinessClientLinkModel::ROLE_OWNER,
+                'is_default_business' => model(BusinessClientLinkModel::class)->firstLinkDefault($ownerClientId),
+                'start_date'          => date('Y-m-d'),
             ];
             $this->db->table('business_client_link')->insert($link);
             $log->inserted($actorId, 'Made client ' . $ownerClientId . ' owner of ' . $business['business_slug'], 'business_client_link', (int) $this->db->insertID(), $link);
