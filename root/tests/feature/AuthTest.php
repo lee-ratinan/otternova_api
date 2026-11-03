@@ -82,7 +82,7 @@ final class AuthTest extends CIUnitTestCase
         $this->assertSame([
             'id', 'uid', 'email_address', 'telephone_number', 'full_name', 'avatar_path', 'otp_mode',
             'account_status', 'account_type', 'password_expiry', 'created_at', 'updated_at', 'employee_code',
-            'job_title', 'employment_status', 'gender', 'date_of_birth', 'status_message',
+            'job_title', 'employment_status', 'gender', 'date_of_birth', 'status_message', 'department_code',
         ], array_keys($data['user']));
         $this->assertSame('none@otternova.com', $data['user']['email_address']);
         // no picture uploaded: the initials avatar of "Otter Tester"
@@ -90,6 +90,7 @@ final class AuthTest extends CIUnitTestCase
         $this->assertFileExists($this->uploads . 'initials-avatar/OT.svg');
         $this->assertNull($this->db->table('auth_master')->select('avatar_path')->where('email_address', 'none@otternova.com')->get()->getRow()->avatar_path);
         $this->assertSame('EMP-1', $data['user']['employee_code']);
+        $this->assertSame('ENG', $data['user']['department_code']);
         $this->assertIsInt($data['user']['id']);
 
         $claims = service('jwt')->decode($data['access_token']);

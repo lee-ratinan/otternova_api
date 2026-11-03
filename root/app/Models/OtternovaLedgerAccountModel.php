@@ -55,7 +55,7 @@ class OtternovaLedgerAccountModel extends Model
         $fields = [
             'account_name'  => ['type' => 'text'],
             'account_type'  => ['type' => 'select'],
-            'currency_code' => ['type' => 'text'],
+            'currency_code' => ['type' => 'select', 'options' => listCurrencies(), 'searchable' => false],
             'account_class' => ['type' => 'select'],
         ];
         $enums  = [

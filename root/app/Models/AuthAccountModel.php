@@ -31,11 +31,15 @@ class AuthAccountModel extends AuthMasterModel
         'updated_at',
     ];
 
-    /** account_type => profile table and the columns of it returned to the apps */
+    /**
+     * account_type => profile table and the columns of it returned to the apps, and the columns of tables joined to it
+     * (department_code lets the Admin app show the pages of the staff member's department, such as the ledger)
+     */
     public const PROFILES = [
         self::TYPE_STAFF  => [
             'table'  => 'staff_master',
             'fields' => ['employee_code', 'job_title', 'employment_status', 'gender', 'date_of_birth', 'status_message'],
+            'joins'  => ['otternova_department' => ['on' => 'otternova_department.id = staff_master.department_id', 'fields' => ['department_code']]],
         ],
         self::TYPE_CLIENT => [
             'table'  => 'client_master',
@@ -488,7 +492,8 @@ class AuthAccountModel extends AuthMasterModel
      */
     public static function toUserPayload(array $account): array
     {
-        $fields = array_merge(self::ACCOUNT_FIELDS, self::PROFILES[$account['account_type']]['fields']);
+        $profile = self::PROFILES[$account['account_type']];
+        $fields  = array_merge(self::ACCOUNT_FIELDS, $profile['fields'], ...array_values(array_column($profile['joins'] ?? [], 'fields')));
         $user   = array_intersect_key($account, array_flip($fields));
         $user['id'] = (int) $user['id'];
         if ($user['avatar_path'] === null || $user['avatar_path'] === '') {
@@ -519,9 +524,19 @@ class AuthAccountModel extends AuthMasterModel
         foreach ($profile['fields'] as $field) {
             $select[] = $profile['table'] . '.' . $field;
         }
+        foreach ($profile['joins'] ?? [] as $table => $join) {
+            foreach ($join['fields'] as $field) {
+                $select[] = $table . '.' . $field;
+            }
+        }
 
-        return $this->select(implode(', ', $select))
-            ->join($profile['table'], $profile['table'] . '.auth_id = auth_master.id', 'inner')
+        $builder = $this->select(implode(', ', $select))
+            ->join($profile['table'], $profile['table'] . '.auth_id = auth_master.id', 'inner');
+        foreach ($profile['joins'] ?? [] as $table => $join) {
+            $builder->join($table, $join['on'], 'left');
+        }
+
+        return $builder
             ->where('auth_master.' . $column, $value)
             ->where('auth_master.account_type', $accountType)
             ->first();

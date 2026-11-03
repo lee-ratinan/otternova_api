@@ -808,16 +808,10 @@ if (!function_exists('listSupportedCurrencies')) {
         return $currencies[$countryCode] ?? [];
     }
 }
-if (!function_exists('mapCurrencyCode')) {
-    /**
-     * This function is used to map the ISO4217 code to the currency name
-     * The parameter $currencyCode is required
-     * @param string $currencyCode
-     * @return string
-     */
-    function mapCurrencyCode(string $currencyCode): string
+if (!function_exists('listCurrencies')) {
+    function listCurrencies(): array
     {
-        $currencies = [
+        return [
             "IDR" => "Indonesian rupiah",
             "MYR" => "Malaysian ringgit",
             "PHP" => "Philippine peso",
@@ -829,6 +823,18 @@ if (!function_exists('mapCurrencyCode')) {
             "TWD" => "元 (New Taiwan dollar)",
             "USD" => "US Dollar",
         ];
+    }
+}
+if (!function_exists('mapCurrencyCode')) {
+    /**
+     * This function is used to map the ISO4217 code to the currency name
+     * The parameter $currencyCode is required
+     * @param string $currencyCode
+     * @return string
+     */
+    function mapCurrencyCode(string $currencyCode): string
+    {
+        $currencies = listCurrencies();
         $currencyCode = strtoupper($currencyCode);
         return $currencies[$currencyCode] ?? '';
     }
