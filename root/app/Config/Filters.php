@@ -2,6 +2,7 @@
 
 namespace Config;
 
+use App\Filters\DepartmentAccess;
 use App\Filters\JwtAuth;
 use CodeIgniter\Config\Filters as BaseFilters;
 use CodeIgniter\Filters\Cors;
@@ -36,6 +37,7 @@ class Filters extends BaseFilters
         'pagecache'     => PageCache::class,
         'performance'   => PerformanceMetrics::class,
         'jwt'           => JwtAuth::class, // Authorization: Bearer <jwt>, for every signed-in endpoint
+        'department'    => DepartmentAccess::class, // staff of the departments given only; after 'jwt:S'
     ];
 
     /**

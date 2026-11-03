@@ -72,4 +72,21 @@ class OtternovaDepartmentModel extends Model
 
         return array_map(static fn (array $row) => ['id' => (int) $row['id']] + $row, $rows);
     }
+
+    /**
+     * department_code of a staff member's department, for the department filter
+     * @param int $authId auth_master.id
+     * @return string|null Null when the account has no staff_master row
+     */
+    public function codeOfStaff(int $authId): ?string
+    {
+        $row = $this->db->table('staff_master s')
+            ->select('d.department_code')
+            ->join($this->table . ' d', 'd.id = s.department_id', 'inner')
+            ->where('s.auth_id', $authId)
+            ->get()
+            ->getRowArray();
+
+        return $row['department_code'] ?? null;
+    }
 }

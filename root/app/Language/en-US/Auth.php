@@ -11,6 +11,8 @@ return [
     'signInRequired'        => 'Please sign in to continue.',
     'sessionExpired'        => 'Your session has expired. Please sign in again.',
     'wrongAccountType'      => 'Your account does not have access to this page.',
+    'wrongDepartment'       => 'Your department does not have access to this page.',
+    'departmentCheckFailed' => 'Could not check your access. Please try again.',
     'passwordChangeExpired' => 'Your password change request has expired. Please sign in again.',
     'passwordTooShort'      => 'Your new password must be at least {0} characters long.',
     'passwordTooLong'       => 'Your new password is too long. It can be at most {0} bytes (fewer characters if it uses accented letters or other non-English characters).',

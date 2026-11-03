@@ -41,6 +41,22 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('image-delete', 'Images::delete');
     });
 
+    // Admin app's internal ledger: staff of the Executive Office and Finance only; see App\Controllers\Ledger
+    $routes->group('staff/ledger', ['filter' => ['jwt:S', 'department:EXE,FIN']], static function (RouteCollection $routes) {
+        $routes->post('entries', 'Ledger::entries');
+        $routes->post('entry', 'Ledger::entry');
+        $routes->post('entry/update', 'Ledger::saveEntry');
+        $routes->post('receipt-upload', 'Ledger::uploadReceipt');
+        $routes->post('receipt-delete', 'Ledger::deleteReceipt');
+        $routes->get('receipt/(:num)', 'Ledger::receipt/$1');
+        $routes->post('accounts', 'Ledger::accounts');
+        $routes->post('account/update', 'Ledger::saveAccount');
+        $routes->post('categories', 'Ledger::categories');
+        $routes->post('category/update', 'Ledger::saveCategory');
+        $routes->post('counterparties', 'Ledger::counterparties');
+        $routes->post('counterparty/update', 'Ledger::saveCounterparty');
+    });
+
     // Client app: client accounts only (a valid token with typ C)
     $routes->group('client', ['filter' => 'jwt:C'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');
