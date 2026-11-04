@@ -168,7 +168,7 @@ class AuthAccountModel extends AuthMasterModel
      * The fields a client may change on their own account through /client/account/update; anything else in the
      * request is ignored. email_address and password_expiry are shown but fixed (the password flow sets the expiry).
      */
-    public const CLIENT_SELF_EDIT_ACCOUNT = ['full_name', 'otp_mode'];
+    public const CLIENT_SELF_EDIT_ACCOUNT = ['full_name', 'telephone_number', 'otp_mode'];
     public const CLIENT_SELF_EDIT_PROFILE = [
         'legal_first_name', 'legal_middle_name', 'legal_last_name', 'display_name', 'status_message', 'status_emoji',
         'gender', 'date_of_birth', 'nationality_code', 'preferred_language', 'bio', 'marketing_opt_in',

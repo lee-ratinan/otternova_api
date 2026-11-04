@@ -15,7 +15,7 @@ return [
         'translations' => 'Business Name in Other Languages',
     ],
     'help'              => [
-        'business-slug' => 'Lowercase letters, numbers and hyphens, e.g. otter-cafe-sg. It appears in your page addresses.',
+        'business-slug' => 'Made from the business name; you can change it. Lowercase letters, numbers and hyphens, e.g. otter-cafe-sg. It appears in your page addresses.',
         'mood-and-tone' => 'How your business speaks to customers, e.g. friendly and playful.',
         'subdivision'   => 'Choose the country first.',
         'fixed'         => 'Cannot be changed once the business is created.',
