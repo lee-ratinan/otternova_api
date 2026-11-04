@@ -189,7 +189,8 @@ class BusinessClientLinkModel extends Model
     private function sessionBusiness(int $clientId, ?int $businessId): ?array
     {
         $businessFields = [
-            'business_name', 'business_slug', 'business_description', 'business_mood_and_tone', 'contact_person_name',
+            'business_name', 'business_slug', 'business_description', 'business_mood_and_tone', 'lgbt_audience',
+            'naturist_audience', 'age_restricted', 'contact_person_name',
             'contact_email_address', 'contact_phone_number', 'contact_website', 'contact_address_line_1',
             'contact_address_line_2', 'contact_city', 'contact_subdivision_code', 'contact_postal_code', 'country_code',
             'currency_code',

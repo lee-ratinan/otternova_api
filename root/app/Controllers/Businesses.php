@@ -26,6 +26,9 @@ class Businesses extends BaseController
         'business_slug',
         'business_description',
         'business_mood_and_tone',
+        'lgbt_audience',
+        'naturist_audience',
+        'age_restricted',
         'contact_person_name',
         'contact_email_address',
         'contact_phone_number',
@@ -56,7 +59,8 @@ class Businesses extends BaseController
     ];
 
     /** Fields saved in capitals, so "sg" is accepted as SG */
-    private const UPPERCASE_FIELDS = ['country_code', 'currency_code', 'contact_subdivision_code', 'type_status'];
+    private const UPPERCASE_FIELDS = ['country_code', 'currency_code', 'contact_subdivision_code', 'type_status',
+        'lgbt_audience', 'naturist_audience', 'age_restricted'];
 
     /** business_master_translation.business_name and business_type_translation.type_name */
     private const TRANSLATION_MAX_LENGTH = 255;
@@ -66,6 +70,7 @@ class Businesses extends BaseController
      * Creates a business with the signed-in client as its owner (business_client_link), and its names in other
      * languages (business_master_translation). The business type is business.business_type_public_id.
      * "translations" is optional; each key must be a language of listLanguages(), and an empty name is left out.
+     * lgbt_audience, naturist_audience and age_restricted left out or empty are the general public (GEN, GEN, N).
      * @return ResponseInterface
      */
     public function create(): ResponseInterface
@@ -300,6 +305,10 @@ class Businesses extends BaseController
             $business[$field] = $stored !== null && ! array_key_exists($field, $businessIn)
                 ? $stored[$field]
                 : $this->normalize($field, $businessIn[$field] ?? null);
+        }
+        // left out of a create (or empty), a business is for the general public
+        foreach ($stored === null ? BusinessMasterModel::AUDIENCE_DEFAULTS : [] as $field => $default) {
+            $business[$field] = $business[$field] === '' || $business[$field] === null ? $default : $business[$field];
         }
         foreach ($stored === null ? [] : BusinessMasterModel::FIXED_FIELDS as $field) {
             if ((string) $business[$field] !== (string) $stored[$field]) {

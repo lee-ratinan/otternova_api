@@ -21,6 +21,30 @@ class BusinessMasterModel extends Model
     /** Columns fixed once the business is created */
     public const FIXED_FIELDS = ['country_code', 'currency_code'];
 
+    // lgbt_audience
+    public const LGBT_FRIENDLY = 'FNDLY';
+    public const LGBT_ONLY     = 'LGBT';
+    public const LGBT_GAY      = 'GAY';
+    public const LGBT_LESBIAN  = 'LES';
+    public const LGBT_GENERAL  = 'GEN';
+
+    // naturist_audience
+    public const NATURIST_OPTIONAL = 'OPT';
+    public const NATURIST_REQUIRED = 'NUD'; // nudity required in some areas, such as some spas
+    public const NATURIST_ONLY     = 'NAT';
+    public const NATURIST_GENERAL  = 'GEN';
+
+    // age_restricted
+    public const AGE_ADULTS_ONLY = 'Y';
+    public const AGE_GENERAL     = 'N';
+
+    /** Who the business is for, and what a business left without a value gets: the general public */
+    public const AUDIENCE_DEFAULTS = [
+        'lgbt_audience'     => self::LGBT_GENERAL,
+        'naturist_audience' => self::NATURIST_GENERAL,
+        'age_restricted'    => self::AGE_GENERAL,
+    ];
+
     protected $table            = 'business_master';
     protected $primaryKey       = 'id';
     protected $useAutoIncrement = true;
@@ -33,6 +57,9 @@ class BusinessMasterModel extends Model
         'business_slug',
         'business_description',
         'business_mood_and_tone',
+        'lgbt_audience',
+        'naturist_audience',
+        'age_restricted',
         'contact_person_name',
         'contact_email_address',
         'contact_phone_number',
@@ -62,6 +89,9 @@ class BusinessMasterModel extends Model
         'business_slug'            => 'required|max_length[128]|regex_match[/^[a-z0-9]+(-[a-z0-9]+)*$/]|is_unique[business_master.business_slug,id,{id}]', // e.g. otter-cafe-sg
         'business_description'     => 'permit_empty|max_length[65535]',
         'business_mood_and_tone'   => 'permit_empty|max_length[65535]',
+        'lgbt_audience'            => 'required|in_list[FNDLY,LGBT,GAY,LES,GEN]',
+        'naturist_audience'        => 'required|in_list[OPT,NUD,NAT,GEN]',
+        'age_restricted'           => 'required|in_list[Y,N]',
         'contact_person_name'      => 'permit_empty|max_length[128]',
         'contact_email_address'    => 'required|valid_email|max_length[128]',
         'contact_phone_number'     => 'permit_empty|max_length[32]',
@@ -103,6 +133,9 @@ class BusinessMasterModel extends Model
             'business_slug'            => ['type' => 'text'],
             'business_description'     => ['type' => 'textarea', 'rows' => 4, 'orderable' => false],
             'business_mood_and_tone'   => ['type' => 'textarea', 'rows' => 4, 'orderable' => false],
+            'lgbt_audience'            => ['type' => 'select', 'default' => self::LGBT_GENERAL],
+            'naturist_audience'        => ['type' => 'select', 'default' => self::NATURIST_GENERAL],
+            'age_restricted'           => ['type' => 'select', 'default' => self::AGE_GENERAL],
             'contact_person_name'      => ['type' => 'text'],
             'contact_email_address'    => ['type' => 'email'],
             'contact_phone_number'     => ['type' => 'tel'],
@@ -117,7 +150,14 @@ class BusinessMasterModel extends Model
             'tax_id'                   => ['type' => 'text', 'orderable' => false, 'searchable' => false], // encrypted
         ];
 
-        return $this->buildConfiguration('BusinessMaster', $fields);
+        // the general public last: the select shows the others first, as the ones a business picks
+        $enums = [
+            'lgbt_audience'     => [self::LGBT_FRIENDLY, self::LGBT_ONLY, self::LGBT_GAY, self::LGBT_LESBIAN, self::LGBT_GENERAL],
+            'naturist_audience' => [self::NATURIST_OPTIONAL, self::NATURIST_REQUIRED, self::NATURIST_ONLY, self::NATURIST_GENERAL],
+            'age_restricted'    => [self::AGE_ADULTS_ONLY, self::AGE_GENERAL],
+        ];
+
+        return $this->buildConfiguration('BusinessMaster', $fields, $enums);
     }
 
     /**

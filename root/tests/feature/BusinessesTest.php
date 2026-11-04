@@ -87,6 +87,28 @@ final class BusinessesTest extends CIUnitTestCase
         $this->assertSame(4, $logs); // the business, the owner link and two names
     }
 
+    public function testAudienceDefaultsToTheGeneralPublicAndCanBeSet(): void
+    {
+        $this->send(['business' => $this->business()])->assertStatus(200);
+        $row = $this->db->table('business_master')->where('business_slug', 'otter-cafe-sg')->get()->getRowArray();
+        $this->assertSame(['GEN', 'GEN', 'N'], [$row['lgbt_audience'], $row['naturist_audience'], $row['age_restricted']]);
+
+        $this->send(['business' => $this->business(['business_name' => 'Badger Spa', 'business_slug' => 'badger-spa-sg',
+            'lgbt_audience' => 'gay', 'naturist_audience' => 'NUD', 'age_restricted' => 'y'])])->assertStatus(200);
+        $row = $this->db->table('business_master')->where('business_slug', 'badger-spa-sg')->get()->getRowArray();
+        $this->assertSame(['GAY', 'NUD', 'Y'], [$row['lgbt_audience'], $row['naturist_audience'], $row['age_restricted']]);
+
+        $response = $this->send(['business' => $this->business(['business_slug' => 'otter-x', 'business_name' => 'X', 'lgbt_audience' => 'ALL', 'naturist_audience' => 'GEN', 'age_restricted' => 'Maybe'])]);
+        $response->assertStatus(422);
+        $this->assertSame(['lgbt_audience', 'age_restricted'], array_keys($this->body($response)['errors']));
+
+        // edited, left out keeps its value; the session business carries them
+        $this->send(['business_slug' => 'badger-spa-sg', 'business' => ['lgbt_audience' => 'FNDLY']], null, 'v1/client/business/edit')->assertStatus(200);
+        $business = $this->body($this->send(['business_slug' => 'badger-spa-sg'], null, 'v1/client/business/switch'))['data']['business']['business'];
+        $this->assertSame(['FNDLY', 'NUD', 'Y'], [$business['lgbt_audience'], $business['naturist_audience'], $business['age_restricted']]);
+        $this->send(['business_slug' => 'badger-spa-sg', 'business' => ['age_restricted' => '']], null, 'v1/client/business/edit')->assertStatus(422);
+    }
+
     public function testLanguagesOutsideListLanguagesAreRefused(): void
     {
         $response = $this->send(['business' => $this->business(), 'translations' => ['fr' => 'Café Loutre', 'th' => ['x']]]);
