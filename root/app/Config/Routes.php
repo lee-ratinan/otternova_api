@@ -66,6 +66,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('change-password', 'Auth::changePassword');
         $routes->post('account', 'Accounts::showOwn');
         $routes->post('account/update', 'Accounts::saveOwn');
+        $routes->post('business-types', 'Businesses::listActiveTypes');
         $routes->post('business/create', 'Businesses::create');
         $routes->post('business/edit', 'Businesses::edit');
         $routes->post('image-upload', 'Images::upload');

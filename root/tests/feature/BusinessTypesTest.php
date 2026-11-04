@@ -36,6 +36,20 @@ final class BusinessTypesTest extends CIUnitTestCase
         $this->withHeaders([])->post('v1/staff/business-types')->assertStatus(401);
     }
 
+    public function testClientListHasOnlyTheActiveTypes(): void
+    {
+        $id = $this->body($this->send($this->type()))['data']['public_id'];
+        $this->send($this->type(['type_code' => 'bakery', 'type_status' => 'I', 'translations' => ['en-US' => 'Bakery', 'th' => 'เบเกอรี่']]))->assertStatus(200);
+
+        $client = $this->createAccount('client@example.com', 'C');
+        $this->db->table('client_master')->insert(['auth_id' => $client['id']]);
+        $response = $this->send([], service('jwt')->issue($client)['access_token'], 'v1/client/business-types');
+        $response->assertStatus(200);
+        $this->assertSame([['public_id' => $id, 'type_code' => 'cafe', 'type_status' => 'A', 'translations' => ['en-US' => 'Café', 'th' => 'คาเฟ่']]], $this->body($response)['data']['rows']);
+
+        $this->send([], null, 'v1/client/business-types')->assertStatus(403); // staff
+    }
+
     /** The signed-in staff account calling the endpoint */
     private array $staff;
     private string $token;

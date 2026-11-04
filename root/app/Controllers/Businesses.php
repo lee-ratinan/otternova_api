@@ -12,7 +12,7 @@ use CodeIgniter\HTTP\ResponseInterface;
 use Throwable;
 
 /**
- * Businesses and their types: create() and edit() are the Client app's, behind the jwt:C filter (clients only);
+ * Businesses and their types: create(), edit() and listActiveTypes() are the Client app's, behind the jwt:C filter (clients only);
  * listTypes(), createType() and editType() are the Admin app's, behind jwt:S (staff only).
  * A business goes out and comes in by its business_slug, a business type by its public_id; the ids stay inside.
  */
@@ -103,6 +103,30 @@ class Businesses extends BaseController
 
             return ApiResponse::error(lang('Business.loadFailed'), 500);
         }
+
+        return ApiResponse::success(['rows' => $rows]);
+    }
+
+    /**
+     * POST /client/business-types {}
+     * The active business types, for the Business Type dropdown of a new business: by type_code, with their names in
+     * every language as translations
+     * @return ResponseInterface
+     */
+    public function listActiveTypes(): ResponseInterface
+    {
+        if ($this->jsonInput() === null) {
+            return ApiResponse::error(lang('Business.invalidRequest'), 422);
+        }
+
+        try {
+            $rows = model(BusinessTypeModel::class)->listWithNames();
+        } catch (Throwable $e) {
+            log_message('error', 'v1/client/business-types: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Business.loadFailed'), 500);
+        }
+        $rows = array_values(array_filter($rows, static fn (array $row) => $row['type_status'] === BusinessTypeModel::STATUS_ACTIVE));
 
         return ApiResponse::success(['rows' => $rows]);
     }
