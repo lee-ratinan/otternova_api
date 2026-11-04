@@ -72,6 +72,10 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('businesses', 'Businesses::listOwn');
         $routes->post('business/make-default', 'Businesses::makeDefault');
         $routes->post('business/switch', 'Businesses::switchTo');
+        // the stores of a business: its active owners and managers only; see App\Controllers\Stores
+        $routes->post('stores', 'Stores::list');
+        $routes->post('store/create', 'Stores::create');
+        $routes->post('store/edit', 'Stores::edit');
         $routes->post('image-upload', 'Images::upload');
         $routes->post('image-delete', 'Images::delete');
     });
