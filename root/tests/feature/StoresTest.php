@@ -53,7 +53,7 @@ final class StoresTest extends CIUnitTestCase
     {
         $response = $this->send([
             'business_slug' => 'otter-cafe-th',
-            'store'         => ['store_name' => 'Bangkok', 'store_type' => 'p', 'store_address_line_1' => '1 Sukhumvit Rd', 'store_city' => 'Bangkok', 'store_subdivision_code' => 'th-10', 'store_postal_code' => '10110'],
+            'store'         => ['store_name' => 'Bangkok', 'store_type' => 'p', 'store_phone_number' => ' +6621234567 ', 'store_address_line_1' => '1 Sukhumvit Rd', 'store_city' => 'Bangkok', 'store_subdivision_code' => 'th-10', 'store_postal_code' => '10110'],
             'translations'  => ['th' => ' กรุงเทพฯ ', 'ja' => ''],
         ]);
         $response->assertStatus(200);
@@ -62,13 +62,14 @@ final class StoresTest extends CIUnitTestCase
 
         $this->send([
             'business_slug' => 'otter-cafe-th',
-            'store'         => ['store_name' => 'Online Store', 'store_type' => 'O', 'store_address_line_1' => 'ignored', 'store_subdivision_code' => 'XX-1'],
+            'store'         => ['store_name' => 'Online Store', 'store_type' => 'O', 'store_phone_number' => '021234567', 'store_address_line_1' => 'ignored', 'store_subdivision_code' => 'XX-1'],
         ])->assertStatus(200);
 
         $response = $this->send(['business_slug' => 'otter-cafe-th'], null, 'v1/client/stores');
         $response->assertStatus(200);
         $stores = $this->body($response)['data']['stores'];
         $this->assertSame(['Bangkok', 'Online Store'], array_column($stores, 'store_name'));
+        $this->assertSame(['+6621234567', '021234567'], array_column($stores, 'store_phone_number')); // kept for an online store too
         $this->assertSame([$publicId, 'P', '1 Sukhumvit Rd', 'TH-10', ['th' => 'กรุงเทพฯ']],
             [$stores[0]['public_id'], $stores[0]['store_type'], $stores[0]['store_address_line_1'], $stores[0]['store_subdivision_code'], $stores[0]['translations']]);
         $this->assertSame(['O', null, null, []], [$stores[1]['store_type'], $stores[1]['store_address_line_1'], $stores[1]['store_subdivision_code'], $stores[1]['translations']]);
@@ -80,6 +81,10 @@ final class StoresTest extends CIUnitTestCase
         $response = $this->send(['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => '', 'store_type' => 'X']]);
         $response->assertStatus(422);
         $this->assertSame(['store_name', 'store_type'], array_keys($this->body($response)['errors']));
+
+        $response = $this->send(['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => 'Bangkok', 'store_type' => 'P', 'store_phone_number' => str_repeat('1', 33)]]);
+        $response->assertStatus(422);
+        $this->assertSame(['store_phone_number'], array_keys($this->body($response)['errors']));
 
         // a subdivision of another country than the business's
         $response = $this->send(['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => 'Bangkok', 'store_type' => 'P', 'store_subdivision_code' => 'SG-01']]);

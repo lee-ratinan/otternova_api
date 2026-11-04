@@ -136,7 +136,8 @@ class Businesses extends BaseController
     /**
      * POST /client/business/switch { business_slug }
      * The business the signed-in client switches their app to, in the shape sign-in gives it as "business"
-     * (see BusinessClientLinkModel::signInBusinessOf()). Only a business they are active in; nothing is written.
+     * (see BusinessClientLinkModel::signInBusinessOf()), and beside it its names in other languages as translations
+     * {language_code: business_name} (business_master_translation). Only a business they are active in; nothing is written.
      * @return ResponseInterface
      */
     public function switchTo(): ResponseInterface
@@ -147,6 +148,7 @@ class Businesses extends BaseController
         }
         try {
             $business = model(BusinessClientLinkModel::class)->activeBusinessOf((int) $link['client_id'], (int) $link['business_id']);
+            $names    = $business === null ? [] : model(BusinessMasterModel::class)->namesOf((int) $link['business_id']);
         } catch (Throwable $e) {
             log_message('error', 'v1/client/business/switch: {message}', ['message' => $e->getMessage()]);
 
@@ -156,7 +158,7 @@ class Businesses extends BaseController
             return ApiResponse::error(lang('Business.notFound'), 404);
         }
 
-        return ApiResponse::success(['business' => $business]);
+        return ApiResponse::success(['business' => $business, 'translations' => (object) $names]);
     }
 
     /**

@@ -46,6 +46,7 @@ class BusinessStoreModel extends Model
         'business_id',
         'store_name',
         'store_type',
+        'store_phone_number',
         'store_address_line_1',
         'store_address_line_2',
         'store_city',
@@ -69,6 +70,7 @@ class BusinessStoreModel extends Model
         'business_id'            => 'required|is_natural_no_zero',
         'store_name'             => 'required|max_length[255]',
         'store_type'             => 'required|in_list[P,O]',
+        'store_phone_number'     => 'permit_empty|max_length[32]',
         'store_address_line_1'   => 'permit_empty|max_length[255]',
         'store_address_line_2'   => 'permit_empty|max_length[255]',
         'store_city'             => 'permit_empty|max_length[128]',
@@ -89,6 +91,7 @@ class BusinessStoreModel extends Model
         $fields = [
             'store_name'             => ['type' => 'text'],
             'store_type'             => ['type' => 'select'],
+            'store_phone_number'     => ['type' => 'tel'],
             'store_address_line_1'   => ['type' => 'text'],
             'store_address_line_2'   => ['type' => 'text'],
             'store_city'             => ['type' => 'text'],
@@ -146,7 +149,7 @@ class BusinessStoreModel extends Model
     public function listOfBusiness(int $businessId): array
     {
         $stores = $this->db->table($this->table)
-            ->select('id, public_id, store_name, store_type, ' . implode(', ', self::ADDRESS_FIELDS))
+            ->select('id, public_id, store_name, store_type, store_phone_number, ' . implode(', ', self::ADDRESS_FIELDS))
             ->where('business_id', $businessId)
             ->orderBy('store_name', 'ASC')
             ->orderBy('id', 'ASC')

@@ -22,6 +22,7 @@ class Stores extends BaseController
     private const FORM_FIELDS = [
         'store_name',
         'store_type',
+        'store_phone_number',
         'store_address_line_1',
         'store_address_line_2',
         'store_city',
@@ -30,7 +31,7 @@ class Stores extends BaseController
     ];
 
     /** Fields saved as NULL when left empty */
-    private const FORM_NULLABLE = BusinessStoreModel::ADDRESS_FIELDS;
+    private const FORM_NULLABLE = ['store_phone_number', ...BusinessStoreModel::ADDRESS_FIELDS];
 
     /** Fields saved in capitals, so "th-10" is accepted as TH-10 */
     private const UPPERCASE_FIELDS = ['store_type', 'store_subdivision_code'];
@@ -43,7 +44,7 @@ class Stores extends BaseController
 
     /**
      * POST /client/stores { business_slug }
-     * The stores of that business, by name: for each, public_id, store_name, store_type, the address columns (NULL
+     * The stores of that business, by name: for each, public_id, store_name, store_type, store_phone_number, the address columns (NULL
      * for an online store) and its names in other languages as translations
      * @return ResponseInterface
      */
@@ -287,7 +288,7 @@ class Stores extends BaseController
      */
     private function normalize(string $field, mixed $value): ?string
     {
-        // a number counts too: the postal code may arrive as a JSON number
+        // a number counts too: the phone number or the postal code may arrive as a JSON number
         $value = is_string($value) || is_int($value) ? trim((string) $value) : '';
         if (in_array($field, self::UPPERCASE_FIELDS, true)) {
             $value = strtoupper($value);

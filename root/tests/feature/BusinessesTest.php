@@ -288,6 +288,12 @@ final class BusinessesTest extends CIUnitTestCase
         $this->assertSame(['M', 'A', 'N'], [$business['client_role'], $business['client_status'], $business['is_default_business']]);
         $this->assertSame(['Badger Bar', 'badger-bar-sg', $this->typeId], [$business['business']['business_name'], $business['business']['business_slug'], $business['business']['business_type_public_id']]);
         $this->assertArrayNotHasKey('id', $business['business']);
+        $this->assertSame([], $this->body($response)['data']['translations']);
+
+        $this->db->table('business_client_link')->where('business_id', $this->businessId('badger-bar-sg'))->update(['client_role' => 'O']);
+        $this->send(['business_slug' => 'badger-bar-sg', 'business' => [], 'translations' => ['th' => 'แบดเจอร์บาร์']], null, 'v1/client/business/edit')->assertStatus(200);
+        $response = $this->send(['business_slug' => 'badger-bar-sg'], null, 'v1/client/business/switch');
+        $this->assertSame(['th' => 'แบดเจอร์บาร์'], $this->body($response)['data']['translations']);
 
         $this->db->table('business_client_link')->where('business_id', $this->businessId('badger-bar-sg'))->update(['client_status' => 'T', 'termination_date' => date('Y-m-d')]);
         $this->send(['business_slug' => 'badger-bar-sg'], null, 'v1/client/business/switch')->assertStatus(404);
