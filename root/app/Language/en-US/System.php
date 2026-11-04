@@ -11,6 +11,7 @@ return [
         'sign-out'        => 'Sign Out',
         'notifications'   => 'Notifications',
         'messages'        => 'Messages',
+        'create-business' => 'Create Business',
         'my-businesses'   => 'My Businesses',
         'search'          => 'Search',
     ],

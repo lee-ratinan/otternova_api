@@ -11,6 +11,7 @@ return [
     ],
     'optional'   => '(optional)',
     'select'     => 'Select...',
+    'telephone-country' => 'Country calling code',
     'yes'        => 'Yes',
     'no'         => 'No',
     'image-hint' => 'JPG, PNG or WEBP. Max size {0}',
@@ -55,5 +56,7 @@ return [
         'file_type'     => '{label} must be a JPG, PNG or WEBP image.',
         'file_size'     => '{label} must be {param} or smaller.',
         'invalid'       => '{label} is invalid.',
+        'phone'         => '{label} is not a valid phone number for the chosen country.',
+        'phone_country' => 'Please choose the country of {label}.',
     ],
 ];
