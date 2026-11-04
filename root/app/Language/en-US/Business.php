@@ -11,6 +11,7 @@ return [
     'loadFailed'          => 'Could not load the record. Please try again.',
     'created'             => 'Business created.',
     'updated'             => 'Business saved.',
+    'defaultChanged'      => 'Default business changed.',
     'slugRequired'        => 'Please choose a business.',
     'notFound'            => 'Business not found.',
     'ownerOnly'           => 'Only the owners of this business can change it.',

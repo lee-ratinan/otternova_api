@@ -109,12 +109,84 @@ class BusinessClientLinkModel extends Model
     /**
      * The business a client's app opens on after sign-in: their default one (is_default_business), else the first
      * they were linked to, among those they are active in.
-     * Only public keys go out (business_slug, business_type_public_id), and tax_id stays in, encrypted as it is.
      * @param int $clientId
-     * @return array|null business_client_link columns, and the business_master ones under "business";
-     *                    null when the client is active in no business
+     * @return array|null sessionBusiness(); null when the client is active in no business
      */
     public function signInBusinessOf(int $clientId): ?array
+    {
+        return $this->sessionBusiness($clientId, null);
+    }
+
+    /**
+     * A business a client is active in, as signInBusinessOf() gives it, for the client app to switch to
+     * @param int $clientId
+     * @param int $businessId
+     * @return array|null sessionBusiness(); null when the client is not active in it
+     */
+    public function activeBusinessOf(int $clientId, int $businessId): ?array
+    {
+        return $this->sessionBusiness($clientId, $businessId);
+    }
+
+    /**
+     * Every business a client is active in, for their list of businesses: the default one first, then by name.
+     * Only the public key of the business goes out (business_slug); the link is the client's own one in it.
+     * @param int $clientId
+     * @return list<array{business_slug: string, business_name: string, country_code: string, client_role: string, is_default_business: string}>
+     */
+    public function businessesOf(int $clientId): array
+    {
+        return $this->db->table($this->table . ' l')
+            ->select('b.business_slug, b.business_name, b.country_code, l.client_role, l.is_default_business')
+            ->join('business_master b', 'b.id = l.business_id')
+            ->where('l.client_id', $clientId)
+            ->where('l.client_status', self::STATUS_ACTIVE)
+            ->orderBy('l.is_default_business', 'DESC') // Y before N
+            ->orderBy('b.business_name')
+            ->get()
+            ->getResultArray();
+    }
+
+    /**
+     * Make an active link its client's default business (is_default_business Y) and every other link of that
+     * client not (N), in one transaction, each change logged to log_activity in it
+     * @param array $link    findLink()
+     * @param int   $actorId auth_master.id of whoever makes the change
+     * @throws InvalidArgumentException When the link is terminated
+     * @throws Throwable When a write fails; nothing is written then
+     */
+    public function makeDefault(array $link, int $actorId): void
+    {
+        if ($link['client_status'] !== self::STATUS_ACTIVE) {
+            throw new InvalidArgumentException('Only an active link can be the default business');
+        }
+        $log = new ActivityLog();
+
+        $this->inTransaction(function () use ($link, $actorId, $log) {
+            $rows = $this->db->table($this->table)->where('client_id', $link['client_id'])->get()->getResultArray();
+            foreach ($rows as $row) {
+                $changes = ActivityLog::changes($row, [
+                    'is_default_business' => (int) $row['id'] === (int) $link['id'] ? self::DEFAULT_YES : self::DEFAULT_NO,
+                ]);
+                if ($changes === []) {
+                    continue;
+                }
+                $this->db->table($this->table)->where('id', $row['id'])->update($changes);
+                $log->updated($actorId, 'Changed default business of client ' . $row['client_id'] . ' in business ' . $row['business_id'], $this->table, (int) $row['id'], $row, $changes);
+            }
+
+            return true;
+        });
+    }
+
+    /**
+     * signInBusinessOf() and activeBusinessOf(): an active link of a client with its business.
+     * Only public keys go out (business_slug, business_type_public_id), and tax_id stays in, encrypted as it is.
+     * @param int      $clientId
+     * @param int|null $businessId null: the default business, else the first linked
+     * @return array|null business_client_link columns, and the business_master ones under "business"
+     */
+    private function sessionBusiness(int $clientId, ?int $businessId): ?array
     {
         $businessFields = [
             'business_name', 'business_slug', 'business_description', 'business_mood_and_tone', 'contact_person_name',
@@ -122,13 +194,17 @@ class BusinessClientLinkModel extends Model
             'contact_address_line_2', 'contact_city', 'contact_subdivision_code', 'contact_postal_code', 'country_code',
             'currency_code',
         ];
-        $row = $this->db->table($this->table . ' l')
+        $builder = $this->db->table($this->table . ' l')
             ->select('l.client_role, l.client_status, l.is_default_business, l.start_date, t.public_id AS business_type_public_id')
             ->select(implode(', ', array_map(static fn ($field) => 'b.' . $field, $businessFields)))
             ->join('business_master b', 'b.id = l.business_id')
             ->join('business_type t', 't.id = b.business_type_id')
             ->where('l.client_id', $clientId)
-            ->where('l.client_status', self::STATUS_ACTIVE)
+            ->where('l.client_status', self::STATUS_ACTIVE);
+        if ($businessId !== null) {
+            $builder->where('l.business_id', $businessId);
+        }
+        $row = $builder
             ->orderBy('l.is_default_business', 'DESC') // Y before N
             ->orderBy('l.id')
             ->limit(1)

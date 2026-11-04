@@ -12,7 +12,8 @@ use CodeIgniter\HTTP\ResponseInterface;
 use Throwable;
 
 /**
- * Businesses and their types: create(), edit() and listActiveTypes() are the Client app's, behind the jwt:C filter (clients only);
+ * Businesses and their types: create(), edit(), listOwn(), makeDefault(), switchTo() and listActiveTypes() are the
+ * Client app's, behind the jwt:C filter (clients only);
  * listTypes(), createType() and editType() are the Admin app's, behind jwt:S (staff only).
  * A business goes out and comes in by its business_slug, a business type by its public_id; the ids stay inside.
  */
@@ -83,6 +84,79 @@ class Businesses extends BaseController
     public function edit(): ResponseInterface
     {
         return $this->saveBusiness(true);
+    }
+
+    /**
+     * POST /client/businesses {}
+     * The businesses the signed-in client is active in, the default one first: for each, business_slug (the key
+     * of the business, and with the signed-in client of their business_client_link), business_name and
+     * country_code from business_master, client_role and is_default_business from business_client_link
+     * @return ResponseInterface
+     */
+    public function listOwn(): ResponseInterface
+    {
+        if ($this->jsonInput() === null) {
+            return ApiResponse::error(lang('Business.invalidRequest'), 422);
+        }
+        try {
+            $client = model(ClientMasterModel::class)->findByAuthId($this->actorId());
+            $rows   = $client === null ? [] : model(BusinessClientLinkModel::class)->businessesOf((int) $client['id']);
+        } catch (Throwable $e) {
+            log_message('error', 'v1/client/businesses: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Business.loadFailed'), 500);
+        }
+
+        return ApiResponse::success(['businesses' => $rows]);
+    }
+
+    /**
+     * POST /client/business/make-default { business_slug }
+     * Makes that business the signed-in client's default one (business_client_link.is_default_business Y), and
+     * every other business of theirs not (N). Only a business they are active in.
+     * @return ResponseInterface
+     */
+    public function makeDefault(): ResponseInterface
+    {
+        [$link, $error] = $this->ownLink('v1/client/business/make-default');
+        if ($error !== null) {
+            return $error;
+        }
+        try {
+            model(BusinessClientLinkModel::class)->makeDefault($link, $this->actorId());
+        } catch (Throwable $e) {
+            log_message('error', 'v1/client/business/make-default: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Business.saveFailed'), 500);
+        }
+
+        return ApiResponse::success(['business_slug' => $link['business_slug']], 200, lang('Business.defaultChanged'));
+    }
+
+    /**
+     * POST /client/business/switch { business_slug }
+     * The business the signed-in client switches their app to, in the shape sign-in gives it as "business"
+     * (see BusinessClientLinkModel::signInBusinessOf()). Only a business they are active in; nothing is written.
+     * @return ResponseInterface
+     */
+    public function switchTo(): ResponseInterface
+    {
+        [$link, $error] = $this->ownLink('v1/client/business/switch');
+        if ($error !== null) {
+            return $error;
+        }
+        try {
+            $business = model(BusinessClientLinkModel::class)->activeBusinessOf((int) $link['client_id'], (int) $link['business_id']);
+        } catch (Throwable $e) {
+            log_message('error', 'v1/client/business/switch: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Business.loadFailed'), 500);
+        }
+        if ($business === null) {
+            return ApiResponse::error(lang('Business.notFound'), 404);
+        }
+
+        return ApiResponse::success(['business' => $business]);
     }
 
     /**
@@ -432,6 +506,39 @@ class Businesses extends BaseController
         }
 
         return $value === '' && in_array($field, self::FORM_NULLABLE, true) ? null : $value;
+    }
+
+    /**
+     * The signed-in client's active business_client_link to the business of the request's business_slug,
+     * with that business_slug added
+     * @param string $endpoint for the error log
+     * @return array{0: array|null, 1: ResponseInterface|null} [link, null] or [null, error response]
+     */
+    private function ownLink(string $endpoint): array
+    {
+        $input = $this->jsonInput();
+        if ($input === null) {
+            return [null, ApiResponse::error(lang('Business.invalidRequest'), 422)];
+        }
+        $slug = is_string($input['business_slug'] ?? null) ? trim($input['business_slug']) : '';
+        if ($slug === '') {
+            return [null, ApiResponse::error(lang('Business.slugRequired'), 400)];
+        }
+        try {
+            $client   = model(ClientMasterModel::class)->findByAuthId($this->actorId());
+            $business = $client === null ? null : model(BusinessMasterModel::class)->select('id')->where('business_slug', $slug)->first();
+            $link     = $business === null ? null : model(BusinessClientLinkModel::class)->findLink((int) $business['id'], (int) $client['id']);
+        } catch (Throwable $e) {
+            log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
+
+            return [null, ApiResponse::error(lang('Business.loadFailed'), 500)];
+        }
+        // a business the client is not active in is not theirs to see either
+        if ($link === null || $link['client_status'] !== BusinessClientLinkModel::STATUS_ACTIVE) {
+            return [null, ApiResponse::error(lang('Business.notFound'), 404)];
+        }
+
+        return [$link + ['business_slug' => $slug], null];
     }
 
     /**

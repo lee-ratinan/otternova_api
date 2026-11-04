@@ -69,6 +69,9 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('business-types', 'Businesses::listActiveTypes');
         $routes->post('business/create', 'Businesses::create');
         $routes->post('business/edit', 'Businesses::edit');
+        $routes->post('businesses', 'Businesses::listOwn');
+        $routes->post('business/make-default', 'Businesses::makeDefault');
+        $routes->post('business/switch', 'Businesses::switchTo');
         $routes->post('image-upload', 'Images::upload');
         $routes->post('image-delete', 'Images::delete');
     });

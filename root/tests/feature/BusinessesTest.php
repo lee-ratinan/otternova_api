@@ -235,6 +235,70 @@ final class BusinessesTest extends CIUnitTestCase
         $this->assertNull($this->db->table('business_master')->where('id', $id)->get()->getRow()->business_description);
     }
 
+    // ---- list, default, switch ----
+
+    public function testClientListsTheBusinessesTheyAreActiveIn(): void
+    {
+        $this->send(['business' => $this->business()])->assertStatus(200);
+        $this->send(['business' => $this->business(['business_name' => 'Badger Bar', 'business_slug' => 'badger-bar-sg'])])->assertStatus(200);
+        $theirs = $this->createClient('other@example.com');
+        $this->send(['business' => $this->business(['business_name' => 'Not Mine', 'business_slug' => 'not-mine-sg'])], $theirs['token'])->assertStatus(200);
+        $this->db->table('business_client_link')->insert(['business_id' => $this->businessId('not-mine-sg'), 'client_id' => $this->clientId,
+            'client_role' => 'E', 'client_status' => 'T', 'start_date' => '2026-01-01', 'termination_date' => '2026-02-01']);
+
+        $response = $this->send([], null, 'v1/client/businesses');
+        $response->assertStatus(200);
+        $this->assertSame([
+            ['business_slug' => 'otter-cafe-sg', 'business_name' => 'OtterCafe', 'country_code' => 'SG', 'client_role' => 'O', 'is_default_business' => 'Y'],
+            ['business_slug' => 'badger-bar-sg', 'business_name' => 'Badger Bar', 'country_code' => 'SG', 'client_role' => 'O', 'is_default_business' => 'N'],
+        ], $this->body($response)['data']['businesses']);
+    }
+
+    public function testMakeDefaultLeavesOneDefaultBusiness(): void
+    {
+        $this->send(['business' => $this->business()])->assertStatus(200);
+        $this->send(['business' => $this->business(['business_name' => 'Badger Bar', 'business_slug' => 'badger-bar-sg'])])->assertStatus(200);
+        $other = $this->createClient('other@example.com');
+        $this->send(['business' => $this->business(['business_name' => 'Not Mine', 'business_slug' => 'not-mine-sg'])], $other['token'])->assertStatus(200);
+
+        $response = $this->send(['business_slug' => 'badger-bar-sg'], null, 'v1/client/business/make-default');
+        $response->assertStatus(200);
+        $this->assertSame(lang('Business.defaultChanged'), $this->body($response)['message']);
+
+        $defaults = $this->db->table('business_client_link')->where('client_id', $this->clientId)->get()->getResultArray();
+        $this->assertSame([$this->businessId('otter-cafe-sg') => 'N', $this->businessId('badger-bar-sg') => 'Y'],
+            array_map('strval', array_column($defaults, 'is_default_business', 'business_id')));
+        // another client's default is theirs
+        $this->assertSame('Y', $this->db->table('business_client_link')->where('client_id', $other['client_id'])->get()->getRow()->is_default_business);
+        $this->assertSame(2, $this->db->table('log_activity')->like('activity_summary', 'Changed default business', 'after')->countAllResults());
+
+        $this->send(['business_slug' => 'not-mine-sg'], null, 'v1/client/business/make-default')->assertStatus(404);
+        $this->send([], null, 'v1/client/business/make-default')->assertStatus(400);
+    }
+
+    public function testSwitchGivesTheBusinessAsSignInDoes(): void
+    {
+        $this->send(['business' => $this->business()])->assertStatus(200);
+        $this->send(['business' => $this->business(['business_name' => 'Badger Bar', 'business_slug' => 'badger-bar-sg'])])->assertStatus(200);
+        $this->db->table('business_client_link')->where('business_id', $this->businessId('badger-bar-sg'))->update(['client_role' => 'M']);
+
+        $response = $this->send(['business_slug' => 'badger-bar-sg'], null, 'v1/client/business/switch');
+        $response->assertStatus(200);
+        $business = $this->body($response)['data']['business'];
+        $this->assertSame(['M', 'A', 'N'], [$business['client_role'], $business['client_status'], $business['is_default_business']]);
+        $this->assertSame(['Badger Bar', 'badger-bar-sg', $this->typeId], [$business['business']['business_name'], $business['business']['business_slug'], $business['business']['business_type_public_id']]);
+        $this->assertArrayNotHasKey('id', $business['business']);
+
+        $this->db->table('business_client_link')->where('business_id', $this->businessId('badger-bar-sg'))->update(['client_status' => 'T', 'termination_date' => date('Y-m-d')]);
+        $this->send(['business_slug' => 'badger-bar-sg'], null, 'v1/client/business/switch')->assertStatus(404);
+        $this->send(['business_slug' => 'nobody-sg'], null, 'v1/client/business/switch')->assertStatus(404);
+    }
+
+    private function businessId(string $slug): int
+    {
+        return (int) $this->db->table('business_master')->where('business_slug', $slug)->get()->getRow()->id;
+    }
+
     private function business(array $overrides = []): array
     {
         return $overrides + [
