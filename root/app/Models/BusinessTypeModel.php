@@ -114,6 +114,31 @@ class BusinessTypeModel extends Model
     }
 
     /**
+     * Every business type, active or not, with its names in every language, for the staff list and form
+     * @return list<array{public_id: string, type_code: string, type_status: string, translations: array<string, string>}>
+     */
+    public function listWithNames(): array
+    {
+        $types = $this->db->table($this->table)
+            ->select('id, public_id, type_code, type_status')
+            ->orderBy('type_code', 'ASC')
+            ->get()
+            ->getResultArray();
+        $names = [];
+        foreach ($this->db->table('business_type_translation')->select('business_type_id, language_code, type_name')->get()->getResultArray() as $row) {
+            $names[(int) $row['business_type_id']][$row['language_code']] = $row['type_name'];
+        }
+
+        // the internal id stays inside; the type goes out by its public_id
+        return array_map(static fn (array $row) => [
+            'public_id'    => $row['public_id'],
+            'type_code'    => $row['type_code'],
+            'type_status'  => $row['type_status'],
+            'translations' => $names[(int) $row['id']] ?? [],
+        ], $types);
+    }
+
+    /**
      * The names of a business type
      * @param int $id
      * @return array language_code => type_name

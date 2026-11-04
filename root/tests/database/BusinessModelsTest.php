@@ -65,6 +65,22 @@ final class BusinessModelsTest extends CIUnitTestCase
         $this->seeNumRecords(1, 'log_activity', ['table_involved' => 'business_type_translation', 'activity_summary' => 'Renamed business type cafe in en-US']);
     }
 
+    public function testTypeListHasEveryTypeWithItsNamesByPublicId(): void
+    {
+        $cafe = $this->createType('cafe', 'Café', 'คาเฟ่');
+        $this->createType('bakery', 'Bakery', 'เบเกอรี่');
+        $this->types->updateWithNames($this->types->find($cafe), ['type_status' => 'I'], ['en-US' => 'Café', 'th' => 'คาเฟ่'], $this->actor);
+
+        $rows = $this->types->listWithNames();
+        $this->assertSame(['bakery', 'cafe'], array_column($rows, 'type_code')); // inactive ones too
+        $this->assertSame([
+            'public_id'    => $this->types->publicIdOf($cafe),
+            'type_code'    => 'cafe',
+            'type_status'  => 'I',
+            'translations' => ['en-US' => 'Café', 'th' => 'คาเฟ่'],
+        ], $rows[1]);
+    }
+
     // ---- businesses ----
 
     public function testCreateEncryptsTaxIdAndMakesTheCreatorOwner(): void

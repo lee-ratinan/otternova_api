@@ -13,7 +13,7 @@ use Throwable;
 
 /**
  * Businesses and their types: create() and edit() are the Client app's, behind the jwt:C filter (clients only);
- * createType() and editType() are the Admin app's, behind jwt:S (staff only).
+ * listTypes(), createType() and editType() are the Admin app's, behind jwt:S (staff only).
  * A business goes out and comes in by its business_slug, a business type by its public_id; the ids stay inside.
  */
 class Businesses extends BaseController
@@ -83,6 +83,28 @@ class Businesses extends BaseController
     public function edit(): ResponseInterface
     {
         return $this->saveBusiness(true);
+    }
+
+    /**
+     * POST /staff/business-types {}
+     * Every business type, active or not, by type_code, with its names in every language as translations
+     * @return ResponseInterface
+     */
+    public function listTypes(): ResponseInterface
+    {
+        if ($this->jsonInput() === null) {
+            return ApiResponse::error(lang('Business.invalidRequest'), 422);
+        }
+
+        try {
+            $rows = model(BusinessTypeModel::class)->listWithNames();
+        } catch (Throwable $e) {
+            log_message('error', 'v1/staff/business-types: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Business.loadFailed'), 500);
+        }
+
+        return ApiResponse::success(['rows' => $rows]);
     }
 
     /**
