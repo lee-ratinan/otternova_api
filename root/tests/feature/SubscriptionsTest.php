@@ -323,6 +323,26 @@ final class SubscriptionsTest extends CIUnitTestCase
         $this->assertSame('2026-11-14 17:00:00', SubscriptionBilling::parseTime('2026-11-15T00:00:00+07:00'));
     }
 
+    public function testSwitchingBusinessGivesThePlanItIsOn(): void
+    {
+        $plan = function (): array {
+            $business = $this->body($this->send('v1/client/business/switch', ['business_slug' => 'otter-cafe']))['data']['business']['business'];
+
+            return [$business['plan_code'], $business['subscription_status']];
+        };
+        $this->assertSame(['free', null], $plan());
+
+        $invoice = $this->subscribe();
+        $this->assertSame(['free', 'P'], $plan()); // not paid yet
+
+        $this->activate($invoice);
+        $this->assertSame(['boost', 'A'], $plan());
+
+        $public = $this->db->table('subscription_master')->get()->getRow()->public_id;
+        $this->send('v1/staff/subscriptions/subscription/status', ['public_id' => $public, 'subscription_status' => 'S'], $this->staff)->assertStatus(200);
+        $this->assertSame(['free', 'S'], $plan());
+    }
+
     // ---- the scheduled run ----
 
     public function testAFirstInvoiceLeftUnpaidIsVoidedAndTheDiscountGivenBack(): void

@@ -184,7 +184,8 @@ class BusinessClientLinkModel extends Model
      * Only public keys go out (business_slug, business_type_public_id), and tax_id stays in, encrypted as it is.
      * @param int      $clientId
      * @param int|null $businessId null: the default business, else the first linked
-     * @return array|null business_client_link columns, and the business_master ones under "business"
+     * @return array|null business_client_link columns, and under "business" the business_master ones with its plan_code
+     *                    and subscription_status
      */
     private function sessionBusiness(int $clientId, ?int $businessId): ?array
     {
@@ -196,7 +197,7 @@ class BusinessClientLinkModel extends Model
             'currency_code',
         ];
         $builder = $this->db->table($this->table . ' l')
-            ->select('l.client_role, l.client_status, l.is_default_business, l.start_date, t.public_id AS business_type_public_id')
+            ->select('l.business_id, l.client_role, l.client_status, l.is_default_business, l.start_date, t.public_id AS business_type_public_id')
             ->select(implode(', ', array_map(static fn ($field) => 'b.' . $field, $businessFields)))
             ->join('business_master b', 'b.id = l.business_id')
             ->join('business_type t', 't.id = b.business_type_id')
@@ -214,6 +215,11 @@ class BusinessClientLinkModel extends Model
         if ($row === null) {
             return null;
         }
+
+        // the plan it is on now: free unless its subscription is active (see SubscriptionMasterModel::planOfBusiness())
+        $businessId = (int) $row['business_id'];
+        unset($row['business_id']);
+        $row += model(SubscriptionMasterModel::class)->planOfBusiness($businessId);
 
         $linkFields = ['client_role' => true, 'client_status' => true, 'is_default_business' => true, 'start_date' => true];
 

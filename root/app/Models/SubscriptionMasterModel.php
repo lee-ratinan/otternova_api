@@ -57,6 +57,31 @@ class SubscriptionMasterModel extends Model
     }
 
     /**
+     * The plan a business is on now, for the client app to switch features on: the plan of its subscription while it
+     * is active, the free plan otherwise (none, pending its first payment, or suspended). subscription_status is the
+     * live subscription's (P, A or S), or null, so that the app can ask for a payment that is due.
+     * @param int $businessId
+     * @return array{plan_code: string, subscription_status: string|null}
+     */
+    public function planOfBusiness(int $businessId): array
+    {
+        $live = $this->db->table($this->table . ' s')
+            ->select('s.subscription_status, p.plan_code')
+            ->join('plan_version v', 'v.id = s.plan_version_id', 'inner')
+            ->join('plan_master p', 'p.id = v.plan_id', 'inner')
+            ->where('s.business_id', $businessId)
+            ->whereIn('s.subscription_status', self::LIVE_STATUSES)
+            ->get()
+            ->getRowArray();
+        if ($live !== null && $live['subscription_status'] === self::STATUS_ACTIVE) {
+            return $live;
+        }
+        $free = $this->db->table('plan_master')->select('plan_code')->where('plan_tier', PlanMasterModel::FREE_TIER)->get()->getRow();
+
+        return ['plan_code' => $free->plan_code ?? 'free', 'subscription_status' => $live['subscription_status'] ?? null];
+    }
+
+    /**
      * One subscription as the API sends it
      * @param int $id
      * @return array|null

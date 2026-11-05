@@ -655,7 +655,8 @@ class Auth extends BaseController
 
     /**
      * A client also gets "business": the business selected on sign-in (BusinessClientLinkModel::signInBusinessOf()),
-     * null when they are active in none
+     * null when they are active in none. Its business.plan_code is the plan it is on now (free unless its subscription
+     * is active) and business.subscription_status its live subscription's (P, A, S) or null.
      * @param array $account
      * @return ResponseInterface
      */

@@ -170,6 +170,7 @@ final class AuthTest extends CIUnitTestCase
         $this->assertSame(['O', 'A', 'Y'], [$data['business']['client_role'], $data['business']['client_status'], $data['business']['is_default_business']]);
         $this->assertSame('ottercafe-sg', $data['business']['business']['business_slug']);
         $this->assertSame('cafe', $data['business']['business']['business_type_public_id']);
+        $this->assertSame(['free', null], [$data['business']['business']['plan_code'], $data['business']['business']['subscription_status']]); // no plan rows: falls back to free
     }
 
     public function testLoginWithEmailOtpReturnsChallengeAndEmailsCode(): void
