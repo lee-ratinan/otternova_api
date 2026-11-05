@@ -299,6 +299,79 @@ class SubscriptionBilling
             ['cancel_at_period_end' => 'N', 'cancel_requested_at' => null], $actorId, 'Resumed subscription'));
     }
 
+    /**
+     * Move an active subscription to another plan or billing cycle from its next period: next_plan_version_id is set
+     * to the version of that series in effect now, so the renewal is invoiced at the series' price when the next
+     * period starts (see invoiceRenewal()). A renewal invoice already made and not yet paid is voided and made again
+     * at the new plan, due when the voided one was. Choosing the plan and cycle it is on takes back a change set earlier.
+     * @param array  $subscription Stored row
+     * @param array  $business     With id and country_code
+     * @param array  $plan         plan_master row
+     * @param string $billingCycle M or Y
+     * @param int    $actorId
+     * @return bool True when a change is set, false when one was taken back
+     * @throws BillingException
+     * @throws Throwable
+     */
+    public function changePlan(array $subscription, array $business, array $plan, string $billingCycle, int $actorId): bool
+    {
+        if ((int) $plan['plan_tier'] === PlanMasterModel::FREE_TIER) {
+            throw new BillingException('Subscriptions.changeToFree', 422, ['plan_code' => lang('Subscriptions.changeToFree')]);
+        }
+        if ($subscription['subscription_status'] !== SubscriptionMasterModel::STATUS_ACTIVE) {
+            throw new BillingException('Subscriptions.changeNotActive', 409);
+        }
+        if ($subscription['cancel_at_period_end'] === 'Y') {
+            throw new BillingException('Subscriptions.changeWhileCancelling', 409);
+        }
+        $versions = model(PlanVersionModel::class);
+        $version  = $versions->inEffect((int) $plan['id'], $business['country_code'], $billingCycle, self::now());
+        if ($version === null) {
+            throw new BillingException('Subscriptions.noPrice', 422, ['billing_cycle' => lang('Subscriptions.noPrice')]);
+        }
+        $sameSeries = static fn (?array $a, array $b) => $a !== null && (int) $a['plan_id'] === (int) $b['plan_id'] && $a['billing_cycle'] === $b['billing_cycle'];
+        $current    = $versions->find((int) $subscription['plan_version_id']);
+        $scheduled  = $subscription['next_plan_version_id'] === null ? null : $versions->find((int) $subscription['next_plan_version_id']);
+        $next       = $sameSeries($current, $version) ? null : (int) $version['id'];
+        if ($next === null ? $scheduled === null : $sameSeries($scheduled, $version)) {
+            throw new BillingException('Subscriptions.planUnchanged', 409);
+        }
+
+        $invoices = model(SubscriptionInvoiceModel::class)->pendingOf((int) $subscription['id']);
+        foreach ($invoices as $invoice) {
+            if (model(PaymentTransactionModel::class)->hasPending((int) $invoice['id'])) {
+                throw new BillingException('Subscriptions.paymentUnderReview', 409);
+            }
+        }
+        $series = $next === null ? $current : $version;
+        $this->inTransaction(function () use ($subscription, $business, $invoices, $next, $series, $actorId) {
+            $summary = $next === null ? 'Took back plan change' : 'Changed plan from next period';
+            if (! $this->change('subscription_master', $subscription, ['next_plan_version_id' => $next], $actorId, $summary,
+                ['subscription_status' => SubscriptionMasterModel::STATUS_ACTIVE, 'cancel_at_period_end' => 'N'])) {
+                throw new BillingException('Subscriptions.changeNotActive', 409);
+            }
+            if ($invoices === []) {
+                return;
+            }
+            // the renewal was invoiced at the plan it had: made again at the one it will have
+            $now = self::now();
+            foreach ($invoices as $invoice) {
+                $this->change('subscription_invoice', $invoice, ['invoice_status' => SubscriptionInvoiceModel::STATUS_VOID, 'voided_at' => $now],
+                    $actorId, 'Voided invoice ' . $invoice['invoice_no'] . ' for a plan change', ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
+                if ($invoice['discount_id'] !== null) {
+                    model(DiscountMasterModel::class)->release((int) $invoice['discount_id']);
+                }
+            }
+            $renewal = model(PlanVersionModel::class)->inEffect((int) $series['plan_id'], $business['country_code'], $series['billing_cycle'], $subscription['current_period_end']);
+            if ($renewal === null) {
+                throw new BillingException('Subscriptions.noPrice', 422, ['billing_cycle' => lang('Subscriptions.noPrice')]);
+            }
+            $this->createInvoice((int) $subscription['id'], $renewal, end($invoices)['due_at'], $actorId);
+        });
+
+        return $next !== null;
+    }
+
     // ---- the staff's review ----
 
     /**

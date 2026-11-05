@@ -98,6 +98,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('pay', 'Subscriptions::pay');
         $routes->post('cancel', 'Subscriptions::cancel');
         $routes->post('resume', 'Subscriptions::resume');
+        $routes->post('change-plan', 'Subscriptions::changePlan');
         $routes->post('invoices', 'Subscriptions::invoices');
     });
 

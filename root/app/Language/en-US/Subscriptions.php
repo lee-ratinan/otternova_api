@@ -36,4 +36,10 @@ return [
     'notCancelling'         => 'This subscription is not being cancelled.',
     'cancelled'             => 'Subscription cancelled.',
     'resumed'               => 'Subscription resumed.',
+    'changeToFree'          => 'To move to the free plan, cancel your subscription; it ends at the end of the period.',
+    'changeNotActive'       => 'Only an active subscription can change its plan.',
+    'changeWhileCancelling' => 'This subscription ends at the end of its period. Resume it before changing its plan.',
+    'planUnchanged'         => 'Your next period is on this plan already.',
+    'planChanged'           => 'Your plan changes from your next billing period.',
+    'planChangeUndone'      => 'Plan change taken back.',
 ];

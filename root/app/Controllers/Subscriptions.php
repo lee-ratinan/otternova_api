@@ -365,6 +365,54 @@ class Subscriptions extends BaseController
     }
 
     /**
+     * POST /client/subscription/change-plan { business_slug, plan_code, billing_cycle }
+     * Moves the active subscription to another plan or billing cycle from its next period (an upgrade or a
+     * downgrade alike); the plan and cycle it is on now takes back a change set earlier. A renewal invoice not yet
+     * paid is made again at the new plan.
+     * @return ResponseInterface
+     */
+    public function changePlan(): ResponseInterface
+    {
+        $endpoint = 'v1/client/subscription/change-plan';
+        [$input, $business, $error] = $this->ownedBusiness($endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        $cycle = strtoupper($this->text($input, 'billing_cycle'));
+        try {
+            $plan = model(PlanMasterModel::class)->findByCode($this->text($input, 'plan_code'));
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'Subscriptions.loadFailed');
+        }
+        $errors = [];
+        if ($plan === null) {
+            $errors['plan_code'] = lang('Subscriptions.planNotFound');
+        }
+        if (! in_array($cycle, [PlanVersionModel::MONTHLY, PlanVersionModel::YEARLY], true)) {
+            $errors['billing_cycle'] = lang('Subscriptions.invalidCycle');
+        }
+        if ($errors !== []) {
+            return ApiResponse::error(lang('Subscriptions.invalidFields'), 422, $errors);
+        }
+
+        $subscriptions = model(SubscriptionMasterModel::class);
+        try {
+            $live = $subscriptions->liveOfBusiness((int) $business['id']);
+            if ($live === null) {
+                return ApiResponse::error(lang('Subscriptions.noSubscription'), 404);
+            }
+            $changed      = (new SubscriptionBilling())->changePlan($live, $business, $plan, $cycle, $this->actorId());
+            $subscription = $subscriptions->findPayload((int) $live['id']);
+        } catch (BillingException $e) {
+            return $this->refused($e);
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'Subscriptions.saveFailed');
+        }
+
+        return ApiResponse::success(['subscription' => $subscription], 200, lang($changed ? 'Subscriptions.planChanged' : 'Subscriptions.planChangeUndone'));
+    }
+
+    /**
      * POST /client/subscription/invoices { business_slug, start, length }
      * One page of the business's invoices, of every subscription it has had, newest first, each with its payments
      * @return ResponseInterface

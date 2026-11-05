@@ -1,6 +1,7 @@
 <?php
 
 use App\Libraries\ImageProcessor;
+use App\Libraries\Money;
 use App\Libraries\SubscriptionBilling;
 use App\Models\BusinessTypeModel;
 use CodeIgniter\HTTP\Files\UploadedFile;
@@ -343,6 +344,67 @@ final class SubscriptionsTest extends CIUnitTestCase
         $this->assertSame(['free', 'S'], $plan());
     }
 
+    public function testChangingPlanTakesEffectAtTheRenewal(): void
+    {
+        $velocity = $this->addVelocity();
+        $change   = fn (string $plan, string $cycle) => $this->send('v1/client/subscription/change-plan', ['business_slug' => 'otter-cafe', 'plan_code' => $plan, 'billing_cycle' => $cycle]);
+
+        $this->subscribe();
+        $change('velocity', 'M')->assertStatus(409); // not active until paid
+        $this->activate($this->db->table('subscription_invoice')->get()->getRow()->public_id);
+
+        $change('free', 'M')->assertStatus(422);
+        $change('velocity', 'Y')->assertStatus(422); // no yearly price
+        $change('boost', 'M')->assertStatus(409);   // the plan it is on, with no change to take back
+
+        $response = $change('velocity', 'M');
+        $response->assertStatus(200);
+        $this->assertSame(['boost', 'velocity', 'M'], [$this->body($response)['data']['subscription']['plan_code'],
+            $this->body($response)['data']['subscription']['next_plan_code'], $this->body($response)['data']['subscription']['next_billing_cycle']]);
+        $change('velocity', 'M')->assertStatus(409);
+        $this->seeInDatabase('subscription_master', ['next_plan_version_id' => $velocity]);
+
+        // taken back, then set again
+        $change('boost', 'M')->assertStatus(200);
+        $this->seeInDatabase('subscription_master', ['next_plan_version_id' => null]);
+        $change('velocity', 'M')->assertStatus(200);
+
+        // the renewal is invoiced at the new plan, and paying it moves the subscription onto it
+        Time::setTestNow('2026-12-05 05:00:00', 'UTC');
+        $this->assertSame(1, $this->runSchedule()['invoiced']);
+        $renewal = $this->db->table('subscription_invoice')->where('invoice_status', 'P')->get()->getRow();
+        $this->assertSame([$velocity, '599.00'], [(int) $renewal->plan_version_id, Money::format($renewal->amount_due)]);
+        $this->activate($renewal->public_id);
+        $this->seeInDatabase('subscription_master', ['plan_version_id' => $velocity, 'next_plan_version_id' => null, 'current_period_start' => '2026-12-10 05:00:00']);
+    }
+
+    public function testChangingPlanRemakesAnUnpaidRenewalInvoice(): void
+    {
+        $velocity = $this->addVelocity();
+        $this->activate($this->subscribe());
+        Time::setTestNow('2026-12-05 05:00:00', 'UTC');
+        $this->runSchedule();
+        $old = $this->db->table('subscription_invoice')->where('invoice_status', 'P')->get()->getRow();
+
+        $this->send('v1/client/subscription/change-plan', ['business_slug' => 'otter-cafe', 'plan_code' => 'velocity', 'billing_cycle' => 'm'])->assertStatus(200);
+        $this->seeInDatabase('subscription_invoice', ['id' => $old->id, 'invoice_status' => 'V']);
+        $this->seeInDatabase('subscription_invoice', ['invoice_status' => 'P', 'plan_version_id' => $velocity, 'amount_due' => '599.00', 'due_at' => $old->due_at]);
+
+        // a cancelling subscription, or one with a slip under review, cannot change
+        $this->pay($this->db->table('subscription_invoice')->where('invoice_status', 'P')->get()->getRow()->public_id, 'promptpay');
+        $this->send('v1/client/subscription/change-plan', ['business_slug' => 'otter-cafe', 'plan_code' => 'boost', 'billing_cycle' => 'M'])->assertStatus(409);
+        $this->seeInDatabase('subscription_master', ['next_plan_version_id' => $velocity]);
+    }
+
+    public function testACancellingSubscriptionCannotChangePlan(): void
+    {
+        $this->addVelocity();
+        $this->activate($this->subscribe());
+        $this->send('v1/client/subscription/cancel', ['business_slug' => 'otter-cafe'])->assertStatus(200);
+        $this->send('v1/client/subscription/change-plan', ['business_slug' => 'otter-cafe', 'plan_code' => 'velocity', 'billing_cycle' => 'M'])->assertStatus(409);
+        $this->send('v1/client/subscription/change-plan', ['business_slug' => 'nobody', 'plan_code' => 'velocity', 'billing_cycle' => 'M'])->assertStatus(404);
+    }
+
     // ---- the scheduled run ----
 
     public function testAFirstInvoiceLeftUnpaidIsVoidedAndTheDiscountGivenBack(): void
@@ -485,6 +547,18 @@ final class SubscriptionsTest extends CIUnitTestCase
             'plan_version_id' => 1, 'currency_code' => 'THB', 'list_price' => '299.00', 'amount_due' => '299.00', 'due_at' => '2026-12-13 05:00:00']);
 
         return 'renewal00001';
+    }
+
+    /**
+     * A second paid plan, velocity, monthly in Thailand only; its version id
+     */
+    private function addVelocity(): int
+    {
+        $this->db->table('plan_master')->insert(['plan_code' => 'velocity', 'plan_tier' => 2]);
+        $this->db->table('plan_version')->insert(['public_id' => 'velocity', 'plan_id' => (int) $this->db->insertID(), 'country_code' => 'TH',
+            'currency_code' => 'THB', 'billing_cycle' => 'M', 'price' => '599.00', 'effective_from' => '2026-01-01 00:00:00']);
+
+        return (int) $this->db->insertID();
     }
 
     private function discount(array $fields): void
