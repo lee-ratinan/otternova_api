@@ -78,6 +78,99 @@ class SubscriptionInvoiceModel extends Model
     }
 
     /**
+     * One page of every business's invoices for the staff, each with its business, its subscription and how many of
+     * its payments wait for review (pending_payments). The unpaid ones (invoice_status P) come oldest due first, so
+     * the longest waiting are seen first; any other list comes newest first.
+     * @param int                   $start
+     * @param int                   $length
+     * @param string                $search  Matched in the invoice number and the business's name and slug
+     * @param array<string, string> $filters invoice_status, plan_code, awaiting_review (Y: only those with a payment to review)
+     * @return array{records_total: int, records_filtered: int, rows: list<array>}
+     */
+    public function listForStaff(int $start, int $length, string $search, array $filters): array
+    {
+        $total   = $this->db->table($this->table)->countAllResults();
+        $builder = $this->staffBuilder();
+        if (isset($filters['invoice_status'])) {
+            $builder->where('i.invoice_status', $filters['invoice_status']);
+        }
+        if (isset($filters['plan_code'])) {
+            $builder->where('p.plan_code', $filters['plan_code']);
+        }
+        if (($filters['awaiting_review'] ?? '') === 'Y') {
+            $builder->where('EXISTS (SELECT 1 FROM payment_transaction w WHERE w.invoice_id = i.id AND w.txn_status = '
+                . $this->db->escape(PaymentTransactionModel::STATUS_PENDING) . ')', null, false);
+        }
+        if ($search !== '') {
+            $char = $this->db->likeEscapeChar;
+            $term = str_replace([$char, '%', '_'], [$char . $char, $char . '%', $char . '_'], $search);
+            $builder->groupStart()
+                ->like('i.invoice_no', $term, 'both', null, true)
+                ->orLike('b.business_name', $term, 'both', null, true)
+                ->orLike('b.business_slug', $term, 'both', null, true)
+                ->groupEnd();
+        }
+        $filtered = $builder->countAllResults(false);
+        if (($filters['invoice_status'] ?? '') === self::STATUS_PENDING) {
+            $builder->orderBy('i.due_at', 'ASC');
+        }
+        $rows = $builder->orderBy('i.id', 'DESC')->limit($length, $start)->get()->getResultArray();
+
+        return ['records_total' => $total, 'records_filtered' => $filtered, 'rows' => array_map(self::staffRow(...), $rows)];
+    }
+
+    /**
+     * One invoice for the staff, with its business, its subscription and its payments (oldest first, with who
+     * confirmed them)
+     * @param mixed $publicId From the request
+     * @return array|null
+     */
+    public function findForStaff(mixed $publicId): ?array
+    {
+        if (! is_string($publicId) || $publicId === '') {
+            return null;
+        }
+        $row = $this->staffBuilder()->where('i.public_id', $publicId)->get()->getRowArray();
+        if ($row === null) {
+            return null;
+        }
+        $row = $this->withPayments([$row], true)[0];
+        $row['pending_payments'] = (int) $row['pending_payments'];
+
+        return $row;
+    }
+
+    /**
+     * The invoices joined with their subscription and business, and the count of payments waiting for review
+     * @return \CodeIgniter\Database\BaseBuilder
+     */
+    private function staffBuilder()
+    {
+        return $this->joinedBuilder()
+            ->select('s.public_id AS subscription_public_id, s.subscription_status, b.business_slug, b.business_name, b.country_code AS business_country_code')
+            ->select('(SELECT COUNT(*) FROM payment_transaction w WHERE w.invoice_id = i.id AND w.txn_status = '
+                . $this->db->escape(PaymentTransactionModel::STATUS_PENDING) . ') AS pending_payments', false)
+            ->join('subscription_master s', 's.id = i.subscription_id', 'inner')
+            ->join('business_master b', 'b.id = s.business_id', 'inner');
+    }
+
+    /**
+     * A row of listForStaff() as the API sends it: no internal id, amounts written out
+     * @param array $row
+     * @return array
+     */
+    private static function staffRow(array $row): array
+    {
+        foreach (['list_price', 'discount_amount', 'amount_due'] as $field) {
+            $row[$field] = Money::format($row[$field]);
+        }
+        $row['pending_payments'] = (int) $row['pending_payments'];
+        unset($row['_id']);
+
+        return $row;
+    }
+
+    /**
      * @param list<array> $rows Invoice payloads, with the internal id as _id
      * @param bool        $forStaff
      * @return list<array>

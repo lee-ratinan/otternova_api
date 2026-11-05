@@ -81,6 +81,8 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('list', 'SubscriptionAdmin::list');
         $routes->post('subscription', 'SubscriptionAdmin::subscription');
         $routes->post('subscription/status', 'SubscriptionAdmin::setStatus');
+        $routes->post('invoices', 'SubscriptionAdmin::invoices');
+        $routes->post('invoice', 'SubscriptionAdmin::invoice');
         $routes->post('payments', 'SubscriptionAdmin::payments');
         $routes->post('payment/approve', 'SubscriptionAdmin::approvePayment');
         $routes->post('payment/reject', 'SubscriptionAdmin::rejectPayment');

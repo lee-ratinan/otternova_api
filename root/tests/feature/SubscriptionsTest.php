@@ -310,6 +310,35 @@ final class SubscriptionsTest extends CIUnitTestCase
         $this->send('v1/staff/subscriptions/subscription/status', ['public_id' => $list['rows'][0]['public_id'], 'subscription_status' => 'Z'], $this->staff)->assertStatus(422);
     }
 
+    public function testStaffListAndShowInvoices(): void
+    {
+        $invoice = $this->subscribe();
+
+        $list = fn (array $body): array => $this->body($this->send('v1/staff/subscriptions/invoices', $body, $this->staff))['data'];
+        $page = $list(['filters' => ['invoice_status' => 'p']]);
+        $this->assertSame([1, $invoice, 'otter-cafe', '299.00', 0], [$page['records_filtered'], $page['rows'][0]['public_id'],
+            $page['rows'][0]['business_slug'], $page['rows'][0]['amount_due'], $page['rows'][0]['pending_payments']]);
+        $this->assertArrayNotHasKey('_id', $page['rows'][0]);
+        $this->assertSame(0, $list(['filters' => ['awaiting_review' => 'Y']])['records_filtered']);
+        $this->assertSame(0, $list(['filters' => ['invoice_status' => 'D']])['records_filtered']);
+        $this->assertSame(1, $list(['search' => 'INV-2026'])['records_filtered']);
+        $this->assertSame(0, $list(['search' => 'nobody'])['records_filtered']);
+
+        // a slip waiting for review shows on the invoice
+        $payment = $this->body($this->pay($invoice, 'promptpay'))['data']['payment_public_id'];
+        $this->assertSame(1, $list(['filters' => ['awaiting_review' => 'Y']])['rows'][0]['pending_payments']);
+
+        $detail = $this->body($this->send('v1/staff/subscriptions/invoice', ['public_id' => $invoice], $this->staff))['data']['invoice'];
+        $this->assertSame(['INV-202611-000001', 'otter-cafe', 1, $payment, 'P', true],
+            [$detail['invoice_no'], $detail['business_slug'], $detail['pending_payments'], $detail['payments'][0]['public_id'],
+                $detail['payments'][0]['txn_status'], $detail['payments'][0]['has_slip']]);
+        $this->assertArrayNotHasKey('_id', $detail);
+        $this->send('v1/staff/subscriptions/invoice', ['public_id' => 'nope'], $this->staff)->assertStatus(404);
+
+        $engineer = service('jwt')->issue($this->createStaff('eng@otternova.com', 'ENG'))['access_token'];
+        $this->send('v1/staff/subscriptions/invoices', [], $engineer)->assertStatus(403);
+    }
+
     public function testPeriodsKeepTheAnchorDayThroughShortMonths(): void
     {
         // Bangkok midnight, 31 January 2027, then the end of each month

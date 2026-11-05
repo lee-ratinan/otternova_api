@@ -6,6 +6,7 @@ return [
     'saveFailed'           => 'Could not save. Please try again.',
     'subscriptionNotFound' => 'Subscription not found.',
     'paymentNotFound'      => 'Payment not found.',
+    'invoiceNotFound'      => 'Invoice not found.',
     'paymentNotPending'    => 'This payment has already been reviewed.',
     'invoiceNotPending'    => 'The invoice of this payment is no longer waiting for payment.',
     'reasonRequired'       => 'Please give the reason, in at most 255 characters.',

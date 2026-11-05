@@ -106,6 +106,54 @@ class SubscriptionAdmin extends BaseController
     }
 
     /**
+     * POST /staff/subscriptions/invoices { start, length, search, filters: {invoice_status, plan_code, awaiting_review} }
+     * One page of every business's invoices, each with its business and how many payments wait for review
+     * (pending_payments). Unpaid ones (invoice_status P) come oldest due first, any other list newest first;
+     * search matches the invoice number and the business's name and slug. awaiting_review Y keeps only the invoices
+     * with a payment to review.
+     * @return ResponseInterface
+     */
+    public function invoices(): ResponseInterface
+    {
+        $input = $this->jsonInput();
+        if ($input === null) {
+            return ApiResponse::error(lang('SubscriptionAdmin.invalidRequest'), 422);
+        }
+        [$start, $length] = $this->page($input);
+        $filters          = $this->filters($input, ['invoice_status' => true, 'plan_code' => false, 'awaiting_review' => true]);
+        try {
+            $data = model(SubscriptionInvoiceModel::class)->listForStaff($start, $length, $this->text($input, 'search'), $filters);
+        } catch (Throwable $e) {
+            return $this->failed('v1/staff/subscriptions/invoices', $e, 'SubscriptionAdmin.loadFailed');
+        }
+
+        return ApiResponse::success($data);
+    }
+
+    /**
+     * POST /staff/subscriptions/invoice { public_id }
+     * One invoice with its business, its subscription and its payments, oldest first, with who confirmed them
+     * @return ResponseInterface
+     */
+    public function invoice(): ResponseInterface
+    {
+        $input = $this->jsonInput();
+        if ($input === null) {
+            return ApiResponse::error(lang('SubscriptionAdmin.invalidRequest'), 422);
+        }
+        try {
+            $invoice = model(SubscriptionInvoiceModel::class)->findForStaff($input['public_id'] ?? null);
+        } catch (Throwable $e) {
+            return $this->failed('v1/staff/subscriptions/invoice', $e, 'SubscriptionAdmin.loadFailed');
+        }
+        if ($invoice === null) {
+            return ApiResponse::error(lang('SubscriptionAdmin.invoiceNotFound'), 404);
+        }
+
+        return ApiResponse::success(['invoice' => $invoice]);
+    }
+
+    /**
      * POST /staff/subscriptions/payments { start, length, filters: {txn_status, method_code} }
      * One page of payments, oldest first, with their invoice and business; txn_status P lists the ones waiting
      * @return ResponseInterface
