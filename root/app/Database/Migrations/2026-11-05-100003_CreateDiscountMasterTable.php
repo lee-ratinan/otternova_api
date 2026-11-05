@@ -23,6 +23,7 @@ use CodeIgniter\Database\Migration;
  * valid_from and expires_at are UTC; the code can be applied from valid_from and no longer from expires_at.
  * An invoice it was already applied to keeps its price.
  * discount_code is stored in upper case by the model; MySQL's collation also compares it without case.
+ * public_id is a NanoID (see PublicIdTrait); on MySQL it is ascii_bin, as NanoIDs tell upper from lower case.
  * Depends on business_master, plan_master and auth_master.
  */
 class CreateDiscountMasterTable extends Migration
@@ -34,8 +35,11 @@ class CreateDiscountMasterTable extends Migration
         $onUpdate = $mysql ? ' ON UPDATE CURRENT_TIMESTAMP' : '';
         $fkName   = static fn (string $name): string => $mysql ? $name : ''; // nor named foreign keys
 
+        $this->forge->addField(['id' => ['type' => 'INT', 'unsigned' => true, 'auto_increment' => true]]);
+        $this->forge->addField($mysql
+            ? ['public_id CHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL']
+            : ['public_id' => ['type' => 'CHAR', 'constraint' => 8]]);
         $this->forge->addField([
-            'id'                   => ['type' => 'INT', 'unsigned' => true, 'auto_increment' => true],
             'discount_code'        => ['type' => 'VARCHAR', 'constraint' => 30],
             'discount_description' => ['type' => 'VARCHAR', 'constraint' => 255, 'null' => true], // shown at checkout
             'discount_type'        => ['type' => 'ENUM', 'constraint' => ['P', 'F']], // percentage, fixed amount
@@ -57,6 +61,7 @@ class CreateDiscountMasterTable extends Migration
             'updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP' . $onUpdate,
         ]);
         $this->forge->addPrimaryKey('id');
+        $this->forge->addUniqueKey('public_id', 'uq_discount_master_public_id'); // named after the column, see PublicIdTrait
         $this->forge->addUniqueKey('discount_code');
         $this->forge->addKey(['is_listed', 'expires_at']); // the codes offered at checkout
         $this->forge->addKey('business_id');

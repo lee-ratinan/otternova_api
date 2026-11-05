@@ -60,6 +60,47 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('counterparty/update', 'Ledger::saveCounterparty');
     });
 
+    // Admin app's plans, prices, payment methods and discount codes: Executive Office and Finance only; see App\Controllers\Plans
+    $routes->group('staff/plans', ['filter' => ['jwt:S', 'department:EXE,FIN']], static function (RouteCollection $routes) {
+        $routes->post('plans', 'Plans::plans');
+        $routes->post('plan/create', 'Plans::createPlan');
+        $routes->post('plan/edit', 'Plans::editPlan');
+        $routes->post('versions', 'Plans::versions');
+        $routes->post('version/create', 'Plans::createVersion');
+        $routes->post('version/cancel', 'Plans::cancelVersion');
+        $routes->post('payment-methods', 'Plans::paymentMethods');
+        $routes->post('payment-method/create', 'Plans::createPaymentMethod');
+        $routes->post('payment-method/edit', 'Plans::editPaymentMethod');
+        $routes->post('discounts', 'Plans::discounts');
+        $routes->post('discount', 'Plans::discount');
+        $routes->post('discount/update', 'Plans::saveDiscount');
+    });
+
+    // Admin app's view of every subscription and payment: Executive Office and Finance only; see App\Controllers\SubscriptionAdmin
+    $routes->group('staff/subscriptions', ['filter' => ['jwt:S', 'department:EXE,FIN']], static function (RouteCollection $routes) {
+        $routes->post('list', 'SubscriptionAdmin::list');
+        $routes->post('subscription', 'SubscriptionAdmin::subscription');
+        $routes->post('subscription/status', 'SubscriptionAdmin::setStatus');
+        $routes->post('payments', 'SubscriptionAdmin::payments');
+        $routes->post('payment/approve', 'SubscriptionAdmin::approvePayment');
+        $routes->post('payment/reject', 'SubscriptionAdmin::rejectPayment');
+        $routes->get('slip/(:segment)', 'SubscriptionAdmin::slip/$1');
+    });
+
+    // Client app's subscription of a business: its active owners only; see App\Controllers\Subscriptions
+    $routes->group('client/subscription', ['filter' => 'jwt:C'], static function (RouteCollection $routes) {
+        $routes->post('current', 'Subscriptions::current');
+        $routes->post('plans', 'Subscriptions::plans');
+        $routes->post('discounts', 'Subscriptions::discounts');
+        $routes->post('payment-methods', 'Subscriptions::paymentMethods');
+        $routes->post('subscribe', 'Subscriptions::subscribe');
+        $routes->post('apply-discount', 'Subscriptions::applyDiscount');
+        $routes->post('pay', 'Subscriptions::pay');
+        $routes->post('cancel', 'Subscriptions::cancel');
+        $routes->post('resume', 'Subscriptions::resume');
+        $routes->post('invoices', 'Subscriptions::invoices');
+    });
+
     // Client app: client accounts only (a valid token with typ C)
     $routes->group('client', ['filter' => 'jwt:C'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');

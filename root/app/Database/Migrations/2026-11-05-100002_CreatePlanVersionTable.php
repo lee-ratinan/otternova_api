@@ -20,8 +20,10 @@ use CodeIgniter\Database\Migration;
  * ended rows but only one with no end. The database cannot stop ranges from overlapping otherwise, so a price change
  * ends the old row and inserts the new one in one transaction.
  *
- * Rows are never deleted: subscriptions and invoices keep pointing at the versions they were billed on.
+ * Rows are never deleted once they are in effect: subscriptions and invoices keep pointing at the versions they were
+ * billed on. Only a version scheduled for the future, which nothing points at yet, can be cancelled (deleted).
  * Prices are before VAT, to the satang or cent.
+ * public_id is a NanoID (see PublicIdTrait); on MySQL it is ascii_bin, as NanoIDs tell upper from lower case.
  * Depends on plan_master.
  */
 class CreatePlanVersionTable extends Migration
@@ -33,8 +35,11 @@ class CreatePlanVersionTable extends Migration
         $onUpdate = $mysql ? ' ON UPDATE CURRENT_TIMESTAMP' : '';
         $fkName   = static fn (string $name): string => $mysql ? $name : ''; // nor named foreign keys
 
+        $this->forge->addField(['id' => ['type' => 'INT', 'unsigned' => true, 'auto_increment' => true]]);
+        $this->forge->addField($mysql
+            ? ['public_id CHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL']
+            : ['public_id' => ['type' => 'CHAR', 'constraint' => 8]]);
         $this->forge->addField([
-            'id'             => ['type' => 'INT', 'unsigned' => true, 'auto_increment' => true],
             'plan_id'        => ['type' => 'INT', 'unsigned' => true],
             'country_code'   => ['type' => 'CHAR', 'constraint' => 2, 'default' => 'ZZ'], // 'ZZ' = rest of the world
             'currency_code'  => ['type' => 'CHAR', 'constraint' => 3],
@@ -48,6 +53,7 @@ class CreatePlanVersionTable extends Migration
             'updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP' . $onUpdate,
         ]);
         $this->forge->addPrimaryKey('id');
+        $this->forge->addUniqueKey('public_id', 'uq_plan_version_public_id'); // named after the column, see PublicIdTrait
         $this->forge->addUniqueKey(['plan_id', 'country_code', 'billing_cycle', 'open_guard'], 'uq_plan_version_one_open');
         $this->forge->addKey(['plan_id', 'country_code', 'billing_cycle', 'effective_from']); // the price in effect
         $this->forge->addForeignKey('plan_id', 'plan_master', 'id', 'CASCADE', 'RESTRICT', $fkName('fk_plan_version_plan'));

@@ -10,6 +10,8 @@ use CodeIgniter\Database\Migration;
  *
  * subscription_status: P pending (no paid invoice yet, no period), A active, S suspended, C cancelled, X expired.
  * The times below are UTC; the grace and suspension lengths are in Config\Billing, not here.
+ * php spark billing:run (SubscriptionBilling::runSchedule()) makes the changes below that are due to time passing.
+ * - P whose first invoice is not paid within Config\Billing::$invoiceHoldHours: X, and the invoice is voided.
  * - Unpaid at current_period_end: still A for the grace days; paid within them, the new period starts at the old
  *   current_period_end.
  * - Unpaid after the grace days: S, from suspended_at. Paid while S: A again, the new period starts when it was paid,

@@ -1,0 +1,20 @@
+<?php
+return [
+    'invalidRequest'       => 'The request could not be read. Please reload the page and try again.',
+    'invalidFields'        => 'Please correct the highlighted fields.',
+    'loadFailed'           => 'Could not load the records. Please try again.',
+    'saveFailed'           => 'Could not save. Please try again.',
+    'subscriptionNotFound' => 'Subscription not found.',
+    'paymentNotFound'      => 'Payment not found.',
+    'paymentNotPending'    => 'This payment has already been reviewed.',
+    'invoiceNotPending'    => 'The invoice of this payment is no longer waiting for payment.',
+    'reasonRequired'       => 'Please give the reason, in at most 255 characters.',
+    'paymentApproved'      => 'Payment approved.',
+    'paymentRejected'      => 'Payment rejected.',
+    'noSlip'               => 'This payment has no slip.',
+    'invalidStatus'        => 'Please choose S (suspend), A (reactivate) or C (cancel).',
+    'cannotSuspend'        => 'Only an active subscription can be suspended.',
+    'cannotReactivate'     => 'Only a suspended subscription whose period has not ended can be reactivated.',
+    'alreadyEnded'         => 'This subscription has already ended.',
+    'statusChanged'        => 'Subscription updated.',
+];

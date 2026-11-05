@@ -87,6 +87,7 @@ final class BillingSchemaTest extends CIUnitTestCase
     private function version(string $price, string $from, string $cycle = 'M', string $country = 'TH', string $currency = 'THB'): int
     {
         $this->db->table('plan_version')->insert([
+            'public_id'      => substr(md5($price . $from . $cycle . $country), 0, 8),
             'plan_id'        => $this->planId,
             'country_code'   => $country,
             'currency_code'  => $currency,

@@ -19,6 +19,9 @@ class Billing extends BaseConfig
     /** Hours a first invoice stays payable before it is voided and its discount redemption given back */
     public int $invoiceHoldHours = 24;
 
+    /** Days before a period ends that its renewal invoice is made, so that it can be paid in time */
+    public int $renewalInvoiceDays = 7;
+
     /** Transfer slips are kept at {$slipUploadPath}{payment_transaction.slip_path}; never under public/ */
     public string $slipUploadPath = WRITEPATH . 'uploads/payment-slips/';
 
