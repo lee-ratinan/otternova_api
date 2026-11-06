@@ -13,4 +13,9 @@ return [
         'customer' => 'Customer',
         'account'  => 'Account',
     ],
+    'invalidRequest'   => 'The request could not be read. Please reload the page and try again.',
+    'invalidTable'     => 'Please choose a table from the list.',
+    'invalidRecordId'  => 'The record ID must be a whole number from 1.',
+    'recordNeedsTable' => 'Please choose the table of the record ID.',
+    'loadFailed'       => 'Could not load the activity log. Please try again.',
 ];

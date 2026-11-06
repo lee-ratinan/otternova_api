@@ -89,6 +89,12 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('slip/(:segment)', 'SubscriptionAdmin::slip/$1');
     });
 
+    // Admin app's activity log: the Executive Office only, as it holds every table's changes; see App\Controllers\ActivityLogs
+    $routes->group('staff/logs', ['filter' => ['jwt:S', 'department:EXE']], static function (RouteCollection $routes) {
+        $routes->post('activities', 'ActivityLogs::activities');
+        $routes->post('tables', 'ActivityLogs::tables');
+    });
+
     // Client app's subscription of a business: its active owners only; see App\Controllers\Subscriptions
     $routes->group('client/subscription', ['filter' => 'jwt:C'], static function (RouteCollection $routes) {
         $routes->post('current', 'Subscriptions::current');
