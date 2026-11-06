@@ -99,6 +99,7 @@ final class ArtifactsTest extends CIUnitTestCase
             'rating_count'         => 0,
             'rating_average'       => '0.00',
             'variant_count'        => 2,
+            'rating_breakdown'     => [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0],
             'cover_url'            => null,
         ]], $list);
     }

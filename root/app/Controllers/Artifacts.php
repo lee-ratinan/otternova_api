@@ -49,6 +49,7 @@ class Artifacts extends BaseController
      * POST /client/artifacts { business_slug, filters: { artifact_type, artifact_status, category_public_id } }
      * The artifacts of that business by name, each with public_id, artifact_name, artifact_type, artifact_status,
      * artifact_label, category_public_id, price_active_lowest, price_compare_lowest, rating_count, rating_average,
+     * rating_breakdown ({ "1": reviews, ..., "5": reviews }, the approved ones with each number of stars),
      * variant_count and cover_url (its first image, or null). Every filter is optional.
      * With the business's plan_code and caps, by artifact_type: { P: { max, count, can_add }, S: {...} }, where max is
      * the plan's cap (Config\PlanLimits::PRODUCTS or SERVICES), count the artifacts of the type that it counts (the

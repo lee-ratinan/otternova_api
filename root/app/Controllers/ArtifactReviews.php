@@ -21,7 +21,9 @@ class ArtifactReviews extends BaseController
 
     /**
      * POST /client/artifact-reviews { business_slug, start, length, filters: { review_status, artifact_public_id } }
-     * One page of the reviews of that business's artifacts, newest first: { records_total, records_filtered, rows }.
+     * One page of the reviews of that business's artifacts, newest first: { records_total, records_filtered, rows },
+     * with business_rating, the rating of all its artifacts together: { rating_count, rating_average,
+     * rating_breakdown: { "1": reviews, ..., "5": reviews } }, the approved reviews only, whatever the filters.
      * start is 0 and length 25 when left out (at most 500); every filter is optional.
      * @return ResponseInterface
      */
@@ -51,7 +53,9 @@ class ArtifactReviews extends BaseController
                 $artifact               = model(ArtifactMasterModel::class)->findByPublicId($filtersIn['artifact_public_id']);
                 $filters['artifact_id'] = $artifact !== null && (int) $artifact['business_id'] === (int) $business['id'] ? (int) $artifact['id'] : 0; // 0: none
             }
-            $data = model(ArtifactReviewModel::class)->listOfBusiness((int) $business['id'], $start, $length, $filters);
+            $reviews = model(ArtifactReviewModel::class);
+            $data    = $reviews->listOfBusiness((int) $business['id'], $start, $length, $filters)
+                + ['business_rating' => $reviews->ratingOfBusiness((int) $business['id'])];
         } catch (Throwable $e) {
             return $this->failed($endpoint, $e, 'ArtifactReview.loadFailed');
         }

@@ -74,7 +74,8 @@ class ArtifactMasterModel extends Model
     {
         $builder = $this->db->table($this->table . ' a')
             ->select('a.id, a.public_id, a.artifact_name, a.artifact_type, a.artifact_status, a.artifact_label, c.public_id AS category_public_id,'
-                . ' a.price_active_lowest, a.price_compare_lowest, a.rating_count, a.rating_average')
+                . ' a.price_active_lowest, a.price_compare_lowest, a.rating_count, a.rating_average,'
+                . ' a.rating_1_count, a.rating_2_count, a.rating_3_count, a.rating_4_count, a.rating_5_count')
             ->select('(SELECT COUNT(*) FROM ' . $this->db->prefixTable(self::VARIANTS) . ' v WHERE v.artifact_id = a.id) AS variant_count', false)
             ->join('artifact_category c', 'c.id = a.category_id', 'left')
             ->where('a.business_id', $businessId);
@@ -107,6 +108,10 @@ class ArtifactMasterModel extends Model
 
             $row['rating_count']   = (int) $row['rating_count'];
             $row['rating_average'] = number_format((float) $row['rating_average'], 2, '.', '');
+            $row['rating_breakdown'] = ArtifactReviewModel::breakdownOf($row);
+            foreach (ArtifactReviewModel::STARS as $star) {
+                unset($row['rating_' . $star . '_count']);
+            }
             $row['variant_count']  = (int) $row['variant_count'];
             $row['cover_url']      = $covers[$id] ?? null;
 
@@ -159,6 +164,7 @@ class ArtifactMasterModel extends Model
             'tax_percentage'       => $row['tax_percentage'] === null ? null : number_format((float) $row['tax_percentage'], 2, '.', ''),
             'rating_count'         => (int) $row['rating_count'],
             'rating_average'       => number_format((float) $row['rating_average'], 2, '.', ''),
+            'rating_breakdown'     => ArtifactReviewModel::breakdownOf($row),
             'translations'         => $this->translationsOf(self::TRANSLATIONS, 'artifact_id', [$id], ['artifact_name', 'artifact_description'])[$id] ?? [],
         ]);
 

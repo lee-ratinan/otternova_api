@@ -103,6 +103,46 @@ final class ArtifactReviewsTest extends CIUnitTestCase
         $this->assertSame([0, 0, 0.0], [(int) $row->rating_sum, (int) $row->rating_count, (float) $row->rating_average]);
     }
 
+    public function testTheArtifactAndTheBusinessCountEachNumberOfStars(): void
+    {
+        [$otherArtifact, $other] = $this->artifactRow($this->businessId);
+        $reviews = [
+            $this->review($this->artifactId, 5, '2026-11-01 10:00:00'),
+            $this->review($this->artifactId, 5, '2026-11-01 11:00:00'),
+            $this->review($this->artifactId, 2, '2026-11-01 12:00:00'),
+            $this->review($otherArtifact, 4, '2026-11-01 13:00:00'),
+        ];
+        // another business's approved review counts towards its own business only
+        $beaver = $this->business('beaver-shop');
+        [$elsewhere] = $this->artifactRow($beaver);
+        $this->review($elsewhere, 1, '2026-11-01 14:00:00', 'A');
+        foreach ($reviews as $review) {
+            $this->send('v1/client/artifact-review/approve', ['public_id' => $review])->assertStatus(200);
+        }
+
+        $rating = fn (string $table, int $id) => $this->db->table($table)
+            ->select('rating_sum, rating_count, rating_average, rating_1_count, rating_2_count, rating_3_count, rating_4_count, rating_5_count')
+            ->where('id', $id)->get()->getRowArray();
+        $this->assertEquals(['rating_sum' => 12, 'rating_count' => 3, 'rating_average' => 4.0, 'rating_1_count' => 0, 'rating_2_count' => 1, 'rating_3_count' => 0, 'rating_4_count' => 0, 'rating_5_count' => 2], $rating('artifact_master', $this->artifactId));
+        $this->assertEquals(['rating_sum' => 16, 'rating_count' => 4, 'rating_average' => 4.0, 'rating_1_count' => 0, 'rating_2_count' => 1, 'rating_3_count' => 0, 'rating_4_count' => 1, 'rating_5_count' => 2], $rating('business_master', $this->businessId));
+        $this->assertSame(0, (int) $rating('business_master', $beaver)['rating_count']); // approved before, not through setStatus()
+
+        // hiding one takes it out of both
+        $this->send('v1/client/artifact-review/hide', ['public_id' => $reviews[0]])->assertStatus(200);
+        $this->assertEquals(['rating_sum' => 7, 'rating_count' => 2, 'rating_average' => 3.5, 'rating_1_count' => 0, 'rating_2_count' => 1, 'rating_3_count' => 0, 'rating_4_count' => 0, 'rating_5_count' => 1], $rating('artifact_master', $this->artifactId));
+        $this->assertEquals(['rating_sum' => 11, 'rating_count' => 3, 'rating_average' => 3.67, 'rating_1_count' => 0, 'rating_2_count' => 1, 'rating_3_count' => 0, 'rating_4_count' => 1, 'rating_5_count' => 1], $rating('business_master', $this->businessId));
+        $this->seeInDatabase('log_activity', ['table_involved' => 'business_master', 'activity_summary' => 'Worked out the rating of business ' . $this->businessId . ' again']);
+
+        // the list tells the business's rating, whatever the filters; the artifacts tell theirs
+        $data = $this->body($this->send('v1/client/artifact-reviews', ['business_slug' => 'otter-shop', 'filters' => ['review_status' => 'H']], $this->employeeToken))['data'];
+        $this->assertSame(['rating_count' => 3, 'rating_average' => '3.67', 'rating_breakdown' => [1 => 0, 2 => 1, 3 => 0, 4 => 1, 5 => 1]], $data['business_rating']);
+        $artifacts = array_column($this->body($this->send('v1/client/artifacts', ['business_slug' => 'otter-shop']))['data']['artifacts'], 'rating_breakdown', 'public_id');
+        $this->assertSame([1 => 0, 2 => 1, 3 => 0, 4 => 0, 5 => 1], $artifacts[$this->artifact]);
+        $this->assertSame([1 => 0, 2 => 0, 3 => 0, 4 => 1, 5 => 0], $artifacts[$other]);
+        $shown = $this->body($this->send('v1/client/artifact', ['public_id' => $this->artifact]))['data']['artifact'];
+        $this->assertSame([1 => 0, 2 => 1, 3 => 0, 4 => 0, 5 => 1], $shown['rating_breakdown']);
+    }
+
     public function testOutsidersDoNotSeeTheReviews(): void
     {
         $review = $this->review($this->artifactId, 5, '2026-11-01 10:00:00');
