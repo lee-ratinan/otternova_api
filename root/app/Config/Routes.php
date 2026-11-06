@@ -122,5 +122,9 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('store/edit', 'Stores::edit');
         $routes->post('image-upload', 'Images::upload');
         $routes->post('image-delete', 'Images::delete');
+        // the images of an artifact: the active owners and managers of its business only; see App\Controllers\ArtifactImages
+        $routes->post('artifact/image-upload', 'ArtifactImages::upload');
+        $routes->post('artifact/image-delete', 'ArtifactImages::delete');
+        $routes->post('artifact/image-reorder', 'ArtifactImages::reorder');
     });
 });

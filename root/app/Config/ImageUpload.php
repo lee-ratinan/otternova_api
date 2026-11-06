@@ -53,5 +53,19 @@ class ImageUpload extends BaseConfig
             'ownRowOnly'  => ['C'], // a client changes their own picture only; staff may change anyone's
             'access'      => self::ACCESS_PUBLIC, // shown with a plain <img src>, which cannot send a Bearer token
         ],
+        // uploaded and deleted by App\Controllers\ArtifactImages, each as a row of its own named after its public_id;
+        // no uploaders, so the generic image-upload and image-delete refuse it, as they cannot check the business
+        'artifact-image' => [
+            'uploaders'   => [],
+            'width'       => 1000,
+            'height'      => 1000,
+            'target'      => 'artifact_image.image_path',
+            'ownerColumn' => 'id',
+            'ownRowOnly'  => [],
+            'access'      => self::ACCESS_PUBLIC, // the shop shows them to anyone
+        ],
     ];
+
+    /** Most images an artifact may have (artifact-image) */
+    public int $maxArtifactImages = 10;
 }

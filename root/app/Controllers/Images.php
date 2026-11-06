@@ -6,6 +6,7 @@ use App\Filters\JwtAuth;
 use App\Libraries\ApiResponse;
 use App\Libraries\ImageProcessor;
 use App\Libraries\InitialsAvatar;
+use App\Libraries\UploadedImage;
 use App\Models\ImageTargetModel;
 use CodeIgniter\Database\Exceptions\DatabaseException;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
@@ -20,8 +21,11 @@ use Throwable;
  */
 class Images extends BaseController
 {
-    /** An image-name: it becomes a file name, so no dots or slashes */
-    private const NAME_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/';
+    /**
+     * An image-name: it becomes a file name, so no dots or slashes; with no dot at the start either, it can never be
+     * the name of a file still being converted. Any public_id fits it, for the used-fors named after their row's.
+     */
+    public const NAME_PATTERN = '/^[A-Za-z0-9_-]{1,100}$/';
 
     /** Seconds a browser may reuse an image before asking again (it gets a 304 when unchanged) */
     private const CACHE_SECONDS = 300;
@@ -37,7 +41,6 @@ class Images extends BaseController
      */
     public function upload(): ResponseInterface
     {
-        $config  = config(ImageUploadConfig::class);
         $usedFor = $this->request->getPost('used-for');
         $rule    = $this->ruleFor($usedFor);
         if ($rule instanceof ResponseInterface) {
@@ -53,17 +56,10 @@ class Images extends BaseController
             return ApiResponse::error(lang('ImageUpload.invalidId'), 422, ['id' => lang('ImageUpload.invalidId')]);
         }
 
-        $processor = service('imageProcessor');
-        $file      = $this->request->getFile('image');
-        if ($file === null || ! $processor->isGenuineUpload($file)) {
-            return ApiResponse::error(lang('ImageUpload.imageRequired'), 422, ['image' => lang('ImageUpload.imageRequired')]);
-        }
-        if ($file->getSize() > $config->maxFileSize) {
-            return ApiResponse::error(lang('ImageUpload.tooLarge', [intdiv($config->maxFileSize, 1024 * 1024)]), 413);
-        }
-        // detected from the content: the client's claimed type and extension are not trusted
-        if (! in_array($file->getMimeType(), $config->allowedMimeTypes, true)) {
-            return ApiResponse::error(lang('ImageUpload.invalidType'), 415);
+        $file    = $this->request->getFile('image');
+        $refusal = UploadedImage::refusal($file);
+        if ($refusal !== null) {
+            return $refusal;
         }
 
         [$table, $column] = explode('.', $rule['target'], 2);
@@ -79,16 +75,13 @@ class Images extends BaseController
         if (is_file($path) && $oldUrl !== $url) {
             return ApiResponse::error(lang('ImageUpload.nameTaken'), 409, ['image-name' => lang('ImageUpload.nameTaken')]);
         }
-        if (! is_dir($folder) && ! @mkdir($folder, 0755, true) && ! is_dir($folder)) {
-            log_message('error', 'v1/image-upload: cannot create {folder}', ['folder' => $folder]);
-
-            return ApiResponse::error(lang('ImageUpload.saveFailed'), 500);
-        }
-
-        // converted beside the final file first; the leading dot keeps it out of NAME_PATTERN and so never served
-        $temp = $folder . '.' . $name . '.' . bin2hex(random_bytes(6)) . '.webp';
+        // converted beside the final file first, under a dot-name that is never served
         try {
-            $processor->convert($file->getTempName(), $temp, $rule['width'], $rule['height'], $config->quality);
+            $temp = UploadedImage::convertToTemp($file, $rule, $folder, $name);
+        } catch (RuntimeException $e) {
+            return UploadedImage::conversionRefusal($e, $rule) ?? $this->failed('v1/image-upload', $e, 'ImageUpload.saveFailed');
+        }
+        try {
             model(ImageTargetModel::class)->setImageUrl($table, $column, $row, $url, $this->actorId(), 'Uploaded ' . $usedFor . ' ' . $name, static function () use ($temp, $path) {
                 if (! @rename($temp, $path)) {
                     throw new RuntimeException(ImageProcessor::ERROR_SAVE);
@@ -97,11 +90,7 @@ class Images extends BaseController
         } catch (Throwable $e) {
             @unlink($temp);
 
-            return match ($e->getMessage()) {
-                ImageProcessor::ERROR_TOO_SMALL  => ApiResponse::error(lang('ImageUpload.tooSmall', [$rule['width'], $rule['height']]), 422),
-                ImageProcessor::ERROR_UNREADABLE => ApiResponse::error(lang('ImageUpload.unreadable'), 422),
-                default                          => $this->failed('v1/image-upload', $e, 'ImageUpload.saveFailed'),
-            };
+            return $this->failed('v1/image-upload', $e, 'ImageUpload.saveFailed');
         }
 
         // a new name leaves the previous file behind; safe to delete, as an image-name belongs to one row only
@@ -304,7 +293,7 @@ class Images extends BaseController
      */
     private function folderOf(string $usedFor): string
     {
-        return rtrim(config(ImageUploadConfig::class)->uploadPath, '/') . '/' . $usedFor . '/';
+        return UploadedImage::folderOf($usedFor);
     }
 
     /**

@@ -8,7 +8,8 @@ use CodeIgniter\Database\Migration;
  * Creates the artifact_image table: the pictures of an artifact, 1000x1000 WebP files kept under the artifact-image
  * folder of Config\ImageUpload::$uploadPath; image_path is the URL base_url('image/artifact-image/{name}.webp').
  * variant_id NULL is a picture of the whole artifact; otherwise of that variant only (the blue one), which the
- * foreign key on (artifact_id, variant_id) keeps within the artifact. sort_order 0 is the cover.
+ * foreign key on (artifact_id, variant_id) keeps within the artifact. The lowest sort_order is the cover, so
+ * deleting the cover needs no renumbering. At most Config\ImageUpload::$maxArtifactImages per artifact.
  * Unlike the rest of the artifact tables, a row here is deleted, together with its file, when the image is removed.
  * public_id is a NanoID (see PublicIdTrait); on MySQL it is ascii_bin, as NanoIDs tell upper from lower case.
  * Depends on artifact_master and artifact_variant.
@@ -30,7 +31,7 @@ class CreateArtifactImageTable extends Migration
             'artifact_id' => ['type' => 'INT', 'unsigned' => true],
             'variant_id'  => ['type' => 'INT', 'unsigned' => true, 'null' => true], // NULL = the whole artifact
             'image_path'  => ['type' => 'VARCHAR', 'constraint' => 255],
-            'sort_order'  => ['type' => 'SMALLINT', 'unsigned' => true, 'default' => 0], // 0 = the cover
+            'sort_order'  => ['type' => 'SMALLINT', 'unsigned' => true, 'default' => 0], // the lowest is the cover
             // maintained by the database, not the model
             'created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
             'updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP' . $onUpdate,

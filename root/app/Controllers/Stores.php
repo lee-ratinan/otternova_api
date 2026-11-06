@@ -3,10 +3,8 @@
 namespace App\Controllers;
 
 use App\Libraries\ApiResponse;
-use App\Models\BusinessClientLinkModel;
 use App\Models\BusinessMasterModel;
 use App\Models\BusinessStoreModel;
-use App\Models\ClientMasterModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
 use Throwable;
@@ -18,6 +16,8 @@ use Throwable;
  */
 class Stores extends BaseController
 {
+    use ManagedBusinessTrait;
+
     /** The business_store columns a client fills in when creating or editing a store */
     private const FORM_FIELDS = [
         'store_name',
@@ -39,9 +39,6 @@ class Stores extends BaseController
     /** business_store_translation.store_name */
     private const TRANSLATION_MAX_LENGTH = 255;
 
-    /** The roles that may manage the stores of a business */
-    private const MANAGING_ROLES = [BusinessClientLinkModel::ROLE_OWNER, BusinessClientLinkModel::ROLE_MANAGER];
-
     /**
      * POST /client/stores { business_slug }
      * The stores of that business, by name: for each, public_id, store_name, store_type, store_phone_number, the address columns (NULL
@@ -55,7 +52,7 @@ class Stores extends BaseController
         if ($input === null) {
             return ApiResponse::error(lang('Store.invalidRequest'), 422);
         }
-        [$business, $error] = $this->managedBusinessBySlug($input, $endpoint);
+        [$business, $error] = $this->managedBusinessBySlug($input, $endpoint, 'Store');
         if ($error !== null) {
             return $error;
         }
@@ -128,9 +125,9 @@ class Stores extends BaseController
 
                 return ApiResponse::error(lang('Store.loadFailed'), 500);
             }
-            $error = $business === null ? ApiResponse::error(lang('Store.notFound'), 404) : $this->roleError((int) $business['id'], $endpoint, lang('Store.notFound'));
+            $error = $business === null ? ApiResponse::error(lang('Store.notFound'), 404) : $this->roleError((int) $business['id'], $endpoint, lang('Store.notFound'), 'Store');
         } else {
-            [$business, $error] = $this->managedBusinessBySlug($input, $endpoint);
+            [$business, $error] = $this->managedBusinessBySlug($input, $endpoint, 'Store');
         }
         if ($error !== null) {
             return $error;
@@ -184,57 +181,6 @@ class Stores extends BaseController
         }
 
         return ApiResponse::success(['public_id' => $publicId], 200, lang($edit ? 'Store.updated' : 'Store.created'));
-    }
-
-    /**
-     * The business of the request's business_slug, when the signed-in client is one of its active owners or managers
-     * @param array  $input
-     * @param string $endpoint for the error log
-     * @return array{0: array|null, 1: ResponseInterface|null} [business (id, country_code), null] or [null, error response]
-     */
-    private function managedBusinessBySlug(array $input, string $endpoint): array
-    {
-        $slug = is_string($input['business_slug'] ?? null) ? trim($input['business_slug']) : '';
-        if ($slug === '') {
-            return [null, ApiResponse::error(lang('Store.slugRequired'), 400)];
-        }
-        try {
-            $business = model(BusinessMasterModel::class)->select('id, country_code')->where('business_slug', $slug)->first();
-        } catch (Throwable $e) {
-            log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
-
-            return [null, ApiResponse::error(lang('Store.loadFailed'), 500)];
-        }
-        $error = $business === null
-            ? ApiResponse::error(lang('Store.businessNotFound'), 404)
-            : $this->roleError((int) $business['id'], $endpoint, lang('Store.businessNotFound'));
-
-        return $error === null ? [$business, null] : [null, $error];
-    }
-
-    /**
-     * Null when the signed-in client is an active owner or manager of the business, else the error response:
-     * 404 with $notFound when they are not active in it (it is not theirs to see either), 403 for an employee
-     * @param int    $businessId
-     * @param string $endpoint for the error log
-     * @param string $notFound
-     * @return ResponseInterface|null
-     */
-    private function roleError(int $businessId, string $endpoint, string $notFound): ?ResponseInterface
-    {
-        try {
-            $client = model(ClientMasterModel::class)->findByAuthId($this->actorId());
-            $role   = $client === null ? null : model(BusinessClientLinkModel::class)->activeRole($businessId, (int) $client['id']);
-        } catch (Throwable $e) {
-            log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
-
-            return ApiResponse::error(lang('Store.loadFailed'), 500);
-        }
-        if ($role === null) {
-            return ApiResponse::error($notFound, 404);
-        }
-
-        return in_array($role, self::MANAGING_ROLES, true) ? null : ApiResponse::error(lang('Store.managersOnly'), 403);
     }
 
     /**
