@@ -22,6 +22,15 @@ class BusinessMasterModel extends Model
     use FieldConfigurationTrait;
     use TransactionTrait;
 
+    /**
+     * business_slug: lower-case letters of the scripts App::$permittedURIChars lets into a URL (Latin with or without
+     * accents, Thai, CJK, kana, Hangul), their marks (Thai vowels and tones), digits, and single hyphens between them,
+     * e.g. otter-cafe-sg, ร้าน-otter. No upper case, symbols or punctuation, even inside those ranges (À, ×, ฿).
+     */
+    private const SLUG_CHAR = '(?:(?=[\p{Ll}\p{Lm}\p{Lo}\p{M}\p{Nd}])[a-z0-9\x{00C0}-\x{024F}\x{1E00}-\x{1EFF}'
+        . '\x{0E00}-\x{0E7F}\x{3040}-\x{30FF}\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x{AC00}-\x{D7AF}])';
+    public const SLUG_PATTERN = '/^' . self::SLUG_CHAR . '+(?:-' . self::SLUG_CHAR . '+)*$/u';
+
     /** Columns fixed once the business is created */
     public const FIXED_FIELDS = ['country_code', 'currency_code'];
 
@@ -126,7 +135,7 @@ class BusinessMasterModel extends Model
         'id'                       => 'permit_empty|is_natural_no_zero',
         'business_type_id'         => 'required|is_natural_no_zero|is_not_unique[business_type.id]',
         'business_name'            => 'required|max_length[255]',
-        'business_slug'            => 'required|max_length[128]|regex_match[/^[a-z0-9]+(-[a-z0-9]+)*$/]|is_unique[business_master.business_slug,id,{id}]', // e.g. otter-cafe-sg
+        'business_slug'            => 'required|max_length[128]|regex_match[' . self::SLUG_PATTERN . ']|is_unique[business_master.business_slug,id,{id}]', // e.g. otter-cafe-sg, ร้าน-otter
         'business_description'     => 'permit_empty|max_length[65535]',
         'business_mood_and_tone'   => 'permit_empty|max_length[65535]',
         'lgbt_audience'            => 'required|in_list[FNDLY,LGBT,GAY,LES,GEN]',

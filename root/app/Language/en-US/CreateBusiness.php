@@ -17,7 +17,7 @@ return [
         'translations' => 'Business Name in Other Languages',
     ],
     'help'              => [
-        'business-slug'  => 'Made from the business name; you can change it. Lowercase letters, numbers and hyphens, e.g. otter-cafe-sg. It appears in your page addresses.',
+        'business-slug'  => 'Made from the business name; you can change it. Letters (lower case for Latin), numbers and hyphens, e.g. otter-cafe-sg or ร้าน-otter. It appears in your page addresses.',
         'mood-and-tone'  => 'How your business speaks to customers, e.g. friendly and playful.',
         'subdivision'    => 'Choose the country first.',
         'fixed'          => 'Cannot be changed once the business is created.',
@@ -28,7 +28,7 @@ return [
         'service-charge' => 'Added to each service in an order, not to products: a percentage of the service, or a fixed amount per service. Leave it at 0 for no service charge.',
     ],
     'error'             => [
-        'business-slug' => 'Please use only lowercase letters, numbers and single hyphens between them.',
+        'business-slug' => 'Please use only letters (lower case for Latin), numbers and single hyphens between them.',
     ],
     'translation-label' => 'Name in {0}',
 ];
