@@ -15,6 +15,7 @@ return [
     'invalidFields'      => 'Please correct the highlighted fields.',
     'staffOnly'          => 'Only staff accounts can be created here.',
     'ownStatus'          => 'You cannot change the status of your own account.',
+    'statusChangeNotAllowed' => 'This account status cannot be changed to the one chosen.',
     'cannotDeleteSelf'   => 'You cannot delete your own account.',
     'lastActiveStaff'    => 'This is the last active staff account, so it cannot be deleted.',
     'invalidTelephone'   => 'Please enter the number in international format, for example +6591234567.',

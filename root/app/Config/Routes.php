@@ -21,6 +21,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
     // Client app sign-up: no sign-in needed; see App\Controllers\Auth
     $routes->post('create-client-account', 'Auth::createClientAccount');
     $routes->post('activate-client-account', 'Auth::activateClientAccount');
+    $routes->post('client-invitation', 'Auth::clientInvitation');
 
     // Forgotten password, for either app: no sign-in needed; see App\Controllers\Auth
     $routes->post('request-password-reset', 'Auth::requestPasswordReset');
@@ -126,6 +127,15 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('stores', 'Stores::list');
         $routes->post('store/create', 'Stores::create');
         $routes->post('store/edit', 'Stores::edit');
+        // the people of a business and their accounts: its active owners only; see App\Controllers\Employees
+        $routes->post('employees', 'Employees::list');
+        $routes->post('employee', 'Employees::show');
+        $routes->post('employee/edit', 'Employees::edit');
+        $routes->post('employee/terminate', 'Employees::terminate');
+        $routes->post('employee/rehire', 'Employees::rehire');
+        $routes->post('employee/find', 'Employees::find');
+        $routes->post('employee/add', 'Employees::add');
+        $routes->post('employee/invite', 'Employees::invite');
         $routes->post('image-upload', 'Images::upload');
         $routes->post('image-delete', 'Images::delete');
         // the images of an artifact: the active owners and managers of its business only; see App\Controllers\ArtifactImages

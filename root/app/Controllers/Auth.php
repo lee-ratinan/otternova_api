@@ -11,6 +11,7 @@ use App\Models\AuthPasswordChangeModel;
 use App\Models\AuthPasswordResetModel;
 use App\Models\AuthTokenDenylistModel;
 use App\Models\BusinessClientLinkModel;
+use App\Models\BusinessInvitationModel;
 use App\Models\ClientMasterModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
@@ -214,11 +215,22 @@ class Auth extends BaseController
      * account, nothing is created and that address is emailed instead (a new activation link if it is a client still
      * pending, otherwise a note that it already has an account), with the same answer, so the answer does not tell
      * anyone which addresses have an account.
+     * With "invitation", the token from a business owner's invitation link (see Employees::invite()), the email
+     * address must be the invited one: the account is then linked to that business with the invitation's role and
+     * notes in the same transaction that creates it (or, when the address has a client account already, that one is).
+     * An invitation that is unknown or expired is refused with 410.
      * @return ResponseInterface
      */
     public function createClientAccount(): ResponseInterface
     {
-        $input    = $this->jsonInput();
+        $input      = $this->jsonInput();
+        $invitation = null;
+        if (is_string($input['invitation'] ?? null) && trim($input['invitation']) !== '') {
+            $invitation = model(BusinessInvitationModel::class)->findOpenByToken(trim($input['invitation']));
+            if ($invitation === null) {
+                return ApiResponse::error(lang('Auth.invitationInvalid'), 410);
+            }
+        }
         $fullName = is_string($input['full_name'] ?? null) ? trim(preg_replace('/\s+/u', ' ', $input['full_name']) ?? '') : '';
         $email    = is_string($input['email_address'] ?? null) ? trim($input['email_address']) : '';
         $password = is_string($input['password'] ?? null) ? $input['password'] : '';
@@ -231,6 +243,9 @@ class Auth extends BaseController
         }
         if (strlen($email) > 128 || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $errors['email_address'] = lang('Auth.emailInvalid');
+        }
+        if ($invitation !== null && ! isset($errors['email_address']) && mb_strtolower($email) !== $invitation['email_address']) {
+            $errors['email_address'] = lang('Auth.invitationEmailMismatch');
         }
         $problem = $this->passwordProblem($password);
         if ($problem !== null) {
@@ -262,7 +277,8 @@ class Auth extends BaseController
             // the rest of client_master keeps its defaults; the client fills in the profile later
             $profile = ['legal_first_name' => mb_substr($fullName, 0, self::FIRST_NAME_MAX_LENGTH, 'UTF-8')];
             try {
-                $token = $accounts->createPendingClient($account, $profile, $expiresAt);
+                $create = fn () => $accounts->createPendingClient($account, $profile, $expiresAt);
+                $token  = $invitation === null ? $create() : model(BusinessInvitationModel::class)->accept($invitation, $create);
             } catch (Throwable $e) {
                 // most likely the same address signed up at the same moment; that one carries on with its own link
                 log_message('error', 'create-client-account failed: ' . $e->getMessage());
@@ -274,10 +290,14 @@ class Auth extends BaseController
             }
             $this->sendActivation($email, $fullName, $token);
         } elseif ($existing['account_type'] === AuthAccountModel::TYPE_CLIENT && $existing['account_status'] === AuthAccountModel::STATUS_PENDING) {
+            $this->acceptInvitation($invitation);
             // the stored name and password stay: only whoever owns the inbox may activate, and with what they chose first
             $token = model(AuthActivationModel::class)->createActivation((int) $existing['id'], $expiresAt);
             $this->sendActivation($existing['email_address'], $existing['full_name'], $token);
         } else {
+            if ($existing['account_type'] === AuthAccountModel::TYPE_CLIENT) {
+                $this->acceptInvitation($invitation);
+            }
             service('emailService')->send(EmailService::TYPE_ACCOUNT_EXISTS, $existing['email_address'], [
                 'full_name' => $existing['full_name'],
                 'link'      => $this->appLink($existing['account_type']),
@@ -285,6 +305,23 @@ class Auth extends BaseController
         }
 
         return ApiResponse::success(null, 200, lang('Auth.signUpReceived', [$email]));
+    }
+
+    /**
+     * POST /client-invitation { token }, no sign-in needed
+     * What the create-account page shows for a business owner's invitation link: email_address (the one the account
+     * must use), business_name and client_role; 410 when the link is unknown or has expired
+     * @return ResponseInterface
+     */
+    public function clientInvitation(): ResponseInterface
+    {
+        $input      = $this->jsonInput();
+        $invitation = is_string($input['token'] ?? null) ? model(BusinessInvitationModel::class)->findOpenByToken(trim($input['token'])) : null;
+        if ($invitation === null) {
+            return ApiResponse::error(lang('Auth.invitationInvalid'), 410);
+        }
+
+        return ApiResponse::success(array_intersect_key($invitation, array_flip(['email_address', 'business_name', 'client_role'])));
     }
 
     /**
@@ -580,6 +617,25 @@ class Auth extends BaseController
         $allowed  = [AuthAccountModel::STATUS_ACTIVE, AuthAccountModel::STATUS_PENDING];
 
         return $account !== null && in_array($account['account_status'], $allowed, true) ? $account : null;
+    }
+
+    /**
+     * Link an existing client account to the business that invited its email address, when sign-up came with an
+     * invitation; a failure is logged, not shown, so the answer stays the same whether the address has an account
+     * @param array|null $invitation BusinessInvitationModel::findOpenByToken(); null for none
+     * @return void
+     */
+    private function acceptInvitation(?array $invitation): void
+    {
+        if ($invitation === null) {
+            return;
+        }
+        try {
+            model(BusinessInvitationModel::class)->accept($invitation);
+        } catch (Throwable $e) {
+            // the invitation stays open, so the owner can still add them by their email address
+            log_message('error', 'create-client-account: accepting invitation ' . $invitation['id'] . ' failed: ' . $e->getMessage());
+        }
     }
 
     /**

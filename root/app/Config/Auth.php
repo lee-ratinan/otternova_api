@@ -50,6 +50,9 @@ class Auth extends BaseConfig
     /** Lifetime in seconds of the activation link emailed after a client signs up */
     public int $activationTtl = 2 * DAY;
 
+    /** Lifetime in seconds of the link emailed when a business owner invites someone with no account yet */
+    public int $invitationTtl = 7 * DAY;
+
     /** Reset links requested per email address / per IP address within $throttleWindow seconds */
     public int $resetMaxPerEmail = 3;
     public int $resetMaxPerIp    = 10;

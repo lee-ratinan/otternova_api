@@ -129,6 +129,39 @@ class AccountForm
     }
 
     /**
+     * An owner's changes to the account of someone linked to their business, from the Client app's employee page:
+     * only the OWNER_EDIT_* fields are written, and account_status only along OWNER_STATUS_CHANGES; an owner cannot
+     * change the status of their own account
+     * @param array  $record    AuthAccountModel::findForForm() of a client account
+     * @param array  $accountIn The request's "account"
+     * @param array  $profileIn The request's "profile"
+     * @param string $callerUid The signed-in owner
+     * @return array{account: array, profile: array, errors: array<string, string>} Only the columns to change
+     */
+    public function forBusinessOwnerEdit(array $record, array $accountIn, array $profileIn, string $callerUid): array
+    {
+        $this->errors = [];
+        $stored  = $record['account'];
+        $model   = model(AuthAccountModel::class);
+        $account = $this->clean('account', $accountIn, AuthAccountModel::OWNER_EDIT_ACCOUNT, AuthAccountModel::FORM_ACCOUNT_NULLABLE, $model->getValidationRules());
+        $status  = $account['account_status'] ?? $stored['account_status'];
+        if ($status !== $stored['account_status']) {
+            if ($stored['uid'] === $callerUid) {
+                $this->errors['account.account_status'] = lang('Accounts.ownStatus');
+            } elseif (! in_array($status, AuthAccountModel::OWNER_STATUS_CHANGES[$stored['account_status']] ?? [], true)) {
+                $this->errors['account.account_status'] = lang('Accounts.statusChangeNotAllowed');
+            }
+        }
+        // the whole row is validated, so a change cannot leave it invalid
+        $this->validate('account', $account + $stored, array_diff(AuthAccountModel::FORM_ACCOUNT_FIELDS, ['uid', 'email_address', 'account_type']), $model, 'AuthMaster');
+
+        $locked  = array_diff(AuthAccountModel::FORM_PROFILES[AuthMasterModel::TYPE_CLIENT]['fields'], AuthAccountModel::OWNER_EDIT_PROFILE);
+        $profile = $this->profile(AuthMasterModel::TYPE_CLIENT, $profileIn, $record['profile'] ?? [], $record['profile']['id'] ?? null, $locked);
+
+        return ['account' => $account, 'profile' => $profile, 'errors' => $this->errors];
+    }
+
+    /**
      * @param string          $accountType Picks the profile table
      * @param array           $input
      * @param array           $stored      The stored profile row, or [] when there is none yet

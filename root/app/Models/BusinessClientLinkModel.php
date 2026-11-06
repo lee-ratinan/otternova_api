@@ -303,6 +303,32 @@ class BusinessClientLinkModel extends Model
     }
 
     /**
+     * Save the owner's notes of a link (active or terminated), logged to log_activity, in one transaction with
+     * $alsoWrite (the account changes made with them), so both are written or neither
+     * @param array       $link      findLink()
+     * @param string|null $notes     null clears them
+     * @param int         $actorId   auth_master.id of whoever makes the change
+     * @param callable    $alsoWrite Run first, inside the transaction
+     * @return void
+     * @throws Throwable When a write fails; nothing is written then
+     */
+    public function saveOwnerNotes(array $link, ?string $notes, int $actorId, callable $alsoWrite): void
+    {
+        $log = new ActivityLog();
+
+        $this->inTransaction(function () use ($link, $notes, $actorId, $alsoWrite, $log) {
+            $alsoWrite();
+            $changes = ActivityLog::changes($link, ['owner_notes' => $notes]);
+            if ($changes !== []) {
+                $this->db->table($this->table)->where('id', $link['id'])->update($changes);
+                $log->updated($actorId, 'Changed owner notes of client ' . $link['client_id'] . ' in business ' . $link['business_id'], $this->table, (int) $link['id'], $link, $changes);
+            }
+
+            return true;
+        });
+    }
+
+    /**
      * Change the role of an active link, logged to log_activity in the same transaction.
      * Refused when it would demote the last active owner, checked inside the transaction.
      * @param array  $link    findLink()
@@ -341,6 +367,52 @@ class BusinessClientLinkModel extends Model
         }
 
         return $this->writeLeavingAnOwner($link, ['client_status' => self::STATUS_TERMINATED, 'termination_date' => $terminationDate], 'Terminated', $actorId);
+    }
+
+    /**
+     * Take a terminated link back (rehire): client_status A and no termination_date; the role, start_date and notes
+     * stay as they were. Refused when the business's active links and open invitations already fill $maxActive (the
+     * plan's cap; an invitation holds its seat), counted inside the transaction, logged to log_activity in it.
+     * @param array $link      findLink()
+     * @param int   $maxActive Config\PlanLimits::EMPLOYEES of the business's plan
+     * @param int   $actorId   auth_master.id of whoever rehires them
+     * @return bool False when refused by the cap; nothing is written then
+     * @throws InvalidArgumentException When the link is active already
+     * @throws Throwable When a write fails; nothing is written then
+     */
+    public function rehire(array $link, int $maxActive, int $actorId): bool
+    {
+        if ($link['client_status'] !== self::STATUS_TERMINATED) {
+            throw new InvalidArgumentException('The link is active already');
+        }
+        $log = new ActivityLog();
+
+        return $this->inTransaction(function () use ($link, $maxActive, $actorId, $log) {
+            if ($this->activeCount((int) $link['business_id']) + model(BusinessInvitationModel::class)->openCount((int) $link['business_id']) >= $maxActive) {
+                return false;
+            }
+            $changes = ActivityLog::changes($link, ['client_status' => self::STATUS_ACTIVE, 'termination_date' => null]);
+            $this->db->table($this->table)->where('id', $link['id'])->update($changes);
+            $log->updated($actorId, 'Rehired client ' . $link['client_id'] . ' in business ' . $link['business_id'], $this->table, (int) $link['id'], $link, $changes);
+
+            return true;
+        });
+    }
+
+    /**
+     * How many active links a business has, its owners included (what Config\PlanLimits::EMPLOYEES caps), or of one role
+     * @param int         $businessId
+     * @param string|null $role One of the ROLE_ constants; null for every role
+     * @return int
+     */
+    public function activeCount(int $businessId, ?string $role = null): int
+    {
+        $builder = $this->db->table($this->table)->where('business_id', $businessId)->where('client_status', self::STATUS_ACTIVE);
+        if ($role !== null) {
+            $builder->where('client_role', $role);
+        }
+
+        return $builder->countAllResults();
     }
 
     /**

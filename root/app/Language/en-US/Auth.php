@@ -28,6 +28,8 @@ return [
     'emailInvalid'          => 'Please enter a valid email address.',
     'tooManySignUps'        => 'Too many sign-up attempts. Please wait a few minutes and try again.',
     'signUpReceived'        => 'Thank you! We have sent an activation link to {0}. Please open it to activate your account.',
+    'invitationInvalid'       => 'This invitation link is invalid or has expired. Please ask the business owner to invite you again.',
+    'invitationEmailMismatch' => 'Please sign up with the email address the invitation was sent to.',
     'signUpFailed'          => 'Your account could not be created. Please try again.',
     'signInFailed'          => 'You could not be signed in. Please try again.',
     'activationInvalid'     => 'This activation link is invalid or has expired. Please sign up again to get a new link.',

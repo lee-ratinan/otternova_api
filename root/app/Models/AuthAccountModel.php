@@ -178,6 +178,53 @@ class AuthAccountModel extends AuthMasterModel
     public const CLIENT_SELF_HIDDEN = ['admin_notes', 'national_id_type', 'national_id_number', 'internal_notes'];
 
     /**
+     * What the owners of a business see of the account of someone linked to it (/client/employee): no id or
+     * admin_notes from auth_master, and of client_master only the columns they may change. telephone_number is the
+     * account holder's own to set, the rest only the system's.
+     */
+    public const OWNER_VIEW_ACCOUNT = ['uid', 'email_address', 'telephone_number', 'password_expiry', 'full_name', 'avatar_path',
+        'otp_mode', 'account_status', 'account_type'];
+
+    /**
+     * The fields the owners of a business may change on the account of someone linked to it, through
+     * /client/employee/edit. client_master.internal_notes is not one: it is one row for every business the person
+     * works in and for Otternova staff; an owner's notes go to business_client_link.owner_notes, their business's own.
+     */
+    public const OWNER_EDIT_ACCOUNT = ['full_name', 'account_status'];
+    public const OWNER_EDIT_PROFILE = ['legal_first_name', 'legal_middle_name', 'legal_last_name', 'display_name',
+        'national_id_type', 'national_id_number'];
+
+    /**
+     * account_status => the statuses the owners of a business may move it to: only letting a suspended or blocked
+     * account back in. They never take an account out: it is the person's in every business they work at, so an owner
+     * who wants them out of theirs terminates their business_client_link instead. Pending accounts (not activated
+     * yet) are not theirs to change either.
+     */
+    public const OWNER_STATUS_CHANGES = [
+        self::STATUS_SUSPENDED => [self::STATUS_ACTIVE],
+        self::STATUS_BLOCKED   => [self::STATUS_ACTIVE],
+    ];
+
+    /**
+     * Everyone ever linked to a business, active or terminated, for its owners' list of employees: the account and
+     * the link, by name. Only public keys go out (uid).
+     * @param int $businessId
+     * @return list<array{uid: string, email_address: string, telephone_number: string|null, full_name: string, account_status: string, client_role: string, client_status: string, start_date: string, termination_date: string|null}>
+     */
+    public function employeesOf(int $businessId): array
+    {
+        return $this->db->table('business_client_link l')
+            ->select('a.uid, a.email_address, a.telephone_number, a.full_name, a.account_status, l.client_role, l.client_status, l.start_date, l.termination_date')
+            ->join('client_master c', 'c.id = l.client_id')
+            ->join($this->table . ' a', 'a.id = c.auth_id')
+            ->where('l.business_id', $businessId)
+            ->orderBy('a.full_name')
+            ->orderBy('a.id')
+            ->get()
+            ->getResultArray();
+    }
+
+    /**
      * account_type => profile table of the account form: its model (for the validation rules), its columns but
      * id, auth_id and the timestamps, and which of those may be NULL
      */
