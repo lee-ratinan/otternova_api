@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Libraries\ActivityLog;
 use App\Libraries\FieldEncryption;
+use App\Libraries\Money;
 use CodeIgniter\Model;
 use InvalidArgumentException;
 use Throwable;
@@ -12,6 +13,9 @@ use Throwable;
  * Model for the business_master table: a client's business entity, whose contact details are also its billing
  * details. One entity has one country and one currency, fixed once created; going international means another
  * entity. tax_id is encrypted (App\Libraries\FieldEncryption): the writes here encrypt it, findDecrypted() decrypts it.
+ * Tips (tip_*) and the service charge (service_charge_*) are in percent or in the business's currency_code; the service
+ * charge applies to services only (artifact_master.artifact_type S), once per service line: a percentage of the line,
+ * or the fixed amount added to the line. chargeErrors() keeps the columns consistent.
  */
 class BusinessMasterModel extends Model
 {
@@ -38,6 +42,36 @@ class BusinessMasterModel extends Model
     public const AGE_ADULTS_ONLY = 'Y';
     public const AGE_GENERAL     = 'N';
 
+    // tip_policy
+    public const TIP_DISABLED   = 'D';   // tipping is not allowed through the system
+    public const TIP_OFF_SYSTEM = 'OFF'; // tipping is welcome, but not collected at checkout
+    public const TIP_OPTIONAL   = 'O';   // the customer may tip at checkout
+    public const TIP_MANDATORY  = 'M';   // the customer must tip at least tip_value at checkout
+
+    // tip_unit and service_charge_unit
+    public const UNIT_PERCENTAGE = 'P';
+    public const UNIT_FIXED      = 'F'; // in the business's currency_code; a service charge is added once per service line
+
+    // tip_value_kind
+    public const TIP_VALUE_SUGGESTED = 'S';
+    public const TIP_VALUE_MINIMUM   = 'M';
+
+    /** The highest percentage tip_value and service_charge_value may be */
+    public const MAX_PERCENTAGE = '100.00';
+
+    /** DECIMAL(19,2) columns, which the drivers give back differently ("10.00", 10) */
+    public const DECIMAL_FIELDS = ['tip_value', 'service_charge_value'];
+
+    /** How the business takes tips and service charges, and what a business left without a value gets: none of either */
+    public const CHARGE_DEFAULTS = [
+        'tip_policy'           => self::TIP_DISABLED,
+        'tip_value'            => '0.00',
+        'tip_unit'             => self::UNIT_PERCENTAGE,
+        'tip_value_kind'       => self::TIP_VALUE_SUGGESTED,
+        'service_charge_value' => '0.00',
+        'service_charge_unit'  => self::UNIT_PERCENTAGE,
+    ];
+
     /** Who the business is for, and what a business left without a value gets: the general public */
     public const AUDIENCE_DEFAULTS = [
         'lgbt_audience'     => self::LGBT_GENERAL,
@@ -60,6 +94,12 @@ class BusinessMasterModel extends Model
         'lgbt_audience',
         'naturist_audience',
         'age_restricted',
+        'tip_policy',
+        'tip_value',
+        'tip_unit',
+        'tip_value_kind',
+        'service_charge_value',
+        'service_charge_unit',
         'contact_person_name',
         'contact_email_address',
         'contact_phone_number',
@@ -92,6 +132,12 @@ class BusinessMasterModel extends Model
         'lgbt_audience'            => 'required|in_list[FNDLY,LGBT,GAY,LES,GEN]',
         'naturist_audience'        => 'required|in_list[OPT,NUD,NAT,GEN]',
         'age_restricted'           => 'required|in_list[Y,N]',
+        'tip_policy'               => 'required|in_list[D,OFF,O,M]',
+        'tip_value'                => 'required|regex_match[/^\d{1,17}\.\d{2}$/]', // Money::normalize() first, as "10.00"
+        'tip_unit'                 => 'required|in_list[P,F]',
+        'tip_value_kind'           => 'required|in_list[S,M]',
+        'service_charge_value'     => 'required|regex_match[/^\d{1,17}\.\d{2}$/]',
+        'service_charge_unit'      => 'required|in_list[P,F]',
         'contact_person_name'      => 'permit_empty|max_length[128]',
         'contact_email_address'    => 'required|valid_email|max_length[128]',
         'contact_phone_number'     => 'permit_empty|max_length[32]',
@@ -136,6 +182,12 @@ class BusinessMasterModel extends Model
             'lgbt_audience'            => ['type' => 'select', 'default' => self::LGBT_GENERAL],
             'naturist_audience'        => ['type' => 'select', 'default' => self::NATURIST_GENERAL],
             'age_restricted'           => ['type' => 'select', 'default' => self::AGE_GENERAL],
+            'tip_policy'               => ['type' => 'select', 'default' => self::TIP_DISABLED],
+            'tip_value'                => ['type' => 'number', 'step' => '0.01', 'default' => '0.00', 'searchable' => false],
+            'tip_unit'                 => ['type' => 'select', 'default' => self::UNIT_PERCENTAGE],
+            'tip_value_kind'           => ['type' => 'select', 'default' => self::TIP_VALUE_SUGGESTED],
+            'service_charge_value'     => ['type' => 'number', 'step' => '0.01', 'default' => '0.00', 'searchable' => false], // services only
+            'service_charge_unit'      => ['type' => 'select', 'default' => self::UNIT_PERCENTAGE],
             'contact_person_name'      => ['type' => 'text'],
             'contact_email_address'    => ['type' => 'email'],
             'contact_phone_number'     => ['type' => 'tel'],
@@ -152,9 +204,13 @@ class BusinessMasterModel extends Model
 
         // the general public last: the select shows the others first, as the ones a business picks
         $enums = [
-            'lgbt_audience'     => [self::LGBT_FRIENDLY, self::LGBT_ONLY, self::LGBT_GAY, self::LGBT_LESBIAN, self::LGBT_GENERAL],
-            'naturist_audience' => [self::NATURIST_OPTIONAL, self::NATURIST_REQUIRED, self::NATURIST_ONLY, self::NATURIST_GENERAL],
-            'age_restricted'    => [self::AGE_ADULTS_ONLY, self::AGE_GENERAL],
+            'lgbt_audience'       => [self::LGBT_FRIENDLY, self::LGBT_ONLY, self::LGBT_GAY, self::LGBT_LESBIAN, self::LGBT_GENERAL],
+            'naturist_audience'   => [self::NATURIST_OPTIONAL, self::NATURIST_REQUIRED, self::NATURIST_ONLY, self::NATURIST_GENERAL],
+            'age_restricted'      => [self::AGE_ADULTS_ONLY, self::AGE_GENERAL],
+            'tip_policy'          => [self::TIP_DISABLED, self::TIP_OFF_SYSTEM, self::TIP_OPTIONAL, self::TIP_MANDATORY],
+            'tip_unit'            => [self::UNIT_PERCENTAGE, self::UNIT_FIXED],
+            'tip_value_kind'      => [self::TIP_VALUE_SUGGESTED, self::TIP_VALUE_MINIMUM],
+            'service_charge_unit' => [self::UNIT_PERCENTAGE, self::UNIT_FIXED],
         ];
 
         return $this->buildConfiguration('BusinessMaster', $fields, $enums);
@@ -183,6 +239,60 @@ class BusinessMasterModel extends Model
     }
 
     /**
+     * Errors for the tip and service charge columns of $business that do not fit together:
+     * - a percentage over MAX_PERCENTAGE
+     * - tip_policy D with a tip_value other than 0 (no tip to suggest or require)
+     * - tip_policy M without a tip_value above 0, or with tip_value_kind S (the value is the minimum then)
+     * tip_value_kind M with tip_policy O means a customer who tips gives at least tip_value; with OFF, the value is only
+     * ever a suggestion, so it must be S.
+     * @param array $business The tip_* and service_charge_* columns, checked by the rules (values as "10.00")
+     * @return array field => error
+     */
+    public static function chargeErrors(array $business): array
+    {
+        $errors = [];
+        foreach (['tip_value' => 'tip_unit', 'service_charge_value' => 'service_charge_unit'] as $value => $unit) {
+            if (($business[$unit] ?? null) === self::UNIT_PERCENTAGE && Money::toCents($business[$value]) > Money::toCents(self::MAX_PERCENTAGE)) {
+                $errors[$value] = lang('BusinessMaster.percentageTooHigh', [self::MAX_PERCENTAGE]);
+            }
+        }
+        $policy = $business['tip_policy'] ?? null;
+        $tip    = Money::toCents($business['tip_value'] ?? '0.00');
+        if ($policy === self::TIP_DISABLED && $tip !== 0) {
+            $errors['tip_value'] ??= lang('BusinessMaster.tipNotAllowed');
+        }
+        if ($policy === self::TIP_MANDATORY) {
+            if ($tip === 0) {
+                $errors['tip_value'] ??= lang('BusinessMaster.tipMinimumRequired');
+            }
+            if (($business['tip_value_kind'] ?? null) !== self::TIP_VALUE_MINIMUM) {
+                $errors['tip_value_kind'] = lang('BusinessMaster.tipMustBeMinimum');
+            }
+        }
+        if ($policy === self::TIP_OFF_SYSTEM && ($business['tip_value_kind'] ?? null) !== self::TIP_VALUE_SUGGESTED) {
+            $errors['tip_value_kind'] = lang('BusinessMaster.tipOnlySuggested');
+        }
+
+        return $errors;
+    }
+
+    /**
+     * $row with its DECIMAL_FIELDS as the API sends them ("10.00"), whichever driver read it
+     * @param array $row
+     * @return array
+     */
+    public static function withDecimals(array $row): array
+    {
+        foreach (self::DECIMAL_FIELDS as $field) {
+            if (array_key_exists($field, $row)) {
+                $row[$field] = Money::format($row[$field]);
+            }
+        }
+
+        return $row;
+    }
+
+    /**
      * Whether another business in $countryCode has this name (the database refuses it; this tells the form first)
      * @param string   $name
      * @param string   $countryCode
@@ -208,7 +318,7 @@ class BusinessMasterModel extends Model
     {
         $row = $this->db->table($this->table)->where('id', $id)->get()->getRowArray();
 
-        return $row === null ? null : (new FieldEncryption())->decryptRow($this->table, $row);
+        return $row === null ? null : self::withDecimals((new FieldEncryption())->decryptRow($this->table, $row));
     }
 
     /**
@@ -220,7 +330,7 @@ class BusinessMasterModel extends Model
     {
         $row = $this->db->table($this->table)->where('business_slug', $slug)->get()->getRowArray();
 
-        return $row === null ? null : (new FieldEncryption())->decryptRow($this->table, $row);
+        return $row === null ? null : self::withDecimals((new FieldEncryption())->decryptRow($this->table, $row));
     }
 
     /**
@@ -290,7 +400,7 @@ class BusinessMasterModel extends Model
      */
     public function updateBusiness(array $stored, array $business, int $actorId, ?array $names = null): void
     {
-        $changes = ActivityLog::changes($stored, $business);
+        $changes = ActivityLog::changes(self::withDecimals($stored), $business);
         $fixed   = array_intersect(array_keys($changes), self::FIXED_FIELDS);
         if ($fixed !== []) {
             throw new InvalidArgumentException('Fixed once the business is created: ' . implode(', ', $fixed));

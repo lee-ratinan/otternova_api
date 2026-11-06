@@ -1,6 +1,7 @@
 <?php
 
 use App\Libraries\FieldEncryption;
+use App\Models\BusinessMasterModel;
 use App\Models\BusinessTypeModel;
 use CodeIgniter\Test\CIUnitTestCase;
 use CodeIgniter\Test\DatabaseTestTrait;
@@ -107,6 +108,62 @@ final class BusinessesTest extends CIUnitTestCase
         $business = $this->body($this->send(['business_slug' => 'badger-spa-sg'], null, 'v1/client/business/switch'))['data']['business']['business'];
         $this->assertSame(['FNDLY', 'NUD', 'Y'], [$business['lgbt_audience'], $business['naturist_audience'], $business['age_restricted']]);
         $this->send(['business_slug' => 'badger-spa-sg', 'business' => ['age_restricted' => '']], null, 'v1/client/business/edit')->assertStatus(422);
+    }
+
+    public function testTipAndServiceChargeDefaultToNoneAndCanBeSet(): void
+    {
+        $columns = ['tip_policy', 'tip_value', 'tip_unit', 'tip_value_kind', 'service_charge_value', 'service_charge_unit'];
+        $charges = fn (string $slug): array => array_values(BusinessMasterModel::withDecimals(array_intersect_key(
+            $this->db->table('business_master')->where('business_slug', $slug)->get()->getRowArray(),
+            array_flip($columns)
+        )));
+
+        $this->send(['business' => $this->business()])->assertStatus(200);
+        $this->assertSame(['D', '0.00', 'P', 'S', '0.00', 'P'], $charges('otter-cafe-sg'));
+
+        // numbers or strings, codes in any case
+        $this->send(['business' => $this->business(['business_name' => 'Badger Spa', 'business_slug' => 'badger-spa-sg',
+            'tip_policy' => 'm', 'tip_value' => 10, 'tip_unit' => 'p', 'tip_value_kind' => 'M',
+            'service_charge_value' => '12.5', 'service_charge_unit' => 'F'])])->assertStatus(200);
+        $this->assertSame(['M', '10.00', 'P', 'M', '12.50', 'F'], $charges('badger-spa-sg'));
+
+        $refused = function (array $fields, array $expected): void {
+            $response = $this->send(['business' => $this->business(['business_slug' => 'otter-x', 'business_name' => 'X'] + $fields)]);
+            $response->assertStatus(422);
+            $this->assertSame($expected, array_keys($this->body($response)['errors']));
+        };
+        $refused(['tip_policy' => 'YES', 'tip_value' => '-1', 'tip_unit' => 'X', 'tip_value_kind' => 'Q', 'service_charge_value' => 'ten', 'service_charge_unit' => ''],
+            ['tip_policy', 'tip_value', 'tip_unit', 'tip_value_kind', 'service_charge_value']); // the unit left empty is P
+        $refused(['tip_value' => '1.234'], ['tip_value']);
+        $refused(['tip_policy' => 'O', 'tip_value' => '100.01', 'service_charge_value' => '101'], ['tip_value', 'service_charge_value']);
+        $refused(['tip_value' => '5'], ['tip_value']); // disabled: nothing to suggest
+        $refused(['tip_policy' => 'M', 'tip_value_kind' => 'M'], ['tip_value']); // required: a minimum above 0
+        $refused(['tip_policy' => 'M', 'tip_value' => '5'], ['tip_value_kind']); // required: the value is the minimum
+        $refused(['tip_policy' => 'OFF', 'tip_value' => '5', 'tip_value_kind' => 'M'], ['tip_value_kind']);
+
+        // a fixed amount is not capped at 100; off-system may still suggest one
+        $this->send(['business' => $this->business(['business_slug' => 'otter-y', 'business_name' => 'Y', 'tip_policy' => 'OFF',
+            'tip_value' => '500', 'tip_unit' => 'F', 'service_charge_value' => '500', 'service_charge_unit' => 'F'])])->assertStatus(200);
+        $this->assertSame(['OFF', '500.00', 'F', 'S', '500.00', 'F'], $charges('otter-y'));
+    }
+
+    public function testTipAndServiceChargeAreEditedAndGoOutWithTheSessionBusiness(): void
+    {
+        $this->send(['business' => $this->business(['tip_policy' => 'O', 'tip_value' => '15'])])->assertStatus(200);
+
+        // left out keeps its value; checked against what is stored
+        $this->send(['business_slug' => 'otter-cafe-sg', 'business' => ['service_charge_value' => 10]], null, 'v1/client/business/edit')->assertStatus(200);
+        $this->send(['business_slug' => 'otter-cafe-sg', 'business' => ['tip_policy' => 'D']], null, 'v1/client/business/edit')->assertStatus(422);
+        $this->send(['business_slug' => 'otter-cafe-sg', 'business' => ['tip_value' => '']], null, 'v1/client/business/edit')->assertStatus(422);
+
+        $business = $this->body($this->send(['business_slug' => 'otter-cafe-sg'], null, 'v1/client/business/switch'))['data']['business']['business'];
+        $this->assertSame(['O', '15.00', 'P', 'S', '10.00', 'P'], [$business['tip_policy'], $business['tip_value'], $business['tip_unit'],
+            $business['tip_value_kind'], $business['service_charge_value'], $business['service_charge_unit']]);
+
+        // an edit that changes nothing writes and logs nothing, whatever the driver gives the decimals back as
+        $logs = $this->db->table('log_activity')->countAllResults();
+        $this->send(['business_slug' => 'otter-cafe-sg', 'business' => ['tip_value' => '15.0', 'service_charge_value' => 10]], null, 'v1/client/business/edit')->assertStatus(200);
+        $this->assertSame($logs, $this->db->table('log_activity')->countAllResults());
     }
 
     public function testLanguagesOutsideListLanguagesAreRefused(): void

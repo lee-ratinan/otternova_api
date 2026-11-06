@@ -191,7 +191,8 @@ class BusinessClientLinkModel extends Model
     {
         $businessFields = [
             'business_name', 'business_slug', 'business_description', 'business_mood_and_tone', 'lgbt_audience',
-            'naturist_audience', 'age_restricted', 'contact_person_name',
+            'naturist_audience', 'age_restricted', 'tip_policy', 'tip_value', 'tip_unit', 'tip_value_kind',
+            'service_charge_value', 'service_charge_unit', 'contact_person_name',
             'contact_email_address', 'contact_phone_number', 'contact_website', 'contact_address_line_1',
             'contact_address_line_2', 'contact_city', 'contact_subdivision_code', 'contact_postal_code', 'country_code',
             'currency_code',
@@ -219,7 +220,7 @@ class BusinessClientLinkModel extends Model
         // the plan it is on now: free unless its subscription is active (see SubscriptionMasterModel::planOfBusiness())
         $businessId = (int) $row['business_id'];
         unset($row['business_id']);
-        $row += model(SubscriptionMasterModel::class)->planOfBusiness($businessId);
+        $row = BusinessMasterModel::withDecimals($row) + model(SubscriptionMasterModel::class)->planOfBusiness($businessId);
 
         $linkFields = ['client_role' => true, 'client_status' => true, 'is_default_business' => true, 'start_date' => true];
 

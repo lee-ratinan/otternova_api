@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Libraries\ApiResponse;
+use App\Libraries\Money;
 use App\Models\BusinessClientLinkModel;
 use App\Models\BusinessMasterModel;
 use App\Models\BusinessTypeModel;
@@ -29,6 +30,12 @@ class Businesses extends BaseController
         'lgbt_audience',
         'naturist_audience',
         'age_restricted',
+        'tip_policy',
+        'tip_value',
+        'tip_unit',
+        'tip_value_kind',
+        'service_charge_value',
+        'service_charge_unit',
         'contact_person_name',
         'contact_email_address',
         'contact_phone_number',
@@ -60,7 +67,7 @@ class Businesses extends BaseController
 
     /** Fields saved in capitals, so "sg" is accepted as SG */
     private const UPPERCASE_FIELDS = ['country_code', 'currency_code', 'contact_subdivision_code', 'type_status',
-        'lgbt_audience', 'naturist_audience', 'age_restricted'];
+        'lgbt_audience', 'naturist_audience', 'age_restricted', 'tip_policy', 'tip_unit', 'tip_value_kind', 'service_charge_unit'];
 
     /** business_master_translation.business_name and business_type_translation.type_name */
     private const TRANSLATION_MAX_LENGTH = 255;
@@ -71,6 +78,11 @@ class Businesses extends BaseController
      * languages (business_master_translation). The business type is business.business_type_public_id.
      * "translations" is optional; each key must be a language of listLanguages(), and an empty name is left out.
      * lgbt_audience, naturist_audience and age_restricted left out or empty are the general public (GEN, GEN, N).
+     * tip_policy (D, OFF, O, M), tip_value, tip_unit (P, F), tip_value_kind (S, M), service_charge_value and
+     * service_charge_unit (P, F) left out or empty are no tipping and no service charge (D, 0, P, S, 0, P); the values
+     * are a percentage or an amount in currency_code, as a string or a number of up to 2 decimal places. The
+     * service charge applies to services only (artifact_type S), once per service line: a percentage of the line, or
+     * the fixed amount added to each service line. See BusinessMasterModel::chargeErrors().
      * @return ResponseInterface
      */
     public function create(): ResponseInterface
@@ -306,8 +318,8 @@ class Businesses extends BaseController
                 ? $stored[$field]
                 : $this->normalize($field, $businessIn[$field] ?? null);
         }
-        // left out of a create (or empty), a business is for the general public
-        foreach ($stored === null ? BusinessMasterModel::AUDIENCE_DEFAULTS : [] as $field => $default) {
+        // left out of a create (or empty), a business is for the general public, and takes no tips or service charge
+        foreach ($stored === null ? BusinessMasterModel::AUDIENCE_DEFAULTS + BusinessMasterModel::CHARGE_DEFAULTS : [] as $field => $default) {
             $business[$field] = $business[$field] === '' || $business[$field] === null ? $default : $business[$field];
         }
         foreach ($stored === null ? [] : BusinessMasterModel::FIXED_FIELDS as $field) {
@@ -335,6 +347,9 @@ class Businesses extends BaseController
                 unset($ruleErrors['business_type_id']);
             }
             $errors += $ruleErrors;
+        }
+        if ($errors === []) {
+            $errors = BusinessMasterModel::chargeErrors($business);
         }
         if ($errors !== []) {
             return ApiResponse::error(lang('Business.invalidFields'), 422, $errors);
@@ -510,6 +525,10 @@ class Businesses extends BaseController
      */
     private function normalize(string $field, mixed $value): ?string
     {
+        // "10", 10 and 10.5 as "10.00" and "10.50"; anything else as it came, for the rules to refuse
+        if (in_array($field, BusinessMasterModel::DECIMAL_FIELDS, true)) {
+            return Money::normalize($value) ?? (is_scalar($value) ? trim((string) $value) : '');
+        }
         // a number counts too: the phone number may arrive as a JSON number, and business_type_id is the id found here
         $value = is_string($value) || is_int($value) ? trim((string) $value) : '';
         if (in_array($field, self::UPPERCASE_FIELDS, true)) {
