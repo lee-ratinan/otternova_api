@@ -10,7 +10,7 @@ use Config\PlanLimits;
  */
 final class PlanLimitsTest extends CIUnitTestCase
 {
-    private const CAPS     = [PlanLimits::STORES, PlanLimits::EMPLOYEES, PlanLimits::PRODUCTS, PlanLimits::SERVICES, PlanLimits::WEBPAGES, PlanLimits::AI_CREDIT_TEXT_ATTEMPTS, PlanLimits::AI_CREDIT_IMG_ATTEMPTS, PlanLimits::IMAGE_PER_ARTIFACT, PlanLimits::IMAGE_PER_WEBPAGE];
+    private const CAPS     = [PlanLimits::STORES, PlanLimits::EMPLOYEES, PlanLimits::PRODUCTS, PlanLimits::SERVICES, PlanLimits::VARIANTS, PlanLimits::WEBPAGES, PlanLimits::AI_CREDIT_TEXT_ATTEMPTS, PlanLimits::AI_CREDIT_IMG_ATTEMPTS, PlanLimits::IMAGE_PER_ARTIFACT, PlanLimits::IMAGE_PER_WEBPAGE];
     private const FEATURES = [PlanLimits::PRIVATE_SESSION_BOOKING, PlanLimits::SESSION_REGISTRATION];
 
     public function testEverySeededPlanHasEveryLimit(): void
@@ -48,6 +48,8 @@ final class PlanLimitsTest extends CIUnitTestCase
         $this->assertSame(0, $config->limitOf('free', PlanLimits::PRODUCTS)); // the free plan cannot sell products
         $this->assertSame(1, $config->limitOf('free', PlanLimits::SERVICES));
         $this->assertSame(15, $config->limitOf('quantum', PlanLimits::EMPLOYEES));
+        $this->assertSame(2, $config->limitOf('free', PlanLimits::VARIANTS));
+        $this->assertSame(30, $config->limitOf('quantum', PlanLimits::VARIANTS));
         $this->assertSame(0, $config->limitOf('free', PlanLimits::AI_CREDIT_TEXT_ATTEMPTS)); // no AI on the free plan
         $this->assertSame(3, $config->limitOf('velocity', PlanLimits::AI_CREDIT_TEXT_ATTEMPTS));
         $this->assertSame(4, $config->limitOf('quantum', PlanLimits::AI_CREDIT_IMG_ATTEMPTS));
