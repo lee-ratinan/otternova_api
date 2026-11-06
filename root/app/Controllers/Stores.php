@@ -5,8 +5,10 @@ namespace App\Controllers;
 use App\Libraries\ApiResponse;
 use App\Models\BusinessMasterModel;
 use App\Models\BusinessStoreModel;
+use App\Models\SubscriptionMasterModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
+use Config\PlanLimits;
 use Throwable;
 
 /**
@@ -72,6 +74,7 @@ class Stores extends BaseController
      * Creates a store of that business, with its names in other languages (business_store_translation).
      * store.store_type is P (physical) or O (online); an online store's address is saved as NULL.
      * "translations" is optional; each key must be a language of listLanguages(), and an empty name is left out.
+     * Refused with 409 once the business has as many stores as its plan allows (Config\PlanLimits::STORES).
      * @return ResponseInterface
      */
     public function create(): ResponseInterface
@@ -169,7 +172,13 @@ class Stores extends BaseController
             }
 
             if ($stored === null) {
-                $publicId = $stores->createWithNames($store, $this->actorId(), $names);
+                // the plan's cap; a business over it after moving to a smaller plan keeps its stores but adds none
+                $plan      = model(SubscriptionMasterModel::class)->planOfBusiness((int) $business['id'])['plan_code'];
+                $maxStores = config(PlanLimits::class)->limitOf($plan, PlanLimits::STORES);
+                $publicId  = $stores->createWithNames($store, $this->actorId(), $names ?? [], $maxStores);
+                if ($publicId === null) {
+                    return ApiResponse::error(lang('Store.limitReached', [$maxStores, ucfirst($plan)]), 409);
+                }
             } else {
                 $stores->updateWithNames($stored, $store, $this->actorId(), $names);
                 $publicId = $stored['public_id'];

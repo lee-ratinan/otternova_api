@@ -209,19 +209,30 @@ class BusinessStoreModel extends Model
     }
 
     /**
-     * Create a store with its names in one transaction, logged to log_activity in it
-     * @param array $store   Checked business_store columns (localeErrors() included), business_id included
-     * @param int   $actorId auth_master.id of whoever creates it
-     * @param array $names   language_code => store_name, for languages of listLanguages(); optional
-     * @return string The new store's public_id
+     * Create a store with its names in one transaction, logged to log_activity in it, unless the business has
+     * $maxStores stores already. The business's row is locked first (on MySQL), so two creates at once cannot both
+     * take the last place.
+     * @param array    $store     Checked business_store columns (localeErrors() included), business_id included
+     * @param int      $actorId   auth_master.id of whoever creates it
+     * @param array    $names     language_code => store_name, for languages of listLanguages(); optional
+     * @param int|null $maxStores The business's cap (Config\PlanLimits::STORES); null for none
+     * @return string|null The new store's public_id, or null when the business is at its cap; nothing is written then
      * @throws Throwable When a write fails (such as the name being taken meanwhile); nothing is written then
      */
-    public function createWithNames(array $store, int $actorId, array $names = []): string
+    public function createWithNames(array $store, int $actorId, array $names = [], ?int $maxStores = null): ?string
     {
         $store = self::withoutOnlineAddress($store);
         $log   = new ActivityLog();
 
-        return $this->withPublicId(fn (string $publicId) => $this->inTransaction(function () use ($store, $actorId, $names, $log, $publicId) {
+        $publicId = $this->withPublicId(fn (string $publicId) => $this->inTransaction(function () use ($store, $actorId, $names, $log, $publicId, $maxStores) {
+            if ($maxStores !== null) {
+                if ($this->db->DBDriver === 'MySQLi') {
+                    $this->db->query('SELECT id FROM ' . $this->db->escapeIdentifiers($this->db->prefixTable('business_master')) . ' WHERE id = ? FOR UPDATE', [$store['business_id']]);
+                }
+                if ($this->db->table($this->table)->where('business_id', $store['business_id'])->countAllResults() >= $maxStores) {
+                    return false;
+                }
+            }
             $store = ['public_id' => $publicId] + $store;
             $this->db->table($this->table)->insert($store);
             $id = (int) $this->db->insertID();
@@ -230,6 +241,8 @@ class BusinessStoreModel extends Model
 
             return $publicId;
         }));
+
+        return $publicId === false ? null : $publicId;
     }
 
     /**

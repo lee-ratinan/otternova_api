@@ -5,6 +5,7 @@ use CodeIgniter\Test\CIUnitTestCase;
 use CodeIgniter\Test\DatabaseTestTrait;
 use CodeIgniter\Test\FeatureTestTrait;
 use CodeIgniter\Test\TestResponse;
+use Config\PlanLimits;
 use Config\Services;
 
 /**
@@ -30,6 +31,8 @@ final class StoresTest extends CIUnitTestCase
         foreach (['jwt', 'authContext'] as $service) {
             Services::resetSingle($service);
         }
+        // room for the stores the other tests make; testTheStoreCapComesFromThePlan() puts the real cap back
+        config(PlanLimits::class)->plans['free'][PlanLimits::STORES] = 10;
         $owner       = $this->createClient('owner@example.com');
         $this->token = $owner['token'];
 
@@ -159,6 +162,42 @@ final class StoresTest extends CIUnitTestCase
 
         $this->assertSame('Bangkok', $this->db->table('business_store')->where('public_id', $publicId)->get()->getRow()->store_city);
         $this->assertSame(2, $this->db->table('business_store')->countAllResults());
+    }
+
+    public function testTheStoreCapComesFromThePlan(): void
+    {
+        config(PlanLimits::class)->plans['free'][PlanLimits::STORES] = 1; // the real cap, which setUp() raised
+        $store = static fn (string $name): array => ['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => $name, 'store_type' => 'O']];
+
+        // free: one store
+        $this->send($store('Online'))->assertStatus(200);
+        $response = $this->send($store('Second'));
+        $response->assertStatus(409);
+        $this->assertSame(lang('Store.limitReached', [1, 'Free']), $this->body($response)['message']);
+
+        // boost, once its subscription is active: two
+        $plan = $this->db->table('plan_master')->where('plan_code', 'boost')->get()->getRow();
+        if ($plan === null) { // the seed does not run in the test database
+            $this->db->table('plan_master')->insert(['plan_code' => 'boost', 'plan_tier' => 1]);
+        }
+        $boost = (int) ($plan->id ?? $this->db->insertID());
+        $this->db->table('plan_version')->insert(['public_id' => 'ver00001', 'plan_id' => $boost, 'country_code' => 'TH', 'currency_code' => 'THB',
+            'billing_cycle' => 'M', 'price' => '299.00', 'effective_from' => '2026-01-01 00:00:00']);
+        $this->db->table('subscription_master')->insert(['public_id' => 'sub000000001', 'business_id' => $this->businessId,
+            'plan_version_id' => (int) $this->db->insertID(), 'subscription_status' => 'P']);
+        $this->send($store('Second'))->assertStatus(409); // pending payment: still free
+        $this->db->table('subscription_master')->where('business_id', $this->businessId)->update(['subscription_status' => 'A']);
+        $this->send($store('Second'))->assertStatus(200);
+        $response = $this->send($store('Third'));
+        $response->assertStatus(409);
+        $this->assertSame(lang('Store.limitReached', [2, 'Boost']), $this->body($response)['message']);
+
+        // back on free, both stores stay and can still be edited, but none is added
+        $this->db->table('subscription_master')->where('business_id', $this->businessId)->update(['subscription_status' => 'S']);
+        $publicId = $this->db->table('business_store')->where('store_name', 'Second')->get()->getRow()->public_id;
+        $this->send(['public_id' => $publicId, 'store' => ['store_name' => 'Second Online']], null, 'v1/client/store/edit')->assertStatus(200);
+        $this->send($store('Third'))->assertStatus(409);
+        $this->assertSame(2, $this->db->table('business_store')->where('business_id', $this->businessId)->countAllResults());
     }
 
     private function createAccount(string $email, string $type): array

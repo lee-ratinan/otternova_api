@@ -14,5 +14,6 @@ return [
     'businessNotFound'   => 'Business not found.',
     'storeIdRequired'    => 'Please choose a store.',
     'notFound'           => 'Store not found.',
+    'limitReached'       => 'The {1} plan allows up to {0} stores. Please upgrade your plan to add more.',
     'managersOnly'       => 'Only the owners and managers of this business can manage its stores.',
 ];
