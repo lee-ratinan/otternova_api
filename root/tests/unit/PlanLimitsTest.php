@@ -10,7 +10,7 @@ use Config\PlanLimits;
  */
 final class PlanLimitsTest extends CIUnitTestCase
 {
-    private const CAPS     = [PlanLimits::STORES, PlanLimits::EMPLOYEES, PlanLimits::PRODUCTS, PlanLimits::SERVICES, PlanLimits::WEBPAGES, PlanLimits::AI_CREDIT_TEXT_ATTEMPTS, PlanLimits::AI_CREDIT_IMG_ATTEMPTS];
+    private const CAPS     = [PlanLimits::STORES, PlanLimits::EMPLOYEES, PlanLimits::PRODUCTS, PlanLimits::SERVICES, PlanLimits::WEBPAGES, PlanLimits::AI_CREDIT_TEXT_ATTEMPTS, PlanLimits::AI_CREDIT_IMG_ATTEMPTS, PlanLimits::IMAGE_PER_ARTIFACT, PlanLimits::IMAGE_PER_WEBPAGE];
     private const FEATURES = [PlanLimits::PRIVATE_SESSION_BOOKING, PlanLimits::SESSION_REGISTRATION];
 
     public function testEverySeededPlanHasEveryLimit(): void

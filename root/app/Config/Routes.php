@@ -126,5 +126,21 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('artifact/image-upload', 'ArtifactImages::upload');
         $routes->post('artifact/image-delete', 'ArtifactImages::delete');
         $routes->post('artifact/image-reorder', 'ArtifactImages::reorder');
+        // the products and services of a business and what they are made of: its active owners and managers only;
+        // see App\Controllers\Artifacts, ArtifactCategories and ArtifactAttributes
+        $routes->post('artifacts', 'Artifacts::list');
+        $routes->post('artifact', 'Artifacts::show');
+        $routes->post('artifact/create', 'Artifacts::create');
+        $routes->post('artifact/edit', 'Artifacts::edit');
+        $routes->post('artifact-categories', 'ArtifactCategories::list');
+        $routes->post('artifact-category/create', 'ArtifactCategories::create');
+        $routes->post('artifact-category/edit', 'ArtifactCategories::edit');
+        $routes->post('artifact-attributes', 'ArtifactAttributes::list');
+        $routes->post('artifact-attribute/create', 'ArtifactAttributes::create');
+        $routes->post('artifact-attribute/edit', 'ArtifactAttributes::edit');
+        // the reviews of a business's artifacts: any of its active clients; see App\Controllers\ArtifactReviews
+        $routes->post('artifact-reviews', 'ArtifactReviews::list');
+        $routes->post('artifact-review/approve', 'ArtifactReviews::approve');
+        $routes->post('artifact-review/hide', 'ArtifactReviews::hide');
     });
 });

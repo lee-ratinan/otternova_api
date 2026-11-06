@@ -9,7 +9,7 @@ use CodeIgniter\Database\Migration;
  * folder of Config\ImageUpload::$uploadPath; image_path is the URL base_url('image/artifact-image/{name}.webp').
  * variant_id NULL is a picture of the whole artifact; otherwise of that variant only (the blue one), which the
  * foreign key on (artifact_id, variant_id) keeps within the artifact. The lowest sort_order is the cover, so
- * deleting the cover needs no renumbering. At most Config\ImageUpload::$maxArtifactImages per artifact.
+ * deleting the cover needs no renumbering. At most Config\PlanLimits::IMAGE_PER_ARTIFACT of the business's plan per artifact.
  * Unlike the rest of the artifact tables, a row here is deleted, together with its file, when the image is removed.
  * public_id is a NanoID (see PublicIdTrait); on MySQL it is ascii_bin, as NanoIDs tell upper from lower case.
  * Depends on artifact_master and artifact_variant.

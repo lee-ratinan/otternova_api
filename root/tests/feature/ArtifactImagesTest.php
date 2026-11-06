@@ -7,6 +7,7 @@ use CodeIgniter\Test\DatabaseTestTrait;
 use CodeIgniter\Test\FeatureTestTrait;
 use CodeIgniter\Test\TestResponse;
 use Config\ImageUpload;
+use Config\PlanLimits;
 use Config\Services;
 
 /**
@@ -49,6 +50,8 @@ final class ArtifactImagesTest extends CIUnitTestCase
                 return $file->getError() === UPLOAD_ERR_OK && is_file($file->getTempName());
             }
         });
+        // room for the tests that are not about the cap
+        config(PlanLimits::class)->plans['free'][PlanLimits::IMAGE_PER_ARTIFACT] = 10;
         $this->uploads                        = sys_get_temp_dir() . '/otternova-artifact-images-' . bin2hex(random_bytes(4)) . '/';
         config(ImageUpload::class)->uploadPath = $this->uploads;
 
@@ -127,12 +130,14 @@ final class ArtifactImagesTest extends CIUnitTestCase
 
     public function testAnArtifactHasAtMostTheMaximumOfImages(): void
     {
-        config(ImageUpload::class)->maxArtifactImages = 2;
+        config(PlanLimits::class)->plans['free'][PlanLimits::IMAGE_PER_ARTIFACT] = 2;
         $this->upload(['artifact_public_id' => $this->artifact], $this->image(1000, 1000))->assertStatus(200);
         $second = $this->body($this->upload(['artifact_public_id' => $this->artifact], $this->image(1000, 1000)))['data'];
         $this->assertSame(1, $second['sort_order']);
 
-        $this->upload(['artifact_public_id' => $this->artifact], $this->image(1000, 1000))->assertStatus(409);
+        $response = $this->upload(['artifact_public_id' => $this->artifact], $this->image(1000, 1000));
+        $response->assertStatus(409);
+        $this->assertSame(lang('ArtifactImage.limitReached', [2, 'Free']), $this->body($response)['message']);
         $this->seeNumRecords(2, 'artifact_image', ['artifact_id' => $this->artifactId]);
         $this->assertCount(2, glob($this->uploads . 'artifact-image/{,.}*.webp', GLOB_BRACE)); // the refused one's file is gone too
 

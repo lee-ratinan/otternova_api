@@ -1,0 +1,23 @@
+<?php
+return [
+    'invalidRequest'      => 'The request could not be read. Please reload the page and try again.',
+    'invalidFields'       => 'Please correct the highlighted fields.',
+    'nameRequired'        => 'Please enter the name of the option, such as Color or Size.',
+    'nameTaken'           => 'Another option of this business already has this name.',
+    'tooLong'             => 'This can be at most {0} characters.',
+    'tooManyValues'       => 'Please send at most {0} choices at a time.',
+    'invalidValue'        => 'Please send each choice as an object.',
+    'valueNotFound'       => 'This choice is not one of this option, or is listed twice.',
+    'valueRequired'       => 'Please enter the choice, such as Blue or XL.',
+    'valueTaken'          => 'This option already has this choice.',
+    'invalidSortOrder'    => 'The order must be a whole number from 0 to 65535.',
+    'loadFailed'          => 'Could not load the options. Please try again.',
+    'saveFailed'          => 'Could not save the option. Please try again.',
+    'created'             => 'Option created.',
+    'updated'             => 'Option saved.',
+    'slugRequired'        => 'Please choose a business.',
+    'businessNotFound'    => 'Business not found.',
+    'attributeIdRequired' => 'Please choose an option.',
+    'notFound'            => 'Option not found.',
+    'managersOnly'        => 'Only the owners and managers of this business can manage its options.',
+];

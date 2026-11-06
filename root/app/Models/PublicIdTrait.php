@@ -26,15 +26,27 @@ trait PublicIdTrait
      */
     public function newPublicId(): string
     {
+        return $this->newPublicIdIn($this->table);
+    }
+
+    /**
+     * A public_id no row of another table has yet, as long as the model's own: for a model that writes child rows
+     * too (artifact_variant of ArtifactMasterModel)
+     * @param string $table
+     * @return string
+     * @throws RuntimeException When every try is taken
+     */
+    protected function newPublicIdIn(string $table): string
+    {
         helper('id');
         for ($try = 0; $try < self::PUBLIC_ID_TRIES; $try++) {
             $publicId = generateNanoId($this->publicIdLength);
-            if ($this->db->table($this->table)->where('public_id', $publicId)->countAllResults() === 0) {
+            if ($this->db->table($table)->where('public_id', $publicId)->countAllResults() === 0) {
                 return $publicId;
             }
         }
 
-        throw new RuntimeException('No free public_id found in ' . $this->table);
+        throw new RuntimeException('No free public_id found in ' . $table);
     }
 
     /**

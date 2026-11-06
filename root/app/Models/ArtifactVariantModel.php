@@ -5,8 +5,8 @@ namespace App\Models;
 use CodeIgniter\Model;
 
 /**
- * Model for the artifact_variant table: what a customer buys of an artifact. For now only what the artifact image
- * endpoints need, finding a variant by its public_id; the artifact endpoints add the writes.
+ * Model for the artifact_variant table: what a customer buys of an artifact. Only for finding a variant by its
+ * public_id; variants are written with their artifact, by ArtifactMasterModel::saveArtifact().
  */
 class ArtifactVariantModel extends Model
 {

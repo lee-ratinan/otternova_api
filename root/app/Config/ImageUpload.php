@@ -65,7 +65,4 @@ class ImageUpload extends BaseConfig
             'access'      => self::ACCESS_PUBLIC, // the shop shows them to anyone
         ],
     ];
-
-    /** Most images an artifact may have (artifact-image) */
-    public int $maxArtifactImages = 10;
 }

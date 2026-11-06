@@ -7,9 +7,11 @@ use App\Libraries\UploadedImage;
 use App\Models\ArtifactImageModel;
 use App\Models\ArtifactMasterModel;
 use App\Models\ArtifactVariantModel;
+use App\Models\SubscriptionMasterModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\ImageUpload as ImageUploadConfig;
+use Config\PlanLimits;
 use RuntimeException;
 use Throwable;
 
@@ -32,7 +34,8 @@ class ArtifactImages extends BaseController
     /**
      * POST /client/artifact/image-upload, multipart/form-data { artifact_public_id, variant_public_id, image }
      * Adds the image after the artifact's others, of the whole artifact or, with variant_public_id, of that variant
-     * of it. Refused with 409 once the artifact has Config\ImageUpload::$maxArtifactImages.
+     * of it. Refused with 409 once the artifact has as many as the business's plan allows
+     * (Config\PlanLimits::IMAGE_PER_ARTIFACT); one over it after moving to a smaller plan keeps its images.
      * @return ResponseInterface The image
      */
     public function upload(): ResponseInterface
@@ -63,6 +66,13 @@ class ArtifactImages extends BaseController
             return $refusal;
         }
 
+        try {
+            $plan      = model(SubscriptionMasterModel::class)->planOfBusiness((int) $artifact['business_id'])['plan_code'];
+            $maxImages = config(PlanLimits::class)->limitOf($plan, PlanLimits::IMAGE_PER_ARTIFACT);
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'ArtifactImage.loadFailed');
+        }
+
         $config = config(ImageUploadConfig::class);
         $rule   = $config->usedFor[self::USED_FOR];
         $folder = UploadedImage::folderOf(self::USED_FOR);
@@ -77,7 +87,7 @@ class ArtifactImages extends BaseController
             $row = model(ArtifactImageModel::class)->addImage(
                 (int) $artifact['id'],
                 $variantId,
-                $config->maxArtifactImages,
+                $maxImages,
                 $this->actorId(),
                 static fn (string $publicId): string => base_url('image/' . self::USED_FOR . '/' . $publicId . '.webp'),
                 static function (string $publicId) use ($temp, $folder, &$placed): void {
@@ -100,7 +110,7 @@ class ArtifactImages extends BaseController
         if ($row === null) {
             @unlink($temp);
 
-            return ApiResponse::error(lang('ArtifactImage.limitReached', [$config->maxArtifactImages]), 409);
+            return ApiResponse::error(lang('ArtifactImage.limitReached', [$maxImages, ucfirst($plan)]), 409);
         }
 
         return ApiResponse::success([
