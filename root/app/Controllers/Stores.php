@@ -44,7 +44,8 @@ class Stores extends BaseController
     /**
      * POST /client/stores { business_slug }
      * The stores of that business, by name: for each, public_id, store_name, store_type, store_phone_number, the address columns (NULL
-     * for an online store) and its names in other languages as translations
+     * for an online store) and its names in other languages as translations; with the business's plan_code, max_stores
+     * (its cap, Config\PlanLimits::STORES) and can_add (false once it has max_stores stores, so create would be refused)
      * @return ResponseInterface
      */
     public function list(): ResponseInterface
@@ -59,14 +60,21 @@ class Stores extends BaseController
             return $error;
         }
         try {
-            $rows = model(BusinessStoreModel::class)->listOfBusiness((int) $business['id']);
+            $rows      = model(BusinessStoreModel::class)->listOfBusiness((int) $business['id']);
+            $plan      = model(SubscriptionMasterModel::class)->planOfBusiness((int) $business['id'])['plan_code'];
+            $maxStores = config(PlanLimits::class)->limitOf($plan, PlanLimits::STORES);
         } catch (Throwable $e) {
             log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
 
             return ApiResponse::error(lang('Store.loadFailed'), 500);
         }
 
-        return ApiResponse::success(['stores' => $rows]);
+        return ApiResponse::success([
+            'stores'     => $rows,
+            'plan_code'  => $plan,
+            'max_stores' => $maxStores,
+            'can_add'    => count($rows) < $maxStores,
+        ]);
     }
 
     /**

@@ -169,8 +169,12 @@ final class StoresTest extends CIUnitTestCase
         config(PlanLimits::class)->plans['free'][PlanLimits::STORES] = 1; // the real cap, which setUp() raised
         $store = static fn (string $name): array => ['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => $name, 'store_type' => 'O']];
 
+        $list = fn (): array => $this->body($this->send(['business_slug' => 'otter-cafe-th'], null, 'v1/client/stores'))['data'];
+
         // free: one store
+        $this->assertSame(['free', 1, true], [$list()['plan_code'], $list()['max_stores'], $list()['can_add']]);
         $this->send($store('Online'))->assertStatus(200);
+        $this->assertFalse($list()['can_add']);
         $response = $this->send($store('Second'));
         $response->assertStatus(409);
         $this->assertSame(lang('Store.limitReached', [1, 'Free']), $this->body($response)['message']);
@@ -187,7 +191,9 @@ final class StoresTest extends CIUnitTestCase
             'plan_version_id' => (int) $this->db->insertID(), 'subscription_status' => 'P']);
         $this->send($store('Second'))->assertStatus(409); // pending payment: still free
         $this->db->table('subscription_master')->where('business_id', $this->businessId)->update(['subscription_status' => 'A']);
+        $this->assertSame(['boost', 2, true], [$list()['plan_code'], $list()['max_stores'], $list()['can_add']]);
         $this->send($store('Second'))->assertStatus(200);
+        $this->assertFalse($list()['can_add']);
         $response = $this->send($store('Third'));
         $response->assertStatus(409);
         $this->assertSame(lang('Store.limitReached', [2, 'Boost']), $this->body($response)['message']);

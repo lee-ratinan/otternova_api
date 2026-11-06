@@ -16,6 +16,7 @@ use CodeIgniter\Config\BaseConfig;
  * - EMPLOYEES: active business_client_link rows of the business, its owners included
  * - PRODUCTS:  artifact_master rows of artifact_type P; 0 means the plan cannot sell products at all
  * - SERVICES:  artifact_master rows of artifact_type S
+ * - VARIANTS:  artifact_variant rows of artifact_master
  * - WEBPAGES:  pages of its own design
  * - IMAGE_PER_ARTIFACT: artifact_image rows per 1 artifact_master
  * - IMAGE_PER_WEBPAGE: (future) number of images per 1 webpage
@@ -33,6 +34,7 @@ class PlanLimits extends BaseConfig
     public const EMPLOYEES               = 'employees';
     public const PRODUCTS                = 'products';
     public const SERVICES                = 'services';
+    public const VARIANTS                = 'variants';
     public const WEBPAGES                = 'webpages';
     public const IMAGE_PER_ARTIFACT      = 'image_per_artifact';
     public const IMAGE_PER_WEBPAGE       = 'image_per_webpage';
@@ -49,7 +51,7 @@ class PlanLimits extends BaseConfig
 
     /**
      * plan_code => limits
-     * @var array<string, array{stores: int, employees: int, products: int, services: int, webpages: int, image_per_artifact: int, image_per_webpage: int, ai_credit_text_attempts: int, ai_credit_image_attempts: int, private_session_booking: bool, session_registration: bool}>
+     * @var array<string, array{stores: int, employees: int, products: int, services: int, variants: int, webpages: int, image_per_artifact: int, image_per_webpage: int, ai_credit_text_attempts: int, ai_credit_image_attempts: int, private_session_booking: bool, session_registration: bool}>
      */
     public array $plans = [
         'free'     => [
@@ -57,6 +59,7 @@ class PlanLimits extends BaseConfig
             self::EMPLOYEES               => 1,
             self::PRODUCTS                => 0,
             self::SERVICES                => 1,
+            self::VARIANTS                => 2,
             self::WEBPAGES                => 0,
             self::IMAGE_PER_ARTIFACT      => 1,
             self::IMAGE_PER_WEBPAGE       => 1,
@@ -70,6 +73,7 @@ class PlanLimits extends BaseConfig
             self::EMPLOYEES               => 3,
             self::PRODUCTS                => 5,
             self::SERVICES                => 5,
+            self::VARIANTS                => 10,
             self::WEBPAGES                => 1,
             self::IMAGE_PER_ARTIFACT      => 3,
             self::IMAGE_PER_WEBPAGE       => 3,
@@ -83,6 +87,7 @@ class PlanLimits extends BaseConfig
             self::EMPLOYEES               => 5,
             self::PRODUCTS                => 20,
             self::SERVICES                => 20,
+            self::VARIANTS                => 15,
             self::WEBPAGES                => 3,
             self::IMAGE_PER_ARTIFACT      => 5,
             self::IMAGE_PER_WEBPAGE       => 5,
@@ -96,6 +101,7 @@ class PlanLimits extends BaseConfig
             self::EMPLOYEES               => 15,
             self::PRODUCTS                => 50,
             self::SERVICES                => 50,
+            self::VARIANTS                => 30,
             self::WEBPAGES                => 5,
             self::IMAGE_PER_ARTIFACT      => 10,
             self::IMAGE_PER_WEBPAGE       => 10,
@@ -109,7 +115,7 @@ class PlanLimits extends BaseConfig
     /**
      * The limits of a plan, the fallback plan's when it has no entry
      * @param string $planCode plan_master.plan_code
-     * @return array{stores: int, employees: int, products: int, services: int, webpages: int, image_per_artifact: int, image_per_webpage: int, ai_credit_text_attempts: int, ai_credit_image_attempts: int, private_session_booking: bool, session_registration: bool}
+     * @return array{stores: int, employees: int, products: int, services: int, variants: int, webpages: int, image_per_artifact: int, image_per_webpage: int, ai_credit_text_attempts: int, ai_credit_image_attempts: int, private_session_booking: bool, session_registration: bool}
      */
     public function forPlan(string $planCode): array
     {
