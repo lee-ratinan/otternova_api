@@ -50,6 +50,11 @@ class Artifacts extends BaseController
      * The artifacts of that business by name, each with public_id, artifact_name, artifact_type, artifact_status,
      * artifact_label, category_public_id, price_active_lowest, price_compare_lowest, rating_count, rating_average,
      * variant_count and cover_url (its first image, or null). Every filter is optional.
+     * With the business's plan_code and caps, by artifact_type: { P: { max, count, can_add }, S: {...} }, where max is
+     * the plan's cap (Config\PlanLimits::PRODUCTS or SERVICES), count the artifacts of the type that it counts (the
+     * discontinued ones are not, whatever the filters) and can_add false once count reaches max, so create would be
+     * refused; and per_artifact: { variants, images }, the plan's caps of each artifact (Config\PlanLimits::VARIANTS,
+     * IMAGE_PER_ARTIFACT), for the form of a new one.
      * @return ResponseInterface
      */
     public function list(): ResponseInterface
@@ -76,17 +81,33 @@ class Artifacts extends BaseController
                 $category                = model(ArtifactCategoryModel::class)->findByPublicId($filtersIn['category_public_id']);
                 $filters['category_id'] = $category !== null && (int) $category['business_id'] === (int) $business['id'] ? (int) $category['id'] : 0; // 0: none
             }
-            $rows = model(ArtifactMasterModel::class)->listOfBusiness((int) $business['id'], $filters);
+            $artifacts = model(ArtifactMasterModel::class);
+            $rows      = $artifacts->listOfBusiness((int) $business['id'], $filters);
+            $counts    = $artifacts->countsByType((int) $business['id']);
+            $plan      = model(SubscriptionMasterModel::class)->planOfBusiness((int) $business['id'])['plan_code'];
         } catch (Throwable $e) {
             return $this->failed($endpoint, $e, 'Artifact.loadFailed');
         }
+        $caps = [];
+        foreach (PlanLimits::ARTIFACT_TYPE_CAPS as $type => $limit) {
+            $max         = config(PlanLimits::class)->limitOf($plan, $limit);
+            $caps[$type] = ['max' => $max, 'count' => $counts[$type], 'can_add' => $counts[$type] < $max];
+        }
 
-        return ApiResponse::success(['artifacts' => $rows]);
+        $perArtifact = [
+            'variants' => config(PlanLimits::class)->limitOf($plan, PlanLimits::VARIANTS),
+            'images'   => config(PlanLimits::class)->limitOf($plan, PlanLimits::IMAGE_PER_ARTIFACT),
+        ];
+
+        return ApiResponse::success(['artifacts' => $rows, 'plan_code' => $plan, 'caps' => $caps, 'per_artifact' => $perArtifact]);
     }
 
     /**
      * POST /client/artifact { public_id }
-     * The artifact with its translations, variants and images
+     * The artifact with its translations, variants and images; with its business's plan_code and caps:
+     * { images: { max, count, can_add }, variants: { max, count, can_add } }, where max is the plan's cap
+     * (Config\PlanLimits::IMAGE_PER_ARTIFACT, VARIANTS), count what the artifact has and can_add false once count
+     * reaches max, so an upload or a new variant would be refused
      * @return ResponseInterface
      */
     public function show(): ResponseInterface
@@ -102,11 +123,18 @@ class Artifacts extends BaseController
         }
         try {
             $detail = model(ArtifactMasterModel::class)->detail((int) $stored['id']);
+            $plan   = model(SubscriptionMasterModel::class)->planOfBusiness((int) $stored['business_id'])['plan_code'];
         } catch (Throwable $e) {
             return $this->failed($endpoint, $e, 'Artifact.loadFailed');
         }
+        $caps = [];
+        foreach (['images' => PlanLimits::IMAGE_PER_ARTIFACT, 'variants' => PlanLimits::VARIANTS] as $what => $limit) {
+            $max         = config(PlanLimits::class)->limitOf($plan, $limit);
+            $count       = count($detail[$what]);
+            $caps[$what] = ['max' => $max, 'count' => $count, 'can_add' => $count < $max];
+        }
 
-        return ApiResponse::success($detail);
+        return ApiResponse::success($detail + ['plan_code' => $plan, 'caps' => $caps]);
     }
 
     /**
@@ -121,7 +149,8 @@ class Artifacts extends BaseController
      *   duration_minutes for services only; inventory, for products only, creates the variant's stock at the stores
      *   picked. Every variant uses the same attributes, with a different combination of their values.
      * Refused with 409 once the business has as many artifacts of the type as its plan allows
-     * (Config\PlanLimits::PRODUCTS or SERVICES, discontinued ones not counted).
+     * (Config\PlanLimits::PRODUCTS or SERVICES, discontinued ones not counted), or when there are more variants than
+     * its plan allows per artifact (Config\PlanLimits::VARIANTS).
      * @return ResponseInterface The artifact, as show() gives it
      */
     public function create(): ResponseInterface
@@ -137,6 +166,9 @@ class Artifacts extends BaseController
      * attribute_values, when given, replace its values); one without is added; one left out stays as it is.
      * A variant's inventory sets the quantity at each store given, adding the store when the variant has no stock
      * there yet (a stock count); the stores left out keep theirs.
+     * Variants added are refused with 409 when the artifact would have more than its business's plan allows
+     * (Config\PlanLimits::VARIANTS); one over it after moving to a smaller plan keeps its variants, and can still
+     * change them.
      * @return ResponseInterface The artifact, as show() gives it
      */
     public function edit(): ResponseInterface
@@ -202,9 +234,15 @@ class Artifacts extends BaseController
 
         $maxOfType = null;
         try {
+            $plan = model(SubscriptionMasterModel::class)->planOfBusiness($businessId)['plan_code'];
+            // the plan's cap of variants per artifact, checked only when variants are added
+            $added       = count(array_filter($variants, static fn (array $variant): bool => $variant['stored'] === null));
+            $maxVariants = config(PlanLimits::class)->limitOf($plan, PlanLimits::VARIANTS);
+            if ($added > 0 && count($storedVariants) + $added > $maxVariants) {
+                return ApiResponse::error(lang('Artifact.variantLimitReached', [$maxVariants, ucfirst($plan)]), 409);
+            }
             if ($stored === null) {
                 // the plan's cap of the type; a business over it after moving to a smaller plan keeps what it has
-                $plan      = model(SubscriptionMasterModel::class)->planOfBusiness($businessId)['plan_code'];
                 $maxOfType = config(PlanLimits::class)->limitOf($plan, PlanLimits::ARTIFACT_TYPE_CAPS[$type]);
                 if ($maxOfType === 0) {
                     return ApiResponse::error(lang('Artifact.notIncluded', [ucfirst($plan), lang('Artifact.typeNames.' . $type)]), 409);

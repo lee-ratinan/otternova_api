@@ -115,6 +115,24 @@ class ArtifactMasterModel extends Model
     }
 
     /**
+     * How many artifacts of each type a business has towards its plan's caps: the discontinued ones are not counted
+     * @param int $businessId
+     * @return array{P: int, S: int}
+     */
+    public function countsByType(int $businessId): array
+    {
+        $rows = $this->db->table($this->table)
+            ->select('artifact_type, COUNT(*) AS artifacts')
+            ->where('business_id', $businessId)
+            ->where('artifact_status !=', self::STATUS_DISCONTINUED)
+            ->groupBy('artifact_type')
+            ->get()
+            ->getResultArray();
+
+        return array_map('intval', array_column($rows, 'artifacts', 'artifact_type')) + [self::TYPE_PRODUCT => 0, self::TYPE_SERVICE => 0];
+    }
+
+    /**
      * An artifact with everything saved with it, as the API sends it
      * @param int $id
      * @return array{artifact: array, variants: list<array>, images: list<array>}

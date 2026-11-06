@@ -38,6 +38,7 @@ final class ArtifactsTest extends CIUnitTestCase
         // room for the tests that are not about the cap
         config(PlanLimits::class)->plans['free'][PlanLimits::PRODUCTS] = 10;
         config(PlanLimits::class)->plans['free'][PlanLimits::SERVICES] = 10;
+        config(PlanLimits::class)->plans['free'][PlanLimits::VARIANTS] = 100;
 
         $this->businessId = $this->business('otter-shop');
         $this->ownerToken = $this->createClient('owner@example.com', $this->businessId, 'O');
@@ -84,7 +85,7 @@ final class ArtifactsTest extends CIUnitTestCase
 
         // show() and list() give it back
         $shown = $this->body($this->send('v1/client/artifact', ['public_id' => $artifact['public_id']]))['data'];
-        $this->assertSame($data, $shown);
+        $this->assertSame($data, array_diff_key($shown, ['plan_code' => true, 'caps' => true]));
         $list = $this->body($this->send('v1/client/artifacts', ['business_slug' => 'otter-shop']))['data']['artifacts'];
         $this->assertSame([[
             'public_id'            => $artifact['public_id'],
@@ -279,6 +280,51 @@ final class ArtifactsTest extends CIUnitTestCase
         $this->edit(['public_id' => $first, 'artifact' => ['artifact_status' => 'D']])->assertStatus(200);
         $this->create($product)->assertStatus(200);
         $this->seeNumRecords(2, 'artifact_master', ['artifact_type' => 'P']);
+    }
+
+    public function testTheListAndTheArtifactTellTheCaps(): void
+    {
+        config(PlanLimits::class)->plans['free'][PlanLimits::PRODUCTS]           = 1;
+        config(PlanLimits::class)->plans['free'][PlanLimits::SERVICES]           = 2;
+        config(PlanLimits::class)->plans['free'][PlanLimits::VARIANTS]           = 2;
+        config(PlanLimits::class)->plans['free'][PlanLimits::IMAGE_PER_ARTIFACT] = 3;
+        $publicId = $this->body($this->create(['artifact' => ['artifact_name' => 'Tee', 'artifact_type' => 'P', 'tax_calculation' => 'X'], 'variants' => [['price_active' => 1]]]))['data']['artifact']['public_id'];
+
+        $data = $this->body($this->send('v1/client/artifacts', ['business_slug' => 'otter-shop', 'filters' => ['artifact_type' => 'S']]))['data'];
+        $this->assertSame('free', $data['plan_code']);
+        // counted whatever the filters
+        $this->assertSame(['P' => ['max' => 1, 'count' => 1, 'can_add' => false], 'S' => ['max' => 2, 'count' => 0, 'can_add' => true]], $data['caps']);
+        $this->assertSame(['variants' => 2, 'images' => 3], $data['per_artifact']);
+
+        $data = $this->body($this->send('v1/client/artifact', ['public_id' => $publicId]))['data'];
+        $this->assertSame('free', $data['plan_code']);
+        $this->assertSame(['images' => ['max' => 3, 'count' => 0, 'can_add' => true], 'variants' => ['max' => 2, 'count' => 1, 'can_add' => true]], $data['caps']);
+
+        // a discontinued one is not counted
+        $this->edit(['public_id' => $publicId, 'artifact' => ['artifact_status' => 'D']])->assertStatus(200);
+        $data = $this->body($this->send('v1/client/artifacts', ['business_slug' => 'otter-shop']))['data'];
+        $this->assertSame(['max' => 1, 'count' => 0, 'can_add' => true], $data['caps']['P']);
+    }
+
+    public function testThePlanCapsTheVariantsOfAnArtifact(): void
+    {
+        config(PlanLimits::class)->plans['free'][PlanLimits::VARIANTS] = 2;
+        $response = $this->create(['artifact' => ['artifact_name' => 'Tee', 'artifact_type' => 'P', 'tax_calculation' => 'X'],
+            'variants' => [['price_active' => 1, 'attribute_values' => [$this->size['S']]], ['price_active' => 1, 'attribute_values' => [$this->size['M']]], ['price_active' => 1, 'attribute_values' => [$this->size['L']]]]]);
+        $response->assertStatus(409);
+        $this->assertSame(lang('Artifact.variantLimitReached', [2, 'Free']), $this->body($response)['message']);
+        $this->seeNumRecords(0, 'artifact_master', []);
+
+        $detail = $this->body($this->create(['artifact' => ['artifact_name' => 'Tee', 'artifact_type' => 'P', 'tax_calculation' => 'X'],
+            'variants' => [['price_active' => 1, 'attribute_values' => [$this->size['S']]], ['price_active' => 1, 'attribute_values' => [$this->size['M']]]]]))['data'];
+        $publicId = $detail['artifact']['public_id'];
+        $this->edit(['public_id' => $publicId, 'variants' => [['price_active' => 1, 'attribute_values' => [$this->size['L']]]]])->assertStatus(409);
+        $this->seeNumRecords(2, 'artifact_variant', []);
+
+        // one over the cap after moving to a smaller plan keeps its variants and can still change them
+        config(PlanLimits::class)->plans['free'][PlanLimits::VARIANTS] = 1;
+        $this->edit(['public_id' => $publicId, 'variants' => [['public_id' => $detail['variants'][0]['public_id'], 'price_active' => 5]]])->assertStatus(200);
+        $this->edit(['public_id' => $publicId, 'variants' => [['price_active' => 1, 'attribute_values' => [$this->size['L']]]]])->assertStatus(409);
     }
 
     public function testOnlyActiveOwnersAndManagersGetIn(): void

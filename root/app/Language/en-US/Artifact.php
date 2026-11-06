@@ -31,6 +31,7 @@ return [
     'storeNotFound'           => 'This store is not one of this business, or is listed twice.',
     'invalidQuantity'         => 'Please enter the quantity as a whole number.',
     'limitReached'            => 'The {1} plan allows up to {0} {2}. Please upgrade your plan to add more.',
+    'variantLimitReached'     => 'The {1} plan allows up to {0} variants per product or service. Please upgrade your plan to add more.',
     'notIncluded'             => 'The {0} plan does not include {1}. Please upgrade your plan to add them.',
     'typeNames'               => ['P' => 'products', 'S' => 'services'],
     'loadFailed'              => 'Could not load the products and services. Please try again.',
