@@ -358,12 +358,15 @@ final class BusinessesTest extends CIUnitTestCase
     public function testSwitchGivesTheBusinessAsSignInDoes(): void
     {
         $this->send(['business' => $this->business()])->assertStatus(200);
-        $this->send(['business' => $this->business(['business_name' => 'Badger Bar', 'business_slug' => 'badger-bar-sg'])])->assertStatus(200);
+        $this->send(['business' => $this->business(['business_name' => 'Badger Bar', 'business_slug' => 'badger-bar-sg', 'tax_id' => '201912345A'])])->assertStatus(200);
         $this->db->table('business_client_link')->where('business_id', $this->businessId('badger-bar-sg'))->update(['client_role' => 'M']);
 
         $response = $this->send(['business_slug' => 'badger-bar-sg'], null, 'v1/client/business/switch');
         $response->assertStatus(200);
         $business = $this->body($response)['data']['business'];
+        // tax_id beside the business, decrypted, to its owners and managers only
+        $this->assertSame('201912345A', $this->body($response)['data']['tax_id']);
+        $this->assertArrayNotHasKey('tax_id', $business['business']);
         $this->assertSame(['M', 'A', 'N'], [$business['client_role'], $business['client_status'], $business['is_default_business']]);
         $this->assertSame(['Badger Bar', 'badger-bar-sg', $this->typeId], [$business['business']['business_name'], $business['business']['business_slug'], $business['business']['business_type_public_id']]);
         $this->assertArrayNotHasKey('id', $business['business']);
@@ -373,6 +376,11 @@ final class BusinessesTest extends CIUnitTestCase
         $this->send(['business_slug' => 'badger-bar-sg', 'business' => [], 'translations' => ['th' => 'แบดเจอร์บาร์']], null, 'v1/client/business/edit')->assertStatus(200);
         $response = $this->send(['business_slug' => 'badger-bar-sg'], null, 'v1/client/business/switch');
         $this->assertSame(['th' => 'แบดเจอร์บาร์'], $this->body($response)['data']['translations']);
+
+        $this->db->table('business_client_link')->where('business_id', $this->businessId('badger-bar-sg'))->update(['client_role' => 'E']);
+        $response = $this->send(['business_slug' => 'badger-bar-sg'], null, 'v1/client/business/switch');
+        $response->assertStatus(200);
+        $this->assertArrayNotHasKey('tax_id', $this->body($response)['data']);
 
         $this->db->table('business_client_link')->where('business_id', $this->businessId('badger-bar-sg'))->update(['client_status' => 'T', 'termination_date' => date('Y-m-d')]);
         $this->send(['business_slug' => 'badger-bar-sg'], null, 'v1/client/business/switch')->assertStatus(404);
