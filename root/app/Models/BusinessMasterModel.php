@@ -496,4 +496,28 @@ class BusinessMasterModel extends Model
             }
         }
     }
+
+    /** The columns of how a business pays commission */
+    public const COMMISSION_FIELDS = ['commission_status', 'commission_period', 'commission_threshold'];
+
+    /**
+     * Save how a business pays commission, logged to log_activity. Only the columns whose value changes are written.
+     * @param array $stored  The business_master row, with COMMISSION_FIELDS
+     * @param array $policy  Checked COMMISSION_FIELDS
+     * @param int   $actorId auth_master.id of whoever makes the change
+     * @return void
+     * @throws Throwable When a write fails; nothing is written then
+     */
+    public function saveCommissionPolicy(array $stored, array $policy, int $actorId): void
+    {
+        $changes = ActivityLog::changes($stored, $policy);
+        if ($changes === []) {
+            return;
+        }
+        $log = new ActivityLog();
+        $this->inTransaction(function () use ($stored, $changes, $actorId, $log) {
+            $this->db->table($this->table)->where('id', $stored['id'])->update($changes);
+            $log->updated($actorId, 'Changed the commission settings of business ' . $stored['id'], $this->table, (int) $stored['id'], $stored, $changes);
+        });
+    }
 }

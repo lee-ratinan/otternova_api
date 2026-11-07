@@ -462,4 +462,28 @@ class ArtifactMasterModel extends Model
 
         return $row;
     }
+
+    /**
+     * The services (artifact_type S) of a business, with their names in other languages, by name
+     * @param int $businessId
+     * @return list<array{id: int, public_id: string, artifact_name: string, artifact_status: string, translations: array<string, string>}>
+     *         With the internal id, for the caller's own use; strip it before anything goes out
+     */
+    public function servicesOf(int $businessId): array
+    {
+        $rows = $this->db->table($this->table)->select('id, public_id, artifact_name, artifact_status')
+            ->where('business_id', $businessId)->where('artifact_type', self::TYPE_SERVICE)
+            ->orderBy('artifact_name')->orderBy('id')
+            ->get()->getResultArray();
+        if ($rows === []) {
+            return [];
+        }
+        $names = [];
+        foreach ($this->db->table(self::TRANSLATIONS)->select('artifact_id, language_code, artifact_name')
+            ->whereIn('artifact_id', array_column($rows, 'id'))->get()->getResultArray() as $row) {
+            $names[(int) $row['artifact_id']][$row['language_code']] = $row['artifact_name'];
+        }
+
+        return array_map(static fn (array $row): array => ['id' => (int) $row['id']] + $row + ['translations' => $names[(int) $row['id']] ?? []], $rows);
+    }
 }

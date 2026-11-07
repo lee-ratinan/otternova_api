@@ -79,6 +79,17 @@ final class StoresTest extends CIUnitTestCase
         $this->assertArrayNotHasKey('id', $stores[0]);
     }
 
+    public function testTheTimezoneDefaultsToTheCountrysAndMustBeOneOfIts(): void
+    {
+        $this->send(['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => 'Bangkok', 'store_type' => 'P']])->assertStatus(200);
+        $response = $this->send(['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => 'Tokyo', 'store_type' => 'P', 'store_timezone' => 'Asia/Tokyo']]);
+        $response->assertStatus(422);
+        $this->assertSame(['store_timezone' => lang('BusinessStore.invalidTimezone')], $this->body($response)['errors']);
+
+        $stores = $this->body($this->send(['business_slug' => 'otter-cafe-th'], null, 'v1/client/stores'))['data']['stores'];
+        $this->assertSame(['Asia/Bangkok'], array_column($stores, 'store_timezone'));
+    }
+
     public function testFieldsAreChecked(): void
     {
         $response = $this->send(['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => '', 'store_type' => 'X']]);

@@ -11,7 +11,8 @@ use Throwable;
  * Model for the business_store table: a branch of a business, physical (P) or online (O), with its names in other
  * languages in business_store_translation. Only a physical store has an address: the writes here save the address
  * columns of an online store as NULL. Its subdivision must be one of listSupportedSubdivisions() of its business's
- * country, which localeErrors() checks.
+ * country, and its store_timezone one of listSupportedTimezones() of it, which localeErrors() checks. Its opening
+ * hours are in BusinessStoreHoursModel.
  */
 class BusinessStoreModel extends Model
 {
@@ -46,6 +47,7 @@ class BusinessStoreModel extends Model
         'business_id',
         'store_name',
         'store_type',
+        'store_timezone',
         'store_phone_number',
         'store_address_line_1',
         'store_address_line_2',
@@ -70,6 +72,7 @@ class BusinessStoreModel extends Model
         'business_id'            => 'required|is_natural_no_zero',
         'store_name'             => 'required|max_length[255]',
         'store_type'             => 'required|in_list[P,O]',
+        'store_timezone'         => 'required|max_length[64]',
         'store_phone_number'     => 'permit_empty|max_length[32]',
         'store_address_line_1'   => 'permit_empty|max_length[255]',
         'store_address_line_2'   => 'permit_empty|max_length[255]',
@@ -91,6 +94,7 @@ class BusinessStoreModel extends Model
         $fields = [
             'store_name'             => ['type' => 'text'],
             'store_type'             => ['type' => 'select'],
+            'store_timezone'         => ['type' => 'select', 'searchable' => false], // depends on the business's country
             'store_phone_number'     => ['type' => 'tel'],
             'store_address_line_1'   => ['type' => 'text'],
             'store_address_line_2'   => ['type' => 'text'],
@@ -107,7 +111,7 @@ class BusinessStoreModel extends Model
 
     /**
      * Errors for the columns of $store that do not fit its business's country: a subdivision not in
-     * listSupportedSubdivisions($countryCode)
+     * listSupportedSubdivisions($countryCode), or a timezone not in listSupportedTimezones($countryCode)
      * @param array  $store
      * @param string $countryCode business_master.country_code
      * @return array field => error
@@ -115,12 +119,29 @@ class BusinessStoreModel extends Model
     public static function localeErrors(array $store, string $countryCode): array
     {
         helper('list');
+        $errors      = [];
         $subdivision = $store['store_subdivision_code'] ?? null;
         if ($subdivision !== null && $subdivision !== '' && ! isset(listSupportedSubdivisions(strtoupper($countryCode))[strtoupper($subdivision)])) {
-            return ['store_subdivision_code' => lang('BusinessStore.invalidSubdivision')];
+            $errors['store_subdivision_code'] = lang('BusinessStore.invalidSubdivision');
+        }
+        $timezone = $store['store_timezone'] ?? null;
+        if ($timezone !== null && ! isset(listSupportedTimezones($countryCode)[$timezone])) {
+            $errors['store_timezone'] = lang('BusinessStore.invalidTimezone');
         }
 
-        return [];
+        return $errors;
+    }
+
+    /**
+     * The timezone a store in $countryCode gets when none is given: the country's first of listSupportedTimezones()
+     * @param string $countryCode business_master.country_code
+     * @return string|null Null for a country with none
+     */
+    public static function defaultTimezone(string $countryCode): ?string
+    {
+        helper('list');
+
+        return array_key_first(listSupportedTimezones($countryCode));
     }
 
     /**
@@ -143,13 +164,14 @@ class BusinessStoreModel extends Model
     /**
      * The stores of a business with their names in other languages, by name. The ids stay inside; a store goes out
      * by its public_id.
-     * @param int $businessId
+     * @param int  $businessId
+     * @param bool $withIds Keep the internal id, for the caller's own use; strip it before anything goes out
      * @return list<array>
      */
-    public function listOfBusiness(int $businessId): array
+    public function listOfBusiness(int $businessId, bool $withIds = false): array
     {
         $stores = $this->db->table($this->table)
-            ->select('id, public_id, store_name, store_type, store_phone_number, ' . implode(', ', self::ADDRESS_FIELDS))
+            ->select('id, public_id, store_name, store_type, store_timezone, store_phone_number, ' . implode(', ', self::ADDRESS_FIELDS))
             ->where('business_id', $businessId)
             ->orderBy('store_name', 'ASC')
             ->orderBy('id', 'ASC')
@@ -168,9 +190,13 @@ class BusinessStoreModel extends Model
             $names[(int) $row['store_id']][$row['language_code']] = $row['store_name'];
         }
 
-        return array_map(static function (array $store) use ($names) {
+        return array_map(static function (array $store) use ($names, $withIds) {
             $id = (int) $store['id'];
-            unset($store['id']);
+            if ($withIds) {
+                $store['id'] = $id;
+            } else {
+                unset($store['id']);
+            }
 
             return $store + ['translations' => $names[$id] ?? []];
         }, $stores);

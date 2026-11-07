@@ -24,6 +24,7 @@ class Stores extends BaseController
     private const FORM_FIELDS = [
         'store_name',
         'store_type',
+        'store_timezone',
         'store_phone_number',
         'store_address_line_1',
         'store_address_line_2',
@@ -32,8 +33,8 @@ class Stores extends BaseController
         'store_postal_code',
     ];
 
-    /** Fields saved as NULL when left empty */
-    private const FORM_NULLABLE = ['store_phone_number', ...BusinessStoreModel::ADDRESS_FIELDS];
+    /** Fields saved as NULL when left empty; an empty store_timezone becomes the country's default instead */
+    private const FORM_NULLABLE = ['store_timezone', 'store_phone_number', ...BusinessStoreModel::ADDRESS_FIELDS];
 
     /** Fields saved in capitals, so "th-10" is accepted as TH-10 */
     private const UPPERCASE_FIELDS = ['store_type', 'store_subdivision_code'];
@@ -43,7 +44,7 @@ class Stores extends BaseController
 
     /**
      * POST /client/stores { business_slug }
-     * The stores of that business, by name: for each, public_id, store_name, store_type, store_phone_number, the address columns (NULL
+     * The stores of that business, by name: for each, public_id, store_name, store_type, store_timezone, store_phone_number, the address columns (NULL
      * for an online store) and its names in other languages as translations; with the business's plan_code, max_stores
      * (its cap, Config\PlanLimits::STORES) and can_add (false once it has max_stores stores, so create would be refused)
      * @return ResponseInterface
@@ -81,6 +82,7 @@ class Stores extends BaseController
      * POST /client/store/create { business_slug, store: {...}, translations: {language_code: store_name} }
      * Creates a store of that business, with its names in other languages (business_store_translation).
      * store.store_type is P (physical) or O (online); an online store's address is saved as NULL.
+     * store.store_timezone is one of listSupportedTimezones() of the business's country; left out, the country's first.
      * "translations" is optional; each key must be a language of listLanguages(), and an empty name is left out.
      * Refused with 409 once the business has as many stores as its plan allows (Config\PlanLimits::STORES).
      * @return ResponseInterface
@@ -150,6 +152,7 @@ class Stores extends BaseController
                 ? $stored[$field]
                 : $this->normalize($field, $storeIn[$field] ?? null);
         }
+        $store['store_timezone'] ??= BusinessStoreModel::defaultTimezone($business['country_code']);
         $store  = BusinessStoreModel::withoutOnlineAddress($store);
         $errors = [];
         $names  = null;

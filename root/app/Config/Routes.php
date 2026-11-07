@@ -152,6 +152,20 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('stores', 'Stores::list');
         $routes->post('store/create', 'Stores::create');
         $routes->post('store/edit', 'Stores::edit');
+        // the opening hours of a store: the active owners and managers of its business only; see App\Controllers\StoreHours
+        $routes->post('store/hours', 'StoreHours::show');
+        $routes->post('store/hours/save', 'StoreHours::save');
+        $routes->post('store/hours-exception/save', 'StoreHours::saveException');
+        $routes->post('store/hours-exception/delete', 'StoreHours::deleteException');
+        // where the people of a business work and what they are paid: its active owners and managers only; see App\Controllers\Staff
+        $routes->post('staff', 'Staff::list');
+        $routes->post('staff/show', 'Staff::show');
+        $routes->post('staff/stores/save', 'Staff::saveStores');
+        $routes->post('staff/services/save', 'Staff::saveServices');
+        $routes->post('staff/salary/add', 'Staff::addSalary');
+        $routes->post('staff/salary/edit', 'Staff::editSalary');
+        $routes->post('commission-policy', 'Staff::policy');
+        $routes->post('commission-policy/save', 'Staff::savePolicy');
         // the people of a business and their accounts: its active owners only; see App\Controllers\Employees
         $routes->post('employees', 'Employees::list');
         $routes->post('employee', 'Employees::show');

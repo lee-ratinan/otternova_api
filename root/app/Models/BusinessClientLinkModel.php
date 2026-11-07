@@ -450,4 +450,64 @@ class BusinessClientLinkModel extends Model
             return true;
         });
     }
+
+    /**
+     * Everyone ever linked to a business, for its owners' and managers' staff list: no contact details, but how many
+     * stores and services each has, their own commission_threshold, and the salary paid on $today (none: nulls).
+     * Only public keys go out (uid).
+     * @param int    $businessId
+     * @param string $today Y-m-d
+     * @return list<array{uid: string, full_name: string, client_role: string, client_status: string, start_date: string, termination_date: string|null, commission_threshold: string|null, store_count: int, service_count: int, salary_amount: string|null, salary_period: string|null}>
+     */
+    public function staffOf(int $businessId, string $today): array
+    {
+        $rows = $this->db->table($this->table . ' l')
+            ->select('l.client_id, a.uid, a.full_name, l.client_role, l.client_status, l.start_date, l.termination_date, l.commission_threshold')
+            ->join('client_master c', 'c.id = l.client_id')
+            ->join('auth_master a', 'a.id = c.auth_id')
+            ->where('l.business_id', $businessId)
+            ->orderBy('a.full_name')->orderBy('a.id')
+            ->get()->getResultArray();
+        $count = fn (string $table): array => array_column($this->db->table($table)->select('client_id, COUNT(*) AS n')
+            ->where('business_id', $businessId)->groupBy('client_id')->get()->getResultArray(), 'n', 'client_id');
+        $stores   = $count('business_store_client_link');
+        $services = $count('business_service_client_link');
+        $salaries = [];
+        $current  = $this->db->table('business_client_salary')->select('client_id, salary_amount, salary_period')
+            ->where('business_id', $businessId)->where('effective_date <=', $today)
+            ->groupStart()->where('end_date', null)->orWhere('end_date >=', $today)->groupEnd()
+            ->get()->getResultArray();
+        foreach ($current as $salary) {
+            $salaries[(int) $salary['client_id']] = $salary;
+        }
+
+        return array_map(static function (array $row) use ($stores, $services, $salaries): array {
+            $clientId = (int) $row['client_id'];
+            unset($row['client_id']);
+            $salary = $salaries[$clientId] ?? null;
+
+            return $row + [
+                'store_count'   => (int) ($stores[$clientId] ?? 0),
+                'service_count' => (int) ($services[$clientId] ?? 0),
+                'salary_amount' => $salary === null ? null : number_format((float) $salary['salary_amount'], 2, '.', ''),
+                'salary_period' => $salary['salary_period'] ?? null,
+            ];
+        }, $rows);
+    }
+
+    /**
+     * Someone ever linked to a business, by their auth_master.uid
+     * @param int    $businessId
+     * @param string $uid
+     * @return array|null Their business_client_link row, with uid and full_name
+     */
+    public function findStaff(int $businessId, string $uid): ?array
+    {
+        return $this->db->table($this->table . ' l')
+            ->select('l.*, a.uid, a.full_name')
+            ->join('client_master c', 'c.id = l.client_id')
+            ->join('auth_master a', 'a.id = c.auth_id')
+            ->where('l.business_id', $businessId)->where('a.uid', $uid)
+            ->get()->getRowArray();
+    }
 }

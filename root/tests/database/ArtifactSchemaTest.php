@@ -112,7 +112,7 @@ final class ArtifactSchemaTest extends CIUnitTestCase
     public function testStockIsOneRowPerVariantPerStore(): void
     {
         $variant = $this->variant($this->businessId, $this->artifactId, 'TEE-BLUE-L');
-        $this->db->table('business_store')->insert(['public_id' => $this->publicId(), 'business_id' => $this->businessId, 'store_name' => 'Bangkok']);
+        $this->db->table('business_store')->insert(['public_id' => $this->publicId(), 'business_id' => $this->businessId, 'store_name' => 'Bangkok', 'store_timezone' => 'Asia/Bangkok']);
         $store = (int) $this->db->insertID();
 
         $this->db->table('artifact_variant_inventory')->insert(['variant_id' => $variant, 'store_id' => $store, 'quantity' => 5]);

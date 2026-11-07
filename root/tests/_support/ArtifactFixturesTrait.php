@@ -65,7 +65,7 @@ trait ArtifactFixturesTrait
     private function store(int $businessId, string $name): array
     {
         $publicId = $this->fixturePublicId();
-        $this->db->table('business_store')->insert(['public_id' => $publicId, 'business_id' => $businessId, 'store_name' => $name, 'store_type' => 'O']);
+        $this->db->table('business_store')->insert(['public_id' => $publicId, 'business_id' => $businessId, 'store_name' => $name, 'store_type' => 'O', 'store_timezone' => 'Asia/Bangkok']);
 
         return [(int) $this->db->insertID(), $publicId];
     }
