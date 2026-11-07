@@ -67,6 +67,10 @@
 # Days a new password lasts before it must be changed again at sign-in
 # PASSWORD_LIFETIME_DAYS = 90
 
+# Servers trusted to pass on the visitor's address in X-Forwarded-For, comma-separated (addresses or subnets),
+# such as the website server that forwards its contact form to /v1/contact
+# PROXY_IPS = 172.16.0.0/12,192.168.0.0/16
+
 #--------------------------------------------------------------------
 # SESSION
 #--------------------------------------------------------------------

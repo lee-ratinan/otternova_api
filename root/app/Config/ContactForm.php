@@ -26,6 +26,18 @@ class ContactForm extends BaseConfig
     /** More links than this in the subject and message marks the message as spam */
     public int $maxLinks = 3;
 
+    /** A subject or message containing any of these (ignoring case) is marked as spam; carried over from the website */
+    public array $spamKeywords = [
+        // SEO
+        'seo', 'backlink', 'rank on google', 'search engine optimization', 'domain authority', 'guest post', 'drive traffic',
+        // financial
+        'crypto', 'bitcoin', 'forex', 'trading bot', 'passive income', 'make $$$', 'earn cash',
+        // phishing
+        'account suspended', 'payment declined', 'copyright infringement', 'legal action', 'urgent response',
+        // adult and pharma
+        'viagra', 'casino', 'betting', 'weight loss pill',
+    ];
+
     /** The hidden field a person never sees, so never fills in */
     public string $honeypotField = 'website';
 

@@ -118,6 +118,16 @@ final class ContactFormTest extends CIUnitTestCase
         $this->assertSame('too_many_links', $row['spam_reason']);
     }
 
+    public function testSpamKeywordsAndRepeatedNamesAreKeptAsSpam(): void
+    {
+        $this->submit(['message' => 'We sell Bitcoin backlinks'])->assertStatus(201);
+        $this->submit(['name' => 'John john', 'email' => 'john@example.com'])->assertStatus(201);
+        $this->submit(['message' => 'We will visit Seoul next month', 'email' => 'seoul@example.com'])->assertStatus(201);
+
+        $rows = $this->db->table('contact_message')->orderBy('id')->get()->getResultArray();
+        $this->assertSame(['spam_keyword', 'repeated_name', null], array_column($rows, 'spam_reason'));
+    }
+
     public function testThrottlesPerEmailAddress(): void
     {
         for ($i = 1; $i <= 3; $i++) {

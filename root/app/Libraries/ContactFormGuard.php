@@ -150,11 +150,21 @@ class ContactFormGuard
         if (preg_match($link, $name)) {
             return 'link_in_name';
         }
+        // the same word twice, like "John John", is a common bot pattern
+        $parts = explode(' ', mb_strtolower($name, 'UTF-8'));
+        if (count($parts) === 2 && $parts[0] === $parts[1]) {
+            return 'repeated_name';
+        }
         if (preg_match('~\[url[=\]]|<a\s~i', $subject . ' ' . $message)) {
             return 'markup_link';
         }
         if (preg_match_all($link, $subject . ' ' . $message) > $this->config->maxLinks) {
             return 'too_many_links';
+        }
+        $keywords = implode('|', array_map(static fn (string $word): string => preg_quote($word, '~'), $this->config->spamKeywords));
+        // whole words only, so "seo" does not catch "Seoul"
+        if ($keywords !== '' && preg_match('~(?<![\p{L}\p{N}])(?:' . $keywords . ')(?![\p{L}\p{N}])~iu', $subject . ' ' . $message)) {
+            return 'spam_keyword';
         }
 
         return null;
