@@ -28,6 +28,10 @@ $routes->group('v1', static function (RouteCollection $routes) {
     $routes->post('check-password-reset', 'Auth::checkPasswordReset');
     $routes->post('reset-password', 'Auth::resetPassword');
 
+    // Public contact form: no sign-in needed; see App\Controllers\Contact and App\Libraries\ContactFormGuard
+    $routes->get('contact-form-token', 'Contact::formToken');
+    $routes->post('contact', 'Contact::submit');
+
     // Admin app: staff accounts only (a valid token with typ S)
     $routes->group('staff', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');

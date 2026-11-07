@@ -3,6 +3,7 @@
 namespace Config;
 
 use App\Libraries\AuthContext;
+use App\Libraries\ContactFormGuard;
 use App\Libraries\EmailService;
 use App\Libraries\ImageProcessor;
 use App\Libraries\JwtService;
@@ -60,6 +61,18 @@ class Services extends BaseService
         }
 
         return new LoginThrottle(service('cache'), config(Auth::class));
+    }
+
+    /**
+     * The token, throttle and spam checks of the public contact form
+     */
+    public static function contactFormGuard(bool $getShared = true): ContactFormGuard
+    {
+        if ($getShared) {
+            return static::getSharedInstance('contactFormGuard');
+        }
+
+        return new ContactFormGuard(service('cache'), config(ContactForm::class), config(Auth::class)->jwtSecret);
     }
 
     /**
