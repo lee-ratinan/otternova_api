@@ -233,7 +233,8 @@ class Subscriptions extends BaseController
 
     /**
      * POST /client/subscription/apply-discount { business_slug, invoice_public_id, discount_code }
-     * Applies the code to the pending invoice, in place of the one it had
+     * Applies the code to the pending invoice, in place of the one it had. An issued invoice never changes, so it is
+     * voided and made again with the discount: invoice_public_id is the new one's.
      * @return ResponseInterface
      */
     public function applyDiscount(): ResponseInterface
@@ -252,8 +253,8 @@ class Subscriptions extends BaseController
             if ($invoice === null) {
                 return ApiResponse::error(lang('Subscriptions.invoiceNotFound'), 404);
             }
-            (new SubscriptionBilling())->applyDiscount($invoice, $business, $code, $this->actorId());
-            $invoice = model(SubscriptionInvoiceModel::class)->find((int) $invoice['id']);
+            // the invoice is made again with the discount, under a new number and public_id
+            $invoice = (new SubscriptionBilling())->applyDiscount($invoice, $business, $code, $this->actorId());
         } catch (BillingException $e) {
             return $this->refused($e);
         } catch (Throwable $e) {

@@ -174,10 +174,7 @@ class SubscriptionBilling
                 ], $actorId, 'Subscribed business ' . $business['id']);
 
                 $holdHours = config(BillingConfig::class)->invoiceHoldHours;
-                $invoice   = $this->createInvoice($subscriptionId, $version, self::addTime($now, 'PT' . $holdHours . 'H'), $actorId);
-                if ($discount !== null) {
-                    $invoice = $this->setDiscount($invoice, $discount, $actorId);
-                }
+                $invoice   = $this->createInvoice($subscriptionId, $version, self::addTime($now, 'PT' . $holdHours . 'H'), $actorId, $discount);
                 if (Money::isZero($invoice['amount_due'])) {
                     $this->markPaid($invoice, $now, $actorId);
                 }
@@ -195,16 +192,17 @@ class SubscriptionBilling
     }
 
     /**
-     * Apply a discount code to a pending invoice, in place of the one it had; one with nothing left to pay is paid
+     * Apply a discount code to a pending invoice, in place of the one it had. An issued invoice never changes, so it
+     * is voided and made again with the discount, under a new number; one with nothing left to pay is paid.
      * @param array  $invoice  Stored row
      * @param array  $business With id and country_code
      * @param string $code
      * @param int    $actorId
-     * @return void
+     * @return array The invoice as stored now: the new one, or $invoice when it has that discount already
      * @throws BillingException
      * @throws Throwable
      */
-    public function applyDiscount(array $invoice, array $business, string $code, int $actorId): void
+    public function applyDiscount(array $invoice, array $business, string $code, int $actorId): array
     {
         $this->assertPayable($invoice);
         if ($invoice['invoice_type'] === SubscriptionInvoiceModel::TYPE_TOP_UP) {
@@ -213,15 +211,23 @@ class SubscriptionBilling
         $version  = model(PlanVersionModel::class)->find((int) $invoice['plan_version_id']);
         $discount = $this->usableDiscount($code, $business, $version, self::now(), (int) $invoice['id']);
         if ((int) $discount['id'] === (int) ($invoice['discount_id'] ?? 0)) {
-            return;
+            return $invoice;
         }
 
-        $this->inTransaction(function () use ($invoice, $discount, $actorId) {
-            $invoice = $this->setDiscount($invoice, $discount, $actorId);
-            if (Money::isZero($invoice['amount_due'])) {
-                $this->markPaid($invoice, self::now(), $actorId);
+        $id = $this->inTransaction(function () use ($invoice, $discount, $actorId) {
+            if ($invoice['discount_id'] !== null) {
+                model(DiscountMasterModel::class)->release((int) $invoice['discount_id']);
             }
+            $amounts = $this->amountsOf((int) $invoice['subscription_id'], Money::format($invoice['list_price']), $invoice['currency_code'], $discount);
+            $new     = $this->reissue($invoice, $amounts, $actorId, 'applied discount ' . $discount['discount_code']);
+            if (Money::isZero($new['amount_due'])) {
+                $this->markPaid($new, self::now(), $actorId);
+            }
+
+            return (int) $new['id'];
         });
+
+        return $this->db->table('subscription_invoice')->where('id', $id)->get()->getRowArray();
     }
 
     /**
@@ -990,8 +996,12 @@ class SubscriptionBilling
             if ($changes['wht_amount'] === Money::format($invoice['wht_amount']) && $changes['wht_rule_id'] === ($invoice['wht_rule_id'] === null ? null : (int) $invoice['wht_rule_id'])) {
                 continue;
             }
-            $this->change('subscription_invoice', $invoice, $changes, $actorId, 'Worked out the withholding tax of invoice ' . $invoice['invoice_no'] . ' again',
-                ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
+            // an issued invoice never changes: made again with the tax worked out again
+            $this->reissue($invoice, [
+                'discount_id'     => $invoice['discount_id'] === null ? null : (int) $invoice['discount_id'],
+                'discount_amount' => Money::format($invoice['discount_amount']),
+                'amount_due'      => Money::format($invoice['amount_due']),
+            ] + $changes, $actorId, 'withholding tax worked out again');
         }
     }
 
@@ -1040,23 +1050,79 @@ class SubscriptionBilling
      * @param int|null $actorId Null for the scheduled run
      * @return array The stored row
      */
-    private function createInvoice(int $subscriptionId, array $version, string $dueAt, ?int $actorId): array
+    private function createInvoice(int $subscriptionId, array $version, string $dueAt, ?int $actorId, ?array $discount = null): array
     {
-        $price = Money::format($version['price']);
-
         return $this->insertInvoice([
             'subscription_id' => $subscriptionId,
             'plan_version_id' => (int) $version['id'],
             'currency_code'   => $version['currency_code'],
-            'list_price'      => $price,
-            'discount_amount' => '0.00',
-            'amount_due'      => $price,
+            'list_price'      => Money::format($version['price']),
             'due_at'          => $dueAt,
-        ] + $this->withholdingOf($subscriptionId, $price, $version['currency_code'], self::now()), $actorId);
+        ] + $this->amountsOf($subscriptionId, Money::format($version['price']), $version['currency_code'], $discount), $actorId);
     }
 
     /**
-     * Insert a pending invoice; its number comes from its id: INV-YYYYMM-000123
+     * What an invoice of $listPrice comes to: less the discount, if any, whose use is counted here, then less the
+     * withholding tax in effect now
+     * @param int        $subscriptionId
+     * @param string     $listPrice
+     * @param string     $currencyCode
+     * @param array|null $discount
+     * @return array discount_id, discount_amount, amount_due and the withholding columns
+     * @throws BillingException When the discount's cap was reached meanwhile
+     */
+    private function amountsOf(int $subscriptionId, string $listPrice, string $currencyCode, ?array $discount): array
+    {
+        $price = Money::toCents($listPrice);
+        $cut   = 0;
+        if ($discount !== null) {
+            if (! model(DiscountMasterModel::class)->reserve((int) $discount['id'])) {
+                throw new BillingException('Subscriptions.discountUsedUp', 422, ['discount_code' => lang('Subscriptions.discountUsedUp')]);
+            }
+            $cut = DiscountMasterModel::discountCents($discount, $price);
+        }
+        $due = Money::fromCents($price - $cut);
+
+        return [
+            'discount_id'     => $discount === null ? null : (int) $discount['id'],
+            'discount_amount' => Money::fromCents($cut),
+            'amount_due'      => $due,
+        ] + $this->withholdingOf($subscriptionId, $due, $currencyCode, self::now());
+    }
+
+    /**
+     * Void a pending invoice and make it again with other amounts, under a new number, as an issued invoice never
+     * changes. The new one keeps its type, plan, list price and due time. The voided one's discount use is not given
+     * back here: $amounts carries it on, or the caller released it.
+     * @param array    $invoice Stored row, pending
+     * @param array    $amounts discount_id, discount_amount, amount_due and the withholding columns
+     * @param int|null $actorId
+     * @param string   $why     For the log
+     * @return array The new invoice as stored
+     * @throws BillingException When it is no longer pending
+     */
+    private function reissue(array $invoice, array $amounts, ?int $actorId, string $why): array
+    {
+        $voided = $this->change('subscription_invoice', $invoice, ['invoice_status' => SubscriptionInvoiceModel::STATUS_VOID, 'voided_at' => self::now()],
+            $actorId, 'Voided invoice ' . $invoice['invoice_no'] . ' to make it again: ' . $why, ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
+        if (! $voided) {
+            throw new BillingException('Subscriptions.invoiceNotPending', 409);
+        }
+
+        return $this->insertInvoice([
+            'invoice_type'      => $invoice['invoice_type'],
+            'parent_invoice_id' => $invoice['parent_invoice_id'] === null ? null : (int) $invoice['parent_invoice_id'],
+            'subscription_id'   => (int) $invoice['subscription_id'],
+            'plan_version_id'   => (int) $invoice['plan_version_id'],
+            'currency_code'     => $invoice['currency_code'],
+            'list_price'        => Money::format($invoice['list_price']),
+            'due_at'            => $invoice['due_at'],
+        ] + $amounts, $actorId);
+    }
+
+    /**
+     * Insert a pending invoice, to be rendered with the invoice template in use now, and freeze its document; its
+     * number comes from its id: INV-YYYYMM-000123
      * @param array    $fields
      * @param int|null $actorId Null for the scheduled run
      * @return array The stored row
@@ -1064,46 +1130,17 @@ class SubscriptionBilling
     private function insertInvoice(array $fields, ?int $actorId): array
     {
         $publicId = model(SubscriptionInvoiceModel::class)->newPublicId();
-        $row      = ['public_id' => $publicId, 'invoice_no' => 'NEW-' . $publicId, 'invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING] + $fields;
+        $row      = ['public_id' => $publicId, 'invoice_no' => 'NEW-' . $publicId, 'invoice_version_id' => DocumentRenderer::invoiceVersion(),
+            'invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING] + $fields;
         $this->db->table('subscription_invoice')->insert($row);
         $id                = (int) $this->db->insertID();
         $row['invoice_no'] = 'INV-' . gmdate('Ym', strtotime(self::now() . ' UTC')) . '-' . str_pad((string) $id, 6, '0', STR_PAD_LEFT);
         $this->db->table('subscription_invoice')->where('id', $id)->update(['invoice_no' => $row['invoice_no']]);
         $this->log->inserted($actorId, 'Created invoice ' . $row['invoice_no'], 'subscription_invoice', $id, $row);
+        $stored = $this->db->table('subscription_invoice')->where('id', $id)->get()->getRowArray();
+        (new DocumentRenderer())->freeze($stored, 'invoice', self::now());
 
-        return $this->db->table('subscription_invoice')->where('id', $id)->get()->getRowArray();
-    }
-
-    /**
-     * Put the discount on the invoice, giving back the use of the one it had and counting one of the new one
-     * @param array $invoice Stored row
-     * @param array $discount
-     * @param int   $actorId
-     * @return array The invoice as stored now
-     * @throws BillingException When the discount's cap was reached meanwhile
-     */
-    private function setDiscount(array $invoice, array $discount, int $actorId): array
-    {
-        $discounts = model(DiscountMasterModel::class);
-        if ($invoice['discount_id'] !== null) {
-            $discounts->release((int) $invoice['discount_id']);
-        }
-        if (! $discounts->reserve((int) $discount['id'])) {
-            throw new BillingException('Subscriptions.discountUsedUp', 422, ['discount_code' => lang('Subscriptions.discountUsedUp')]);
-        }
-        $price = Money::toCents(Money::format($invoice['list_price']));
-        $cut   = DiscountMasterModel::discountCents($discount, $price);
-        $due   = Money::fromCents($price - $cut);
-        $done  = $this->change('subscription_invoice', $invoice, [
-            'discount_id'     => (int) $discount['id'],
-            'discount_amount' => Money::fromCents($cut),
-            'amount_due'      => $due,
-        ] + $this->withholdingOf((int) $invoice['subscription_id'], $due, $invoice['currency_code'], self::now()), $actorId, 'Applied discount ' . $discount['discount_code'] . ' to invoice ' . $invoice['invoice_no'], ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
-        if (! $done) {
-            throw new BillingException('Subscriptions.invoiceNotPending', 409);
-        }
-
-        return $this->db->table('subscription_invoice')->where('id', $invoice['id'])->get()->getRowArray();
+        return $stored;
     }
 
     /**
@@ -1111,6 +1148,7 @@ class SubscriptionBilling
      * one paid after the grace days, starts the period when it was paid (and the anchor day becomes that day); one
      * paid by the end of the grace days starts it when the last one ended. One with tax withheld waits for its
      * certificate from then on, when its rule asks for one. A top-up is only marked paid: it pays for no period.
+     * Either gets its receipt (see receiptOf()), whose document is frozen as it is paid.
      * @param array    $invoice Stored row, pending
      * @param string   $paidAt  UTC
      * @param int|null $actorId
@@ -1120,11 +1158,12 @@ class SubscriptionBilling
     private function markPaid(array $invoice, string $paidAt, ?int $actorId): void
     {
         if ($invoice['invoice_type'] === SubscriptionInvoiceModel::TYPE_TOP_UP) {
-            $paid = $this->change('subscription_invoice', $invoice, ['invoice_status' => SubscriptionInvoiceModel::STATUS_PAID, 'paid_at' => $paidAt],
-                $actorId, 'Paid top-up ' . $invoice['invoice_no'], ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
+            $paid = $this->change('subscription_invoice', $invoice, ['invoice_status' => SubscriptionInvoiceModel::STATUS_PAID, 'paid_at' => $paidAt]
+                + self::receiptOf($invoice, $paidAt), $actorId, 'Paid top-up ' . $invoice['invoice_no'], ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
             if (! $paid) {
                 throw new BillingException('SubscriptionAdmin.invoiceNotPending', 409);
             }
+            $this->freezeReceipt((int) $invoice['id']);
 
             return;
         }
@@ -1162,10 +1201,11 @@ class SubscriptionBilling
             'paid_at'        => $paidAt,
             'period_start'   => $start,
             'period_end'     => $end,
-        ] + $certificate, $actorId, 'Paid invoice ' . $invoice['invoice_no'], ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
+        ] + self::receiptOf($invoice, $paidAt) + $certificate, $actorId, 'Paid invoice ' . $invoice['invoice_no'], ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
         if (! $paid) {
             throw new BillingException('SubscriptionAdmin.invoiceNotPending', 409);
         }
+        $this->freezeReceipt((int) $invoice['id']);
 
         $changes = [
             'subscription_status'  => SubscriptionMasterModel::STATUS_ACTIVE,
@@ -1181,6 +1221,31 @@ class SubscriptionBilling
             $changes['next_plan_version_id'] = null;
         }
         $this->change('subscription_master', $subscription, $changes, $actorId, 'Started period of invoice ' . $invoice['invoice_no']);
+    }
+
+    /**
+     * Freeze the receipt of an invoice just paid, with its payment
+     * @param int $invoiceId
+     * @return void
+     */
+    private function freezeReceipt(int $invoiceId): void
+    {
+        (new DocumentRenderer())->freeze($this->db->table('subscription_invoice')->where('id', $invoiceId)->get()->getRowArray(), 'receipt');
+    }
+
+    /**
+     * The receipt of an invoice paid at $paidAt, rendered with the receipt template in use now: RCT-YYYYMM-000123,
+     * the month it was paid and the invoice's id
+     * @param array  $invoice Stored row
+     * @param string $paidAt  UTC
+     * @return array{receipt_no: string, receipt_version_id: string}
+     */
+    private static function receiptOf(array $invoice, string $paidAt): array
+    {
+        return [
+            'receipt_no'         => 'RCT-' . gmdate('Ym', strtotime($paidAt . ' UTC')) . '-' . str_pad((string) $invoice['id'], 6, '0', STR_PAD_LEFT),
+            'receipt_version_id' => DocumentRenderer::receiptVersion(),
+        ];
     }
 
     /**

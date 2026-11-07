@@ -156,6 +156,27 @@ class SubscriptionInvoiceModel extends Model
     }
 
     /**
+     * The stored invoice of an invoice number (INV-...) or a receipt number (RCT-...), with the business_id of its
+     * subscription
+     * @param string $column invoice_no or receipt_no
+     * @param mixed  $number From the request
+     * @return array|null
+     */
+    public function findByDocumentNo(string $column, mixed $number): ?array
+    {
+        if (! in_array($column, ['invoice_no', 'receipt_no'], true) || ! is_string($number) || $number === '' || strlen($number) > 30) {
+            return null;
+        }
+
+        return $this->db->table($this->table . ' i')
+            ->select('i.*, s.business_id')
+            ->join('subscription_master s', 's.id = i.subscription_id', 'inner')
+            ->where('i.' . $column, $number)
+            ->get()
+            ->getRowArray();
+    }
+
+    /**
      * The invoices joined with their subscription and business, and the count of payments waiting for review
      * @return \CodeIgniter\Database\BaseBuilder
      */
@@ -213,7 +234,7 @@ class SubscriptionInvoiceModel extends Model
     private function joinedBuilder()
     {
         return $this->db->table($this->table . ' i')
-            ->select('i.id AS _id, i.public_id, i.invoice_no, i.invoice_type, o.public_id AS parent_invoice_public_id, o.invoice_no AS parent_invoice_no')
+            ->select('i.id AS _id, i.public_id, i.invoice_no, i.receipt_no, i.invoice_type, o.public_id AS parent_invoice_public_id, o.invoice_no AS parent_invoice_no')
             ->select('p.plan_code, v.billing_cycle, i.currency_code, i.list_price')
             ->select('d.discount_code, i.discount_amount, i.amount_due, i.wht_rate, i.wht_amount, i.amount_payable')
             ->select('i.invoice_status, i.due_at, i.paid_at, i.voided_at, i.period_start, i.period_end, i.wht_cert_status, i.wht_cert_due_at, i.created_at')

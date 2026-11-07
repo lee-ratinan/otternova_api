@@ -15,9 +15,11 @@ class FieldEncryption
 {
     /** table => its encrypted columns */
     public const FIELDS = [
-        'staff_master'    => ['national_id_number', 'tax_id_number'],
-        'client_master'   => ['national_id_number'],
-        'business_master' => ['tax_id'],
+        'staff_master'     => ['national_id_number', 'tax_id_number'],
+        'client_master'    => ['national_id_number'],
+        'business_master'  => ['tax_id'],
+        // a frozen invoice or receipt prints the business's tax_id
+        'billing_document' => ['content_json', 'html'],
     ];
 
     public const PREFIX = 'enc:v1:';

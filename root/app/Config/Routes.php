@@ -100,6 +100,12 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('certificate-file/(:segment)', 'SubscriptionAdmin::certificateFile/$1');
     });
 
+    // Admin app's billing documents, as HTML pages: Executive Office and Finance only; see App\Controllers\Documents
+    $routes->group('staff/documents', ['filter' => ['jwt:S', 'department:EXE,FIN']], static function (RouteCollection $routes) {
+        $routes->get('invoice/(:segment)', 'Documents::staffInvoice/$1');
+        $routes->get('receipt/(:segment)', 'Documents::staffReceipt/$1');
+    });
+
     // Admin app's activity log: the Executive Office only, as it holds every table's changes; see App\Controllers\ActivityLogs
     $routes->group('staff/logs', ['filter' => ['jwt:S', 'department:EXE']], static function (RouteCollection $routes) {
         $routes->post('activities', 'ActivityLogs::activities');
@@ -122,6 +128,12 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('withholding', 'Subscriptions::withholding');
         $routes->post('withholding/withdraw', 'Subscriptions::withdrawWithholding');
         $routes->post('certificate', 'Subscriptions::certificate');
+    });
+
+    // Client app's billing documents of a business, as HTML pages: its active owners only; see App\Controllers\Documents
+    $routes->group('client/documents', ['filter' => 'jwt:C'], static function (RouteCollection $routes) {
+        $routes->get('invoice/(:segment)', 'Documents::clientInvoice/$1');
+        $routes->get('receipt/(:segment)', 'Documents::clientReceipt/$1');
     });
 
     // Client app: client accounts only (a valid token with typ C)

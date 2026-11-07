@@ -171,11 +171,16 @@ final class WithholdingTaxTest extends CIUnitTestCase
         $invoice = $this->subscribe('Y');
         $this->seeInDatabase('subscription_invoice', ['public_id' => $invoice, 'amount_payable' => '2990.00']);
 
+        // an issued invoice never changes: each change voids it and makes it again, with the same due time
         $this->approveWithholding();
-        $this->seeInDatabase('subscription_invoice', ['public_id' => $invoice, 'wht_amount' => '89.70', 'amount_payable' => '2900.30']);
+        $this->seeInDatabase('subscription_invoice', ['public_id' => $invoice, 'invoice_status' => 'V', 'amount_payable' => '2990.00']);
+        $this->seeInDatabase('subscription_invoice', ['invoice_no' => 'INV-202611-000002', 'invoice_status' => 'P', 'wht_amount' => '89.70', 'amount_payable' => '2900.30']);
 
         $this->send('v1/client/subscription/withholding/withdraw', ['business_slug' => 'otter-cafe'])->assertStatus(200);
-        $this->seeInDatabase('subscription_invoice', ['public_id' => $invoice, 'wht_amount' => '0.00', 'amount_payable' => '2990.00', 'wht_rule_id' => null]);
+        $this->seeInDatabase('subscription_invoice', ['invoice_no' => 'INV-202611-000002', 'invoice_status' => 'V']);
+        $this->seeInDatabase('subscription_invoice', ['invoice_no' => 'INV-202611-000003', 'invoice_status' => 'P', 'wht_amount' => '0.00', 'amount_payable' => '2990.00', 'wht_rule_id' => null]);
+        $this->assertSame(1, $this->db->table('subscription_invoice')->where('invoice_status', 'P')->countAllResults());
+        $this->assertSame(['2026-11-11 05:00:00'], array_unique(array_column($this->db->table('subscription_invoice')->select('due_at')->get()->getResultArray(), 'due_at')));
         $this->seeInDatabase('business_master', ['id' => $this->businessId, 'wht_status' => 'N', 'wht_rule_code' => null]);
         $this->send('v1/client/subscription/withholding/withdraw', ['business_slug' => 'otter-cafe'])->assertStatus(409);
     }

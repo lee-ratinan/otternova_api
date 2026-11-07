@@ -44,4 +44,26 @@ class Billing extends BaseConfig
     public string $bankName          = '';
     public string $bankAccountName   = '';
     public string $bankAccountNumber = '';
+
+    /**
+     * The QR generator the PromptPay QR of an unpaid invoice is fetched from (LINK_QR_GENERATOR in .env), and embedded
+     * in the invoice; '' for no QR. See App\Libraries\DocumentRenderer
+     */
+    public string $qrGeneratorLink = '';
+
+    /** Seconds to wait for the QR generator before the invoice is sent without its QR */
+    public int $qrGeneratorTimeout = 5;
+
+    /**
+     * The biller ID of PromptPay bill payment, in the QR of an unpaid invoice.
+     * TODO: a dummy until the bank account is opened and the bank gives the real one
+     */
+    public string $promptPayBillerId = '012345678901234';
+
+    public function __construct()
+    {
+        parent::__construct();
+
+        $this->qrGeneratorLink = (string) env('LINK_QR_GENERATOR', $this->qrGeneratorLink);
+    }
 }
