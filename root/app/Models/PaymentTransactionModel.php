@@ -77,7 +77,7 @@ class PaymentTransactionModel extends Model
     {
         $total   = $this->db->table($this->table)->countAllResults();
         $builder = $this->joinedBuilder(true)
-            ->select('i.public_id AS invoice_public_id, i.invoice_no, i.amount_due, i.invoice_status, s.public_id AS subscription_public_id')
+            ->select('i.public_id AS invoice_public_id, i.invoice_no, i.amount_due, i.amount_payable, i.invoice_status, s.public_id AS subscription_public_id')
             ->select('b.business_slug, b.business_name')
             ->join('subscription_invoice i', 'i.id = t.invoice_id', 'inner')
             ->join('subscription_master s', 's.id = i.subscription_id', 'inner')
@@ -120,8 +120,10 @@ class PaymentTransactionModel extends Model
     {
         $row['has_slip'] = $row['slip_path'] !== null && $row['slip_path'] !== '';
         $row['amount']   = Money::format($row['amount']);
-        if (array_key_exists('amount_due', $row)) {
-            $row['amount_due'] = Money::format($row['amount_due']);
+        foreach (['amount_due', 'amount_payable'] as $field) {
+            if (array_key_exists($field, $row)) {
+                $row[$field] = Money::format($row[$field]);
+            }
         }
         unset($row['slip_path']);
 

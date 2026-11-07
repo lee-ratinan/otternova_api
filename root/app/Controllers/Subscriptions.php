@@ -16,6 +16,8 @@ use App\Models\PlanMasterModel;
 use App\Models\PlanVersionModel;
 use App\Models\SubscriptionInvoiceModel;
 use App\Models\SubscriptionMasterModel;
+use App\Models\WithholdingTaxCertificateModel;
+use App\Models\WithholdingTaxRuleModel;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\Billing as BillingConfig;
 use RuntimeException;
@@ -34,10 +36,13 @@ class Subscriptions extends BaseController
     /** The slip types accepted, by the type detected from the content, and the extension they are saved with */
     private const SLIP_TYPES = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'application/pdf' => 'pdf'];
 
+    /** A certificate amount as the body may give it: up to 2 decimal places */
+    private const AMOUNT_PATTERN = '/^\d{1,17}(\.\d{1,2})?$/';
+
     /**
      * POST /client/subscription/current { business_slug }
-     * plan_code (free when there is no live subscription), the live subscription or null, and its invoices, newest
-     * first, each with its payments
+     * plan_code (free when there is no live subscription), the live subscription or null, its invoices, newest
+     * first, each with its payments and withholding tax certificates, and the business's withholding (see withholding())
      * @return ResponseInterface
      */
     public function current(): ResponseInterface
@@ -48,12 +53,13 @@ class Subscriptions extends BaseController
             return $error;
         }
         try {
+            $withholding   = $this->withholdingPayload($business);
             $subscriptions = model(SubscriptionMasterModel::class);
             $live          = $subscriptions->liveOfBusiness((int) $business['id']);
             if ($live === null) {
                 $free = model(PlanMasterModel::class)->where('plan_tier', PlanMasterModel::FREE_TIER)->first();
 
-                return ApiResponse::success(['plan_code' => $free['plan_code'] ?? null, 'subscription' => null, 'invoices' => []]);
+                return ApiResponse::success(['plan_code' => $free['plan_code'] ?? null, 'subscription' => null, 'invoices' => [], 'withholding' => $withholding]);
             }
             $subscription = $subscriptions->findPayload((int) $live['id']);
             $invoices     = model(SubscriptionInvoiceModel::class)->payloadsOfSubscription((int) $live['id'], false);
@@ -61,7 +67,7 @@ class Subscriptions extends BaseController
             return $this->failed($endpoint, $e, 'Subscriptions.loadFailed');
         }
 
-        return ApiResponse::success(['plan_code' => $subscription['plan_code'], 'subscription' => $subscription, 'invoices' => $invoices]);
+        return ApiResponse::success(['plan_code' => $subscription['plan_code'], 'subscription' => $subscription, 'invoices' => $invoices, 'withholding' => $withholding]);
     }
 
     /**
@@ -219,6 +225,8 @@ class Subscriptions extends BaseController
             'subscription_status'    => $subscription['subscription_status'],
             'invoice_public_id'      => $invoice['public_id'],
             'amount_due'             => Money::format($invoice['amount_due']),
+            'wht_amount'             => Money::format($invoice['wht_amount']),
+            'amount_payable'         => Money::format($invoice['amount_payable']),
             'currency_code'          => $invoice['currency_code'],
         ], 200, lang('Subscriptions.subscribed'));
     }
@@ -257,6 +265,8 @@ class Subscriptions extends BaseController
             'list_price'        => Money::format($invoice['list_price']),
             'discount_amount'   => Money::format($invoice['discount_amount']),
             'amount_due'        => Money::format($invoice['amount_due']),
+            'wht_amount'        => Money::format($invoice['wht_amount']),
+            'amount_payable'    => Money::format($invoice['amount_payable']),
             'invoice_status'    => $invoice['invoice_status'],
         ], 200, lang('Subscriptions.discountApplied'));
     }
@@ -434,7 +444,191 @@ class Subscriptions extends BaseController
         return ApiResponse::success($data);
     }
 
+    /**
+     * POST /client/subscription/withholding { business_slug, wht_rule_code, legal_name, tax_branch_code }
+     * Asks to withhold tax from what the business pays, for the staff to approve; the business needs its tax_id.
+     * wht_rule_code may be left out when its country has only one rule. Once approved, each invoice is less the tax
+     * (amount_payable), and the business uploads the certificate of each one it pays.
+     * @return ResponseInterface
+     */
+    public function withholding(): ResponseInterface
+    {
+        $endpoint = 'v1/client/subscription/withholding';
+        [$input, $business, $error] = $this->ownedBusiness($endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        $ruleCode   = strtoupper($this->text($input, 'wht_rule_code'));
+        $legalName  = $this->text($input, 'legal_name');
+        $branchCode = $this->text($input, 'tax_branch_code');
+        $errors     = [];
+        if ($legalName === '' || mb_strlen($legalName) > 255) {
+            $errors['legal_name'] = lang('Subscriptions.legalNameRequired');
+        }
+        if (! preg_match(BusinessMasterModel::TAX_BRANCH_PATTERN, $branchCode)) {
+            $errors['tax_branch_code'] = lang('Subscriptions.branchCodeInvalid');
+        }
+        if ($errors !== []) {
+            return ApiResponse::error(lang('Subscriptions.invalidFields'), 422, $errors);
+        }
+        try {
+            if ($ruleCode === '') {
+                $rules    = model(WithholdingTaxRuleModel::class)->inEffectOfCountry($business['country_code'], SubscriptionBilling::now());
+                $ruleCode = count($rules) === 1 ? (string) array_key_first($rules) : '';
+            }
+            (new SubscriptionBilling())->requestWithholding($business, $ruleCode, $legalName, $branchCode, $this->actorId());
+            $withholding = $this->withholdingPayload(model(BusinessMasterModel::class)->find((int) $business['id']));
+        } catch (BillingException $e) {
+            return $this->refused($e);
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'Subscriptions.saveFailed');
+        }
+
+        return ApiResponse::success(['withholding' => $withholding], 200, lang('Subscriptions.withholdingRequested'));
+    }
+
+    /**
+     * POST /client/subscription/withholding/withdraw { business_slug }
+     * Stops withholding, or takes back a request; the pending invoices are worked out again
+     * @return ResponseInterface
+     */
+    public function withdrawWithholding(): ResponseInterface
+    {
+        $endpoint = 'v1/client/subscription/withholding/withdraw';
+        [, $business, $error] = $this->ownedBusiness($endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        try {
+            (new SubscriptionBilling())->withdrawWithholding($business, $this->actorId());
+            $withholding = $this->withholdingPayload(model(BusinessMasterModel::class)->find((int) $business['id']));
+        } catch (BillingException $e) {
+            return $this->refused($e);
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'Subscriptions.saveFailed');
+        }
+
+        return ApiResponse::success(['withholding' => $withholding], 200, lang('Subscriptions.withholdingWithdrawn'));
+    }
+
+    /**
+     * POST /client/subscription/certificate, multipart/form-data { business_slug, invoice_public_id, certificate_no,
+     * issued_on, base_amount, wht_amount, certificate }
+     * Sends the certificate (50 ทวิ) of the tax withheld from a paid invoice, for the staff to check: certificate is the
+     * file (JPEG, PNG, WebP or PDF), issued_on its date (Y-m-d), and the amounts as written on it
+     * @return ResponseInterface
+     */
+    public function certificate(): ResponseInterface
+    {
+        $endpoint = 'v1/client/subscription/certificate';
+        $input    = [];
+        foreach (['business_slug', 'invoice_public_id', 'certificate_no', 'issued_on', 'base_amount', 'wht_amount'] as $field) {
+            $input[$field] = $this->request->getPost($field);
+        }
+        [$business, $error] = $this->ownedBusinessOf($input, $endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        $config = config(BillingConfig::class);
+        $file   = $this->request->getFile('certificate');
+        if ($file === null || ! service('imageProcessor')->isGenuineUpload($file)) {
+            return ApiResponse::error(lang('Subscriptions.certificateRequired'), 422, ['certificate' => lang('Subscriptions.certificateRequired')]);
+        }
+        if ($file->getSize() > $config->maxWhtCertFileSize) {
+            return ApiResponse::error(lang('Subscriptions.slipTooLarge', [intdiv($config->maxWhtCertFileSize, 1024 * 1024)]), 413);
+        }
+        // detected from the content: the client's claimed type and extension are not trusted
+        $extension = self::SLIP_TYPES[$file->getMimeType()] ?? null;
+        if ($extension === null) {
+            return ApiResponse::error(lang('Subscriptions.slipType'), 415, ['certificate' => lang('Subscriptions.slipType')]);
+        }
+        $fields = [
+            'certificate_no' => $this->text($input, 'certificate_no'),
+            'issued_on'      => $this->text($input, 'issued_on'),
+            'base_amount'    => $this->text($input, 'base_amount'),
+            'wht_amount'     => $this->text($input, 'wht_amount'),
+        ];
+        $errors = [];
+        if (mb_strlen($fields['certificate_no']) > 50) {
+            $errors['certificate_no'] = lang('Subscriptions.certificateNoTooLong');
+        }
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $fields['issued_on']);
+        if ($date === false || $date->format('Y-m-d') !== $fields['issued_on']) {
+            $errors['issued_on'] = lang('Subscriptions.issuedOnInvalid');
+        }
+        foreach (['base_amount', 'wht_amount'] as $field) {
+            if (! preg_match(self::AMOUNT_PATTERN, $fields[$field])) {
+                $errors[$field] = lang('Subscriptions.amountInvalid');
+            } else {
+                $fields[$field] = Money::format($fields[$field]);
+            }
+        }
+        if ($errors !== []) {
+            return ApiResponse::error(lang('Subscriptions.invalidFields'), 422, $errors);
+        }
+        $fields['certificate_no'] = $fields['certificate_no'] === '' ? null : $fields['certificate_no'];
+
+        try {
+            $invoice = $this->invoiceOf($business, $input['invoice_public_id']);
+            if ($invoice === null) {
+                return ApiResponse::error(lang('Subscriptions.invoiceNotFound'), 404);
+            }
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'Subscriptions.loadFailed');
+        }
+
+        $folder = rtrim($config->whtCertUploadPath, '/') . '/';
+        if (! is_dir($folder) && ! @mkdir($folder, 0750, true) && ! is_dir($folder)) {
+            log_message('error', $endpoint . ': cannot create {folder}', ['folder' => $folder]);
+
+            return ApiResponse::error(lang('Subscriptions.saveFailed'), 500);
+        }
+        $source = $file->getTempName();
+        $saved  = null;
+        try {
+            $id = (new SubscriptionBilling())->submitCertificate($invoice, $fields,
+                static function (int $id) use ($source, $folder, $extension, &$saved): string {
+                    $name = $id . '-' . bin2hex(random_bytes(8)) . '.' . $extension;
+                    if (! @copy($source, $folder . $name)) {
+                        throw new RuntimeException('Cannot save ' . $folder . $name);
+                    }
+                    $saved = $folder . $name;
+
+                    return $name;
+                }, $this->actorId());
+        } catch (BillingException $e) {
+            return $this->refused($e);
+        } catch (Throwable $e) {
+            if ($saved !== null) {
+                @unlink($saved);
+            }
+
+            return $this->failed($endpoint, $e, 'Subscriptions.saveFailed');
+        }
+
+        return ApiResponse::success(['certificate_public_id' => model(WithholdingTaxCertificateModel::class)->publicIdOf($id)], 200, lang('Subscriptions.certificateSent'));
+    }
+
     // ---- inside ----
+
+    /**
+     * The business's withholding as the API sends it, with the rules of its country it can choose from
+     * @param array $business With country_code, tax_id, legal_name, tax_branch_code, wht_status and wht_rule_code
+     * @return array
+     */
+    private function withholdingPayload(array $business): array
+    {
+        $rules = model(WithholdingTaxRuleModel::class)->inEffectOfCountry($business['country_code'], SubscriptionBilling::now());
+
+        return [
+            'wht_status'      => $business['wht_status'],
+            'wht_rule_code'   => $business['wht_rule_code'],
+            'legal_name'      => $business['legal_name'],
+            'tax_branch_code' => $business['tax_branch_code'],
+            'has_tax_id'      => $business['tax_id'] !== null && $business['tax_id'] !== '',
+            'rules'           => array_values(array_map(WithholdingTaxRuleModel::toPayload(...), $rules)),
+        ];
+    }
 
     /**
      * cancel() and resume(): a change to the business's live subscription
@@ -500,7 +694,8 @@ class Subscriptions extends BaseController
     }
 
     /**
-     * The business of $input's business_slug (id, country_code, currency_code), when the signed-in client is one of
+     * The business of $input's business_slug (id, country_code, currency_code, its withholding columns and tax_id,
+     * still encrypted), when the signed-in client is one of
      * its active owners: 404 when they are not active in it (it is not theirs to see), 403 for a manager or employee
      * @param array  $input
      * @param string $endpoint For the error log
@@ -513,7 +708,9 @@ class Subscriptions extends BaseController
             return [null, ApiResponse::error(lang('Subscriptions.slugRequired'), 400)];
         }
         try {
-            $business = model(BusinessMasterModel::class)->select('id, country_code, currency_code')->where('business_slug', $slug)->first();
+            $business = model(BusinessMasterModel::class)
+                ->select('id, country_code, currency_code, tax_id, legal_name, tax_branch_code, wht_status, wht_rule_code')
+                ->where('business_slug', $slug)->first();
             $client   = $business === null ? null : model(ClientMasterModel::class)->findByAuthId($this->actorId());
             $role     = $client === null ? null : model(BusinessClientLinkModel::class)->activeRole((int) $business['id'], (int) $client['id']);
         } catch (Throwable $e) {

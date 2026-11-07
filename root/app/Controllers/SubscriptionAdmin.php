@@ -5,9 +5,11 @@ namespace App\Controllers;
 use App\Libraries\ApiResponse;
 use App\Libraries\BillingException;
 use App\Libraries\SubscriptionBilling;
+use App\Models\BusinessMasterModel;
 use App\Models\PaymentTransactionModel;
 use App\Models\SubscriptionInvoiceModel;
 use App\Models\SubscriptionMasterModel;
+use App\Models\WithholdingTaxCertificateModel;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\Billing as BillingConfig;
 use Throwable;
@@ -21,7 +23,10 @@ class SubscriptionAdmin extends BaseController
 {
     use BillingRequestTrait;
 
-    /** A slip_path as Subscriptions::pay() names it; anything else is never served */
+    /**
+     * A slip_path as Subscriptions::pay() names it, or a certificate's file_path as Subscriptions::certificate() does;
+     * anything else is never served
+     */
     private const SLIP_PATTERN = '/^\d+-[0-9a-f]{16}\.(jpg|png|webp|pdf)$/';
 
     /** The content type a slip is served with, by extension */
@@ -225,6 +230,172 @@ class SubscriptionAdmin extends BaseController
             ->setHeader('X-Content-Type-Options', 'nosniff')
             ->setContentType(self::SLIP_TYPES[$parts[1]], '')
             ->setBody((string) file_get_contents($path));
+    }
+
+    /**
+     * POST /staff/subscriptions/withholding { start, length, filters: {wht_status} }
+     * One page of businesses by their withholding, R (asking for it, the default), A or N, with tax_id to check
+     * @return ResponseInterface
+     */
+    public function withholding(): ResponseInterface
+    {
+        $input = $this->jsonInput();
+        if ($input === null) {
+            return ApiResponse::error(lang('SubscriptionAdmin.invalidRequest'), 422);
+        }
+        [$start, $length] = $this->page($input);
+        $status           = $this->filters($input, ['wht_status' => true])['wht_status'] ?? BusinessMasterModel::WHT_REQUESTED;
+        try {
+            $data = model(BusinessMasterModel::class)->listWithholding($start, $length, $status);
+        } catch (Throwable $e) {
+            return $this->failed('v1/staff/subscriptions/withholding', $e, 'SubscriptionAdmin.loadFailed');
+        }
+
+        return ApiResponse::success($data);
+    }
+
+    /**
+     * POST /staff/subscriptions/withholding/review { business_slug, wht_status }
+     * A approves the business's request to withhold tax, N turns it down; its pending invoices are worked out again
+     * @return ResponseInterface
+     */
+    public function reviewWithholding(): ResponseInterface
+    {
+        $endpoint = 'v1/staff/subscriptions/withholding/review';
+        $input    = $this->jsonInput();
+        if ($input === null) {
+            return ApiResponse::error(lang('SubscriptionAdmin.invalidRequest'), 422);
+        }
+        $businesses = model(BusinessMasterModel::class);
+        try {
+            $business = $businesses->where('business_slug', $this->text($input, 'business_slug'))->first();
+            if ($business === null) {
+                return ApiResponse::error(lang('SubscriptionAdmin.businessNotFound'), 404);
+            }
+            (new SubscriptionBilling())->reviewWithholding($business, strtoupper($this->text($input, 'wht_status')), $this->actorId());
+            $status = $businesses->find((int) $business['id'])['wht_status'];
+        } catch (BillingException $e) {
+            return $this->refused($e);
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'SubscriptionAdmin.saveFailed');
+        }
+
+        return ApiResponse::success(['business_slug' => $business['business_slug'], 'wht_status' => $status], 200,
+            lang($status === BusinessMasterModel::WHT_APPROVED ? 'SubscriptionAdmin.withholdingApproved' : 'SubscriptionAdmin.withholdingTurnedDown'));
+    }
+
+    /**
+     * POST /staff/subscriptions/certificates { start, length, filters: {cert_status} }
+     * One page of withholding tax certificates, oldest first, with their invoice and business; cert_status P lists
+     * the ones waiting
+     * @return ResponseInterface
+     */
+    public function certificates(): ResponseInterface
+    {
+        $input = $this->jsonInput();
+        if ($input === null) {
+            return ApiResponse::error(lang('SubscriptionAdmin.invalidRequest'), 422);
+        }
+        [$start, $length] = $this->page($input);
+        try {
+            $data = model(WithholdingTaxCertificateModel::class)->listCertificates($start, $length, $this->filters($input, ['cert_status' => true]));
+        } catch (Throwable $e) {
+            return $this->failed('v1/staff/subscriptions/certificates', $e, 'SubscriptionAdmin.loadFailed');
+        }
+
+        return ApiResponse::success($data);
+    }
+
+    /**
+     * POST /staff/subscriptions/certificate/accept { public_id }
+     * Accepts the certificate. A top-up made for its invoice is voided if unpaid; refund_invoice_no names one already
+     * paid, for the staff to refund.
+     * @return ResponseInterface
+     */
+    public function acceptCertificate(): ResponseInterface
+    {
+        return $this->reviewCertificate('v1/staff/subscriptions/certificate/accept', null);
+    }
+
+    /**
+     * POST /staff/subscriptions/certificate/reject { public_id, rejection_reason }
+     * Turns the certificate down with the reason the business is shown; it can send another
+     * @return ResponseInterface
+     */
+    public function rejectCertificate(): ResponseInterface
+    {
+        return $this->reviewCertificate('v1/staff/subscriptions/certificate/reject', 'rejection_reason');
+    }
+
+    /**
+     * GET /staff/subscriptions/certificate-file/{public_id}
+     * The certificate's file, never cached: the app fetches it with its Bearer token
+     * @param string $publicId
+     * @return ResponseInterface
+     */
+    public function certificateFile(string $publicId): ResponseInterface
+    {
+        try {
+            $stored = model(WithholdingTaxCertificateModel::class)->findByPublicId($publicId);
+        } catch (Throwable $e) {
+            return $this->failed('v1/staff/subscriptions/certificate-file', $e, 'SubscriptionAdmin.loadFailed');
+        }
+        $name = $stored['file_path'] ?? null;
+        $path = $name !== null && preg_match(self::SLIP_PATTERN, $name, $parts)
+            ? rtrim(config(BillingConfig::class)->whtCertUploadPath, '/') . '/' . $name
+            : null;
+        if ($path === null || ! is_file($path)) {
+            return ApiResponse::error(lang('SubscriptionAdmin.noCertificateFile'), 404);
+        }
+
+        return $this->response
+            ->removeHeader('Cache-Control')
+            ->setHeader('Cache-Control', 'private, no-store')
+            ->setHeader('Content-Disposition', 'inline; filename="certificate-' . $publicId . '.' . $parts[1] . '"')
+            ->setHeader('X-Content-Type-Options', 'nosniff')
+            ->setContentType(self::SLIP_TYPES[$parts[1]], '')
+            ->setBody((string) file_get_contents($path));
+    }
+
+    /**
+     * acceptCertificate() and rejectCertificate()
+     * @param string      $endpoint
+     * @param string|null $reasonField The body's field with the reason of a rejection; null to accept
+     * @return ResponseInterface
+     */
+    private function reviewCertificate(string $endpoint, ?string $reasonField): ResponseInterface
+    {
+        $input = $this->jsonInput();
+        if ($input === null) {
+            return ApiResponse::error(lang('SubscriptionAdmin.invalidRequest'), 422);
+        }
+        $reason = $reasonField === null ? '' : $this->text($input, $reasonField);
+        if ($reasonField !== null && ($reason === '' || mb_strlen($reason) > 255)) {
+            return ApiResponse::error(lang('SubscriptionAdmin.invalidFields'), 422, [$reasonField => lang('SubscriptionAdmin.reasonRequired')]);
+        }
+        $certificates = model(WithholdingTaxCertificateModel::class);
+        $refund       = null;
+        try {
+            $stored = $certificates->findByPublicId($input['public_id'] ?? null);
+            if ($stored === null) {
+                return ApiResponse::error(lang('SubscriptionAdmin.certificateNotFound'), 404);
+            }
+            $billing = new SubscriptionBilling();
+            if ($reasonField === null) {
+                $refund = $billing->acceptCertificate($stored, $this->actorId());
+            } else {
+                $billing->rejectCertificate($stored, $reason, $this->actorId());
+            }
+            $status = $certificates->find((int) $stored['id'])['cert_status'];
+        } catch (BillingException $e) {
+            return $this->refused($e);
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'SubscriptionAdmin.saveFailed');
+        }
+        $message = $reasonField !== null ? 'SubscriptionAdmin.certificateRejected'
+            : ($refund === null ? 'SubscriptionAdmin.certificateAccepted' : 'SubscriptionAdmin.certificateAcceptedRefund');
+
+        return ApiResponse::success(['public_id' => $stored['public_id'], 'cert_status' => $status, 'refund_invoice_no' => $refund], 200, lang($message, [$refund ?? '']));
     }
 
     /**

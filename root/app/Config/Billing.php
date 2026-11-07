@@ -28,6 +28,15 @@ class Billing extends BaseConfig
     /** Largest slip accepted, in bytes */
     public int $maxSlipFileSize = 10 * 1024 * 1024;
 
+    /** Withholding tax certificates (50 ทวิ) are kept at {$whtCertUploadPath}{withholding_tax_certificate.file_path}; never under public/ */
+    public string $whtCertUploadPath = WRITEPATH . 'uploads/wht-certificates/';
+
+    /** Largest withholding tax certificate accepted, in bytes */
+    public int $maxWhtCertFileSize = 10 * 1024 * 1024;
+
+    /** Days a business has to pay the top-up invoice of a withheld tax whose certificate never came */
+    public int $whtTopUpDueDays = 14;
+
     /** Shown to a business paying by PromptPay (payment_method promptpay) */
     public string $promptPayId = '';
 

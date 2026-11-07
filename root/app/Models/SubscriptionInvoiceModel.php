@@ -18,6 +18,20 @@ class SubscriptionInvoiceModel extends Model
     public const STATUS_PAID    = 'D';
     public const STATUS_VOID    = 'V';
 
+    /** invoice_type */
+    public const TYPE_PERIOD = 'S'; // a subscription period
+    public const TYPE_TOP_UP = 'W'; // the tax withheld from parent_invoice_id, whose certificate never came
+
+    /** wht_cert_status */
+    public const CERT_NONE      = 'N';
+    public const CERT_WAITING   = 'W';
+    public const CERT_UPLOADED  = 'U';
+    public const CERT_ACCEPTED  = 'A';
+    public const CERT_TOPPED_UP = 'T';
+
+    /** The amounts the API writes out with 2 decimal places */
+    private const AMOUNTS = ['list_price', 'discount_amount', 'amount_due', 'wht_rate', 'wht_amount', 'amount_payable'];
+
     protected $table            = 'subscription_invoice';
     protected $primaryKey       = 'id';
     protected $useAutoIncrement = true;
@@ -34,7 +48,7 @@ class SubscriptionInvoiceModel extends Model
     protected $beforeInsert       = ['fillPublicId'];
 
     /**
-     * The subscription's pending invoices, as stored
+     * The subscription's pending period invoices, as stored; top-ups are not among them
      * @param int $subscriptionId
      * @return list<array>
      */
@@ -42,6 +56,7 @@ class SubscriptionInvoiceModel extends Model
     {
         return $this->db->table($this->table)
             ->where('subscription_id', $subscriptionId)
+            ->where('invoice_type', self::TYPE_PERIOD)
             ->where('invoice_status', self::STATUS_PENDING)
             ->orderBy('id', 'ASC')
             ->get()
@@ -161,7 +176,7 @@ class SubscriptionInvoiceModel extends Model
      */
     private static function staffRow(array $row): array
     {
-        foreach (['list_price', 'discount_amount', 'amount_due'] as $field) {
+        foreach (self::AMOUNTS as $field) {
             $row[$field] = Money::format($row[$field]);
         }
         $row['pending_payments'] = (int) $row['pending_payments'];
@@ -177,10 +192,13 @@ class SubscriptionInvoiceModel extends Model
      */
     private function withPayments(array $rows, bool $forStaff): array
     {
-        $payments = model(PaymentTransactionModel::class)->payloadsOfInvoices(array_column($rows, '_id'), $forStaff);
+        $ids          = array_column($rows, '_id');
+        $payments     = model(PaymentTransactionModel::class)->payloadsOfInvoices($ids, $forStaff);
+        $certificates = model(WithholdingTaxCertificateModel::class)->payloadsOfInvoices($ids, $forStaff);
         foreach ($rows as &$row) {
-            $row['payments'] = $payments[(int) $row['_id']] ?? [];
-            foreach (['list_price', 'discount_amount', 'amount_due'] as $field) {
+            $row['payments']     = $payments[(int) $row['_id']] ?? [];
+            $row['certificates'] = $certificates[(int) $row['_id']] ?? [];
+            foreach (self::AMOUNTS as $field) {
                 $row[$field] = Money::format($row[$field]);
             }
             unset($row['_id']);
@@ -195,11 +213,13 @@ class SubscriptionInvoiceModel extends Model
     private function joinedBuilder()
     {
         return $this->db->table($this->table . ' i')
-            ->select('i.id AS _id, i.public_id, i.invoice_no, p.plan_code, v.billing_cycle, i.currency_code, i.list_price')
-            ->select('d.discount_code, i.discount_amount, i.amount_due, i.invoice_status, i.due_at, i.paid_at, i.voided_at')
-            ->select('i.period_start, i.period_end, i.created_at')
+            ->select('i.id AS _id, i.public_id, i.invoice_no, i.invoice_type, o.public_id AS parent_invoice_public_id, o.invoice_no AS parent_invoice_no')
+            ->select('p.plan_code, v.billing_cycle, i.currency_code, i.list_price')
+            ->select('d.discount_code, i.discount_amount, i.amount_due, i.wht_rate, i.wht_amount, i.amount_payable')
+            ->select('i.invoice_status, i.due_at, i.paid_at, i.voided_at, i.period_start, i.period_end, i.wht_cert_status, i.wht_cert_due_at, i.created_at')
             ->join('plan_version v', 'v.id = i.plan_version_id', 'inner')
             ->join('plan_master p', 'p.id = v.plan_id', 'inner')
-            ->join('discount_master d', 'd.id = i.discount_id', 'left');
+            ->join('discount_master d', 'd.id = i.discount_id', 'left')
+            ->join('subscription_invoice o', 'o.id = i.parent_invoice_id', 'left');
     }
 }

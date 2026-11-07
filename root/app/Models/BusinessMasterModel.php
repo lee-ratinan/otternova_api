@@ -71,6 +71,14 @@ class BusinessMasterModel extends Model
     /** DECIMAL(19,2) columns, which the drivers give back differently ("10.00", 10) */
     public const DECIMAL_FIELDS = ['tip_value', 'service_charge_value'];
 
+    // wht_status: whether the business withholds tax from what it pays us (see the AddWithholdingTax migration)
+    public const WHT_NONE      = 'N';
+    public const WHT_REQUESTED = 'R';
+    public const WHT_APPROVED  = 'A';
+
+    /** tax_branch_code: digits only, such as 00000 for a Thai head office */
+    public const TAX_BRANCH_PATTERN = '/^\d{1,10}$/';
+
     /** How the business takes tips and service charges, and what a business left without a value gets: none of either */
     public const CHARGE_DEFAULTS = [
         'tip_policy'           => self::TIP_DISABLED,
@@ -316,6 +324,31 @@ class BusinessMasterModel extends Model
         }
 
         return $builder->countAllResults() > 0;
+    }
+
+    /**
+     * One page of businesses by their withholding, for the staff to review, oldest change first, with tax_id
+     * decrypted so that it can be checked
+     * @param int    $start
+     * @param int    $length
+     * @param string $whtStatus R (waiting for review, the default), A or N
+     * @return array{records_total: int, rows: list<array>}
+     */
+    public function listWithholding(int $start, int $length, string $whtStatus): array
+    {
+        $builder = $this->db->table($this->table . ' b')
+            ->select('b.business_slug, b.business_name, b.legal_name, b.tax_id, b.tax_branch_code, b.country_code, b.wht_status, b.wht_rule_code')
+            ->select('b.wht_reviewed_at, r.full_name AS wht_reviewed_by_name, b.updated_at')
+            ->join('auth_master r', 'r.id = b.wht_reviewed_by', 'left')
+            ->where('b.wht_status', $whtStatus);
+        $total      = $builder->countAllResults(false);
+        $rows       = $builder->orderBy('b.updated_at', 'ASC')->orderBy('b.id', 'ASC')->limit($length, $start)->get()->getResultArray();
+        $encryption = new FieldEncryption();
+        foreach ($rows as &$row) {
+            $row['tax_id'] = $encryption->decryptRow($this->table, ['tax_id' => $row['tax_id']])['tax_id'];
+        }
+
+        return ['records_total' => $total, 'rows' => $rows];
     }
 
     /**

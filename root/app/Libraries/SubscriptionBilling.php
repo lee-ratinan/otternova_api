@@ -2,6 +2,7 @@
 
 namespace App\Libraries;
 
+use App\Models\BusinessMasterModel;
 use App\Models\DiscountMasterModel;
 use App\Models\PaymentMethodModel;
 use App\Models\PaymentTransactionModel;
@@ -10,6 +11,8 @@ use App\Models\PlanVersionModel;
 use App\Models\SubscriptionInvoiceModel;
 use App\Models\SubscriptionMasterModel;
 use App\Models\TransactionTrait;
+use App\Models\WithholdingTaxCertificateModel;
+use App\Models\WithholdingTaxRuleModel;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\Exceptions\DatabaseException;
 use CodeIgniter\I18n\Time;
@@ -26,6 +29,12 @@ use Throwable;
  * transaction; a request the rules refuse throws a BillingException and writes nothing.
  * Times are UTC (Y-m-d H:i:s); a billing period is worked out in the business's local time, from its country.
  * See the CreateSubscriptionMasterTable migration for the statuses, the grace days and the anchor day.
+ *
+ * Withholding tax (see the AddWithholdingTax migration): a business approved for it has the tax of its rule worked out
+ * on each period invoice, when made and again when a discount changes amount_due, and pays amount_payable. Once paid,
+ * the invoice waits for its certificate until wht_cert_due_at. Past that, a period invoice of the business cannot be
+ * paid (so a monthly subscription is suspended at its renewal), and the scheduled run bills the tax of a yearly one
+ * as a top-up invoice, whose renewal would come after the tax is due.
  */
 class SubscriptionBilling
 {
@@ -198,6 +207,9 @@ class SubscriptionBilling
     public function applyDiscount(array $invoice, array $business, string $code, int $actorId): void
     {
         $this->assertPayable($invoice);
+        if ($invoice['invoice_type'] === SubscriptionInvoiceModel::TYPE_TOP_UP) {
+            throw new BillingException('Subscriptions.noDiscountOnTopUp', 422, ['discount_code' => lang('Subscriptions.noDiscountOnTopUp')]);
+        }
         $version  = model(PlanVersionModel::class)->find((int) $invoice['plan_version_id']);
         $discount = $this->usableDiscount($code, $business, $version, self::now(), (int) $invoice['id']);
         if ((int) $discount['id'] === (int) ($invoice['discount_id'] ?? 0)) {
@@ -242,7 +254,7 @@ class SubscriptionBilling
                 'invoice_id'        => (int) $invoice['id'],
                 'payment_method_id' => (int) $method['id'],
                 'currency_code'     => $invoice['currency_code'],
-                'amount'            => Money::format($invoice['amount_due']),
+                'amount'            => Money::format($invoice['amount_payable']),
                 'txn_status'        => PaymentTransactionModel::STATUS_PENDING,
                 'provider_ref'      => $providerRef,
                 // when the payment was sent, which approvePayment() pays the invoice as of; by the billing clock
@@ -477,6 +489,206 @@ class SubscriptionBilling
         throw new BillingException('SubscriptionAdmin.invalidStatus', 422, ['subscription_status' => lang('SubscriptionAdmin.invalidStatus')]);
     }
 
+    // ---- withholding tax ----
+
+    /**
+     * The business asks to withhold tax under one of its country's rules, for staff to approve. Its registered name
+     * and branch go on the invoices and are checked against its certificates.
+     * @param array  $business  Stored row
+     * @param string $ruleCode
+     * @param string $legalName
+     * @param string $branchCode
+     * @param int    $actorId
+     * @return void
+     * @throws BillingException
+     * @throws Throwable
+     */
+    public function requestWithholding(array $business, string $ruleCode, string $legalName, string $branchCode, int $actorId): void
+    {
+        if ($business['wht_status'] !== BusinessMasterModel::WHT_NONE) {
+            throw new BillingException('Subscriptions.withholdingAlreadyRequested', 409);
+        }
+        if ($business['tax_id'] === null || $business['tax_id'] === '') {
+            throw new BillingException('Subscriptions.withholdingNeedsTaxId', 422, ['tax_id' => lang('Subscriptions.withholdingNeedsTaxId')]);
+        }
+        if (model(WithholdingTaxRuleModel::class)->inEffect($business['country_code'], $ruleCode, self::now()) === null) {
+            throw new BillingException('Subscriptions.withholdingNotAvailable', 422, ['wht_rule_code' => lang('Subscriptions.withholdingNotAvailable')]);
+        }
+        $this->inTransaction(function () use ($business, $ruleCode, $legalName, $branchCode, $actorId) {
+            $done = $this->change('business_master', $business, [
+                'wht_status'      => BusinessMasterModel::WHT_REQUESTED,
+                'wht_rule_code'   => $ruleCode,
+                'legal_name'      => $legalName,
+                'tax_branch_code' => $branchCode,
+            ], $actorId, 'Asked to withhold tax under ' . $ruleCode, ['wht_status' => BusinessMasterModel::WHT_NONE]);
+            if (! $done) {
+                throw new BillingException('Subscriptions.withholdingAlreadyRequested', 409);
+            }
+        });
+    }
+
+    /**
+     * The business stops withholding, or takes back its request; its pending invoices are worked out again
+     * @param array $business Stored row
+     * @param int   $actorId
+     * @return void
+     * @throws BillingException
+     * @throws Throwable
+     */
+    public function withdrawWithholding(array $business, int $actorId): void
+    {
+        if ($business['wht_status'] === BusinessMasterModel::WHT_NONE) {
+            throw new BillingException('Subscriptions.withholdingNotRequested', 409);
+        }
+        $this->inTransaction(function () use ($business, $actorId) {
+            $done = $this->change('business_master', $business, ['wht_status' => BusinessMasterModel::WHT_NONE, 'wht_rule_code' => null],
+                $actorId, 'Stopped withholding tax', ['wht_status' => $business['wht_status']]);
+            if (! $done) {
+                throw new BillingException('Subscriptions.withholdingNotRequested', 409);
+            }
+            $this->refreshWithholding((int) $business['id'], $actorId);
+        });
+    }
+
+    /**
+     * The staff approve (A) or turn down (N) a request to withhold; the business's pending invoices are worked out again
+     * @param array  $business Stored row
+     * @param string $decision BusinessMasterModel::WHT_APPROVED or WHT_NONE
+     * @param int    $actorId
+     * @return void
+     * @throws BillingException
+     * @throws Throwable
+     */
+    public function reviewWithholding(array $business, string $decision, int $actorId): void
+    {
+        if (! in_array($decision, [BusinessMasterModel::WHT_APPROVED, BusinessMasterModel::WHT_NONE], true)) {
+            throw new BillingException('SubscriptionAdmin.invalidDecision', 422, ['wht_status' => lang('SubscriptionAdmin.invalidDecision')]);
+        }
+        if ($business['wht_status'] !== BusinessMasterModel::WHT_REQUESTED) {
+            throw new BillingException('SubscriptionAdmin.withholdingNotRequested', 409);
+        }
+        $this->inTransaction(function () use ($business, $decision, $actorId) {
+            $changes = ['wht_status' => $decision, 'wht_reviewed_by' => $actorId, 'wht_reviewed_at' => self::now()];
+            if ($decision === BusinessMasterModel::WHT_NONE) {
+                $changes['wht_rule_code'] = null;
+            }
+            $summary = $decision === BusinessMasterModel::WHT_APPROVED ? 'Approved withholding tax' : 'Turned down withholding tax';
+            if (! $this->change('business_master', $business, $changes, $actorId, $summary, ['wht_status' => BusinessMasterModel::WHT_REQUESTED])) {
+                throw new BillingException('SubscriptionAdmin.withholdingNotRequested', 409);
+            }
+            $this->refreshWithholding((int) $business['id'], $actorId);
+        });
+    }
+
+    /**
+     * Record the certificate of the tax withheld from a paid invoice, waiting for the staff to check it
+     * @param array    $invoice   Stored row
+     * @param array    $fields    certificate_no (or null), issued_on (Y-m-d), base_amount, wht_amount
+     * @param callable $placeFile fn (int $certificateId): string, puts the file in place inside the transaction and
+     *                            gives its name; throws when it cannot
+     * @param int      $actorId
+     * @return int The withholding_tax_certificate id
+     * @throws BillingException
+     * @throws Throwable
+     */
+    public function submitCertificate(array $invoice, array $fields, callable $placeFile, int $actorId): int
+    {
+        $status = $invoice['wht_cert_status'];
+        if ($status === SubscriptionInvoiceModel::CERT_UPLOADED) {
+            throw new BillingException('Subscriptions.certificateUnderReview', 409);
+        }
+        if ($invoice['invoice_status'] !== SubscriptionInvoiceModel::STATUS_PAID
+            || ! in_array($status, [SubscriptionInvoiceModel::CERT_WAITING, SubscriptionInvoiceModel::CERT_TOPPED_UP], true)) {
+            throw new BillingException('Subscriptions.certificateNotNeeded', 409);
+        }
+
+        return $this->inTransaction(function () use ($invoice, $status, $fields, $placeFile, $actorId) {
+            $summary = 'Sent the withholding tax certificate of invoice ' . $invoice['invoice_no'];
+            if (! $this->change('subscription_invoice', $invoice, ['wht_cert_status' => SubscriptionInvoiceModel::CERT_UPLOADED], $actorId, $summary, ['wht_cert_status' => $status])) {
+                throw new BillingException('Subscriptions.certificateUnderReview', 409);
+            }
+            $id = $this->insert('withholding_tax_certificate', [
+                'public_id'      => model(WithholdingTaxCertificateModel::class)->newPublicId(),
+                'invoice_id'     => (int) $invoice['id'],
+                'certificate_no' => $fields['certificate_no'],
+                'issued_on'      => $fields['issued_on'],
+                'base_amount'    => $fields['base_amount'],
+                'wht_amount'     => $fields['wht_amount'],
+                'file_path'      => '',
+                'cert_status'    => WithholdingTaxCertificateModel::STATUS_PENDING,
+                'uploaded_by'    => $actorId,
+                'created_at'     => self::now(),
+            ], $actorId, $summary);
+            $stored = $this->db->table('withholding_tax_certificate')->where('id', $id)->get()->getRowArray();
+            $this->change('withholding_tax_certificate', $stored, ['file_path' => $placeFile($id)], $actorId, $summary);
+
+            return $id;
+        });
+    }
+
+    /**
+     * Accept a pending certificate. When the invoice's tax had been billed as a top-up, the top-up is voided if still
+     * unpaid; one already paid is left for the staff to refund.
+     * @param array $certificate Stored row
+     * @param int   $actorId
+     * @return string|null The invoice_no of a paid top-up to refund
+     * @throws BillingException
+     * @throws Throwable
+     */
+    public function acceptCertificate(array $certificate, int $actorId): ?string
+    {
+        if ($certificate['cert_status'] !== WithholdingTaxCertificateModel::STATUS_PENDING) {
+            throw new BillingException('SubscriptionAdmin.certificateNotPending', 409);
+        }
+        $invoice = $this->db->table('subscription_invoice')->where('id', $certificate['invoice_id'])->get()->getRowArray();
+        $topUp   = $this->topUpOf((int) $invoice['id']);
+        if ($topUp !== null && $topUp['invoice_status'] === SubscriptionInvoiceModel::STATUS_PENDING
+            && model(PaymentTransactionModel::class)->hasPending((int) $topUp['id'])) {
+            throw new BillingException('SubscriptionAdmin.topUpPaymentUnderReview', 409);
+        }
+
+        return $this->inTransaction(function () use ($certificate, $invoice, $topUp, $actorId) {
+            $now = self::now();
+            $this->reviewCertificate($certificate, WithholdingTaxCertificateModel::STATUS_ACCEPTED, null, $actorId);
+            $this->change('subscription_invoice', $invoice, ['wht_cert_status' => SubscriptionInvoiceModel::CERT_ACCEPTED], $actorId,
+                'Accepted the withholding tax certificate of invoice ' . $invoice['invoice_no']);
+            if ($topUp === null) {
+                return null;
+            }
+            if ($topUp['invoice_status'] === SubscriptionInvoiceModel::STATUS_PENDING) {
+                $this->change('subscription_invoice', $topUp, ['invoice_status' => SubscriptionInvoiceModel::STATUS_VOID, 'voided_at' => $now], $actorId,
+                    'Voided top-up ' . $topUp['invoice_no'] . ': its certificate came', ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
+
+                return null;
+            }
+
+            return $topUp['invoice_status'] === SubscriptionInvoiceModel::STATUS_PAID ? $topUp['invoice_no'] : null;
+        });
+    }
+
+    /**
+     * Turn down a pending certificate; the business can send another
+     * @param array  $certificate Stored row
+     * @param string $reason      Shown to the business
+     * @param int    $actorId
+     * @return void
+     * @throws BillingException
+     * @throws Throwable
+     */
+    public function rejectCertificate(array $certificate, string $reason, int $actorId): void
+    {
+        if ($certificate['cert_status'] !== WithholdingTaxCertificateModel::STATUS_PENDING) {
+            throw new BillingException('SubscriptionAdmin.certificateNotPending', 409);
+        }
+        $invoice = $this->db->table('subscription_invoice')->where('id', $certificate['invoice_id'])->get()->getRowArray();
+        $this->inTransaction(function () use ($certificate, $invoice, $reason, $actorId) {
+            $this->reviewCertificate($certificate, WithholdingTaxCertificateModel::STATUS_REJECTED, $reason, $actorId);
+            $back = $this->topUpOf((int) $invoice['id']) === null ? SubscriptionInvoiceModel::CERT_WAITING : SubscriptionInvoiceModel::CERT_TOPPED_UP;
+            $this->change('subscription_invoice', $invoice, ['wht_cert_status' => $back], $actorId,
+                'Rejected the withholding tax certificate of invoice ' . $invoice['invoice_no']);
+        });
+    }
+
     // ---- the scheduled run ----
 
     /**
@@ -488,14 +700,17 @@ class SubscriptionBilling
      *    at the price in effect when the next period starts, of next_plan_version_id's series if set, else its own.
      * 4. An active subscription unpaid Config\Billing::$graceDays after its period ended is suspended (S).
      * 5. A subscription suspended for Config\Billing::$suspendedDays expires (X) and its invoices are voided.
+     * 6. A paid yearly invoice still waiting for its withholding tax certificate after wht_cert_due_at has the tax
+     *    billed as a top-up invoice (its wht_cert_status becomes T). A monthly one needs nothing here: the business
+     *    cannot pay its next period invoice until the certificate is sent (see assertPayable()).
      * A subscription with a payment waiting for the staff is left as it is by 1, 4 and 5, as it may have paid in time.
-     * @return array<string, int> How many were voided, cancelled, invoiced, suspended, expired, skipped and failed
+     * @return array<string, int> How many were voided, cancelled, invoiced, suspended, expired, topped up, skipped and failed
      */
     public function runSchedule(): array
     {
         $config = config(BillingConfig::class);
         $now    = self::now();
-        $counts = ['voided' => 0, 'cancelled' => 0, 'invoiced' => 0, 'suspended' => 0, 'expired' => 0, 'skipped' => 0, 'failed' => 0];
+        $counts = ['voided' => 0, 'cancelled' => 0, 'invoiced' => 0, 'suspended' => 0, 'expired' => 0, 'topped_up' => 0, 'skipped' => 0, 'failed' => 0];
         $each   = function (array $rows, string $count, callable $work) use (&$counts): void {
             foreach ($rows as $row) {
                 try {
@@ -514,6 +729,7 @@ class SubscriptionBilling
         $stale = $this->db->table('subscription_master s')->distinct()->select('s.*')
             ->join('subscription_invoice i', 'i.subscription_id = s.id', 'inner')
             ->where('s.subscription_status', SubscriptionMasterModel::STATUS_PENDING)
+            ->where('i.invoice_type', SubscriptionInvoiceModel::TYPE_PERIOD)
             ->where('i.invoice_status', SubscriptionInvoiceModel::STATUS_PENDING)
             ->where('i.due_at <=', $now)
             ->get()->getResultArray();
@@ -529,7 +745,8 @@ class SubscriptionBilling
             ->where('next_billing_at <=', self::addTime($now, 'P' . $config->renewalInvoiceDays . 'D'))
             // not one already invoiced and waiting for payment
             ->where('NOT EXISTS (SELECT 1 FROM ' . $invoices . ' WHERE ' . $invoices . '.subscription_id = ' . $this->db->prefixTable('subscription_master')
-                . ".id AND " . $invoices . ".invoice_status = '" . SubscriptionInvoiceModel::STATUS_PENDING . "')", null, false)
+                . ".id AND " . $invoices . ".invoice_type = '" . SubscriptionInvoiceModel::TYPE_PERIOD
+                . "' AND " . $invoices . ".invoice_status = '" . SubscriptionInvoiceModel::STATUS_PENDING . "')", null, false)
             ->get()->getResultArray();
         $each($due, 'invoiced', fn (array $row) => $this->invoiceRenewal($row, $config->graceDays));
 
@@ -551,7 +768,49 @@ class SubscriptionBilling
             ->get()->getResultArray();
         $each($expiring, 'expired', fn (array $row) => $this->endNow($row, null, SubscriptionMasterModel::STATUS_EXPIRED));
 
+        // 6. yearly invoices whose withholding tax certificate did not come
+        $overdue = $this->db->table('subscription_invoice i')->select('i.*')
+            ->join('plan_version v', 'v.id = i.plan_version_id', 'inner')
+            ->where('i.invoice_type', SubscriptionInvoiceModel::TYPE_PERIOD)
+            ->where('i.invoice_status', SubscriptionInvoiceModel::STATUS_PAID)
+            ->where('i.wht_cert_status', SubscriptionInvoiceModel::CERT_WAITING)
+            ->where('i.wht_cert_due_at <=', $now)
+            ->where('v.billing_cycle', PlanVersionModel::YEARLY)
+            ->get()->getResultArray();
+        $each($overdue, 'topped_up', fn (array $row) => $this->invoiceTopUp($row, self::addTime($now, 'P' . $config->whtTopUpDueDays . 'D')));
+
         return $counts;
+    }
+
+    /**
+     * Bill the tax withheld from a paid invoice whose certificate did not come, as a top-up invoice
+     * @param array  $invoice Stored row
+     * @param string $dueAt
+     * @return void
+     * @throws Throwable
+     */
+    private function invoiceTopUp(array $invoice, string $dueAt): void
+    {
+        $this->inTransaction(function () use ($invoice, $dueAt) {
+            $done = $this->change('subscription_invoice', $invoice, ['wht_cert_status' => SubscriptionInvoiceModel::CERT_TOPPED_UP], null,
+                'Billed the tax withheld from invoice ' . $invoice['invoice_no'] . ': no certificate', ['wht_cert_status' => SubscriptionInvoiceModel::CERT_WAITING]);
+            if (! $done) {
+                throw new BillingException('Subscriptions.certificateUnderReview', 409); // a certificate came meanwhile
+            }
+            $amount = Money::format($invoice['wht_amount']);
+            $this->insertInvoice([
+                'invoice_type'      => SubscriptionInvoiceModel::TYPE_TOP_UP,
+                'parent_invoice_id' => (int) $invoice['id'],
+                'subscription_id'   => (int) $invoice['subscription_id'],
+                'plan_version_id'   => (int) $invoice['plan_version_id'],
+                'currency_code'     => $invoice['currency_code'],
+                'list_price'        => $amount,
+                'discount_amount'   => '0.00',
+                'amount_due'        => $amount,
+                'amount_payable'    => $amount,
+                'due_at'            => $dueAt,
+            ], null);
+        });
     }
 
     /**
@@ -622,7 +881,8 @@ class SubscriptionBilling
     /**
      * @param array $invoice
      * @return void
-     * @throws BillingException When it is not pending, or a payment of it is waiting for the staff
+     * @throws BillingException When it is not pending, a payment of it is waiting for the staff, or it is a period
+     *                          invoice of a business late with a withholding tax certificate or a top-up
      */
     private function assertPayable(array $invoice): void
     {
@@ -632,10 +892,148 @@ class SubscriptionBilling
         if (model(PaymentTransactionModel::class)->hasPending((int) $invoice['id'])) {
             throw new BillingException('Subscriptions.paymentUnderReview', 409);
         }
+        if ($invoice['invoice_type'] === SubscriptionInvoiceModel::TYPE_PERIOD && $this->isLateWithWithholding((int) $invoice['subscription_id'])) {
+            throw new BillingException('Subscriptions.certificateOverdue', 409);
+        }
     }
 
     /**
-     * Insert an invoice at the version's price; its number comes from its id: INV-YYYYMM-000123
+     * Whether the business of the subscription has, on any of its subscriptions, a certificate past wht_cert_due_at
+     * that it has not sent, or a top-up past its due_at that it has not paid
+     * @param int $subscriptionId
+     * @return bool
+     */
+    private function isLateWithWithholding(int $subscriptionId): bool
+    {
+        $now = self::now();
+
+        return $this->db->table('subscription_invoice i')
+            ->join('subscription_master s', 's.id = i.subscription_id', 'inner')
+            ->join('subscription_master m', 'm.business_id = s.business_id', 'inner')
+            ->where('m.id', $subscriptionId)
+            ->groupStart()
+                ->groupStart()
+                    ->where('i.invoice_type', SubscriptionInvoiceModel::TYPE_PERIOD)
+                    ->where('i.wht_cert_status', SubscriptionInvoiceModel::CERT_WAITING)
+                    ->where('i.wht_cert_due_at <=', $now)
+                ->groupEnd()
+                ->orGroupStart()
+                    ->where('i.invoice_type', SubscriptionInvoiceModel::TYPE_TOP_UP)
+                    ->where('i.invoice_status', SubscriptionInvoiceModel::STATUS_PENDING)
+                    ->where('i.due_at <=', $now)
+                ->groupEnd()
+            ->groupEnd()
+            ->countAllResults() > 0;
+    }
+
+    /**
+     * What the business of the subscription withholds from $amountDue under its rule in effect at $at, and what it
+     * pays then: nothing withheld unless it is approved, the rule is in the invoice's currency, and $amountDue is at
+     * least the rule's min_base_amount
+     * @param int    $subscriptionId
+     * @param string $amountDue
+     * @param string $currencyCode
+     * @param string $at UTC
+     * @return array{wht_rule_id: int|null, wht_rate: string, wht_amount: string, amount_payable: string}
+     */
+    private function withholdingOf(int $subscriptionId, string $amountDue, string $currencyCode, string $at): array
+    {
+        $base     = Money::toCents(Money::format($amountDue));
+        $none     = ['wht_rule_id' => null, 'wht_rate' => '0.00', 'wht_amount' => '0.00', 'amount_payable' => Money::fromCents($base)];
+        $business = $this->db->table('business_master b')->select('b.country_code, b.wht_status, b.wht_rule_code')
+            ->join('subscription_master s', 's.business_id = b.id', 'inner')
+            ->where('s.id', $subscriptionId)
+            ->get()->getRowArray();
+        if ($business === null || $business['wht_status'] !== BusinessMasterModel::WHT_APPROVED || $business['wht_rule_code'] === null) {
+            return $none;
+        }
+        $rule = model(WithholdingTaxRuleModel::class)->inEffect($business['country_code'], $business['wht_rule_code'], $at);
+        if ($rule === null || $rule['currency_code'] !== $currencyCode) {
+            return $none;
+        }
+        if ($rule['min_base_amount'] !== null && $base < Money::toCents(Money::format($rule['min_base_amount']))) {
+            return $none;
+        }
+        $withheld = WithholdingTaxRuleModel::withheldCents($base, (string) $rule['rate']);
+        if ($withheld === 0) {
+            return $none;
+        }
+
+        return [
+            'wht_rule_id'    => (int) $rule['id'],
+            'wht_rate'       => Money::format($rule['rate']),
+            'wht_amount'     => Money::fromCents($withheld),
+            'amount_payable' => Money::fromCents($base - $withheld),
+        ];
+    }
+
+    /**
+     * Work the withholding out again on the business's pending period invoices that have no payment waiting for
+     * the staff, after its withholding changed
+     * @param int $businessId
+     * @param int $actorId
+     * @return void
+     */
+    private function refreshWithholding(int $businessId, int $actorId): void
+    {
+        $invoices = $this->db->table('subscription_invoice i')->select('i.*')
+            ->join('subscription_master s', 's.id = i.subscription_id', 'inner')
+            ->where('s.business_id', $businessId)
+            ->where('i.invoice_type', SubscriptionInvoiceModel::TYPE_PERIOD)
+            ->where('i.invoice_status', SubscriptionInvoiceModel::STATUS_PENDING)
+            ->get()->getResultArray();
+        foreach ($invoices as $invoice) {
+            if (model(PaymentTransactionModel::class)->hasPending((int) $invoice['id'])) {
+                continue;
+            }
+            $changes = $this->withholdingOf((int) $invoice['subscription_id'], $invoice['amount_due'], $invoice['currency_code'], self::now());
+            if ($changes['wht_amount'] === Money::format($invoice['wht_amount']) && $changes['wht_rule_id'] === ($invoice['wht_rule_id'] === null ? null : (int) $invoice['wht_rule_id'])) {
+                continue;
+            }
+            $this->change('subscription_invoice', $invoice, $changes, $actorId, 'Worked out the withholding tax of invoice ' . $invoice['invoice_no'] . ' again',
+                ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
+        }
+    }
+
+    /**
+     * The top-up invoice of an invoice's withheld tax, if one was made and not voided
+     * @param int $invoiceId
+     * @return array|null Stored row
+     */
+    private function topUpOf(int $invoiceId): ?array
+    {
+        return $this->db->table('subscription_invoice')
+            ->where('parent_invoice_id', $invoiceId)
+            ->where('invoice_type', SubscriptionInvoiceModel::TYPE_TOP_UP)
+            ->where('invoice_status !=', SubscriptionInvoiceModel::STATUS_VOID)
+            ->orderBy('id', 'DESC')
+            ->get()->getRowArray();
+    }
+
+    /**
+     * @param array       $certificate Stored row, pending
+     * @param string      $status      WithholdingTaxCertificateModel::STATUS_ACCEPTED or STATUS_REJECTED
+     * @param string|null $reason
+     * @param int         $actorId
+     * @return void
+     * @throws BillingException When it was reviewed meanwhile
+     */
+    private function reviewCertificate(array $certificate, string $status, ?string $reason, int $actorId): void
+    {
+        $done = $this->change('withholding_tax_certificate', $certificate, [
+            'cert_status'      => $status,
+            'rejection_reason' => $reason,
+            'reviewed_by'      => $actorId,
+            'reviewed_at'      => self::now(),
+        ], $actorId, ($status === WithholdingTaxCertificateModel::STATUS_ACCEPTED ? 'Accepted' : 'Rejected') . ' certificate ' . $certificate['public_id'],
+            ['cert_status' => WithholdingTaxCertificateModel::STATUS_PENDING]);
+        if (! $done) {
+            throw new BillingException('SubscriptionAdmin.certificateNotPending', 409);
+        }
+    }
+
+    /**
+     * Insert a period invoice at the version's price, less what the business withholds
      * @param int    $subscriptionId
      * @param array  $version
      * @param string $dueAt
@@ -644,19 +1042,29 @@ class SubscriptionBilling
      */
     private function createInvoice(int $subscriptionId, array $version, string $dueAt, ?int $actorId): array
     {
-        $publicId = model(SubscriptionInvoiceModel::class)->newPublicId();
-        $row      = [
-            'public_id'       => $publicId,
-            'invoice_no'      => 'NEW-' . $publicId,
+        $price = Money::format($version['price']);
+
+        return $this->insertInvoice([
             'subscription_id' => $subscriptionId,
             'plan_version_id' => (int) $version['id'],
             'currency_code'   => $version['currency_code'],
-            'list_price'      => Money::format($version['price']),
+            'list_price'      => $price,
             'discount_amount' => '0.00',
-            'amount_due'      => Money::format($version['price']),
-            'invoice_status'  => SubscriptionInvoiceModel::STATUS_PENDING,
+            'amount_due'      => $price,
             'due_at'          => $dueAt,
-        ];
+        ] + $this->withholdingOf($subscriptionId, $price, $version['currency_code'], self::now()), $actorId);
+    }
+
+    /**
+     * Insert a pending invoice; its number comes from its id: INV-YYYYMM-000123
+     * @param array    $fields
+     * @param int|null $actorId Null for the scheduled run
+     * @return array The stored row
+     */
+    private function insertInvoice(array $fields, ?int $actorId): array
+    {
+        $publicId = model(SubscriptionInvoiceModel::class)->newPublicId();
+        $row      = ['public_id' => $publicId, 'invoice_no' => 'NEW-' . $publicId, 'invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING] + $fields;
         $this->db->table('subscription_invoice')->insert($row);
         $id                = (int) $this->db->insertID();
         $row['invoice_no'] = 'INV-' . gmdate('Ym', strtotime(self::now() . ' UTC')) . '-' . str_pad((string) $id, 6, '0', STR_PAD_LEFT);
@@ -685,11 +1093,12 @@ class SubscriptionBilling
         }
         $price = Money::toCents(Money::format($invoice['list_price']));
         $cut   = DiscountMasterModel::discountCents($discount, $price);
+        $due   = Money::fromCents($price - $cut);
         $done  = $this->change('subscription_invoice', $invoice, [
             'discount_id'     => (int) $discount['id'],
             'discount_amount' => Money::fromCents($cut),
-            'amount_due'      => Money::fromCents($price - $cut),
-        ], $actorId, 'Applied discount ' . $discount['discount_code'] . ' to invoice ' . $invoice['invoice_no'], ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
+            'amount_due'      => $due,
+        ] + $this->withholdingOf((int) $invoice['subscription_id'], $due, $invoice['currency_code'], self::now()), $actorId, 'Applied discount ' . $discount['discount_code'] . ' to invoice ' . $invoice['invoice_no'], ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
         if (! $done) {
             throw new BillingException('Subscriptions.invoiceNotPending', 409);
         }
@@ -700,7 +1109,8 @@ class SubscriptionBilling
     /**
      * Mark the invoice paid as of $paidAt and move its subscription on to the period it pays for. A first invoice, or
      * one paid after the grace days, starts the period when it was paid (and the anchor day becomes that day); one
-     * paid by the end of the grace days starts it when the last one ended.
+     * paid by the end of the grace days starts it when the last one ended. One with tax withheld waits for its
+     * certificate from then on, when its rule asks for one. A top-up is only marked paid: it pays for no period.
      * @param array    $invoice Stored row, pending
      * @param string   $paidAt  UTC
      * @param int|null $actorId
@@ -709,6 +1119,15 @@ class SubscriptionBilling
      */
     private function markPaid(array $invoice, string $paidAt, ?int $actorId): void
     {
+        if ($invoice['invoice_type'] === SubscriptionInvoiceModel::TYPE_TOP_UP) {
+            $paid = $this->change('subscription_invoice', $invoice, ['invoice_status' => SubscriptionInvoiceModel::STATUS_PAID, 'paid_at' => $paidAt],
+                $actorId, 'Paid top-up ' . $invoice['invoice_no'], ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
+            if (! $paid) {
+                throw new BillingException('SubscriptionAdmin.invoiceNotPending', 409);
+            }
+
+            return;
+        }
         $subscription = $this->db->table('subscription_master')->where('id', $invoice['subscription_id'])->get()->getRowArray();
         $country      = $this->db->table('business_master')->select('country_code')->where('id', $subscription['business_id'])->get()->getRow()->country_code;
         $version      = $this->db->table('plan_version')->where('id', $invoice['plan_version_id'])->get()->getRowArray();
@@ -729,12 +1148,21 @@ class SubscriptionBilling
         }
         $end = self::periodEnd($start, $version['billing_cycle'], $anchor, $timezone);
 
+        $certificate = [];
+        $rule        = Money::isZero($invoice['wht_amount']) || $invoice['wht_rule_id'] === null
+            ? null : $this->db->table('withholding_tax_rule')->where('id', $invoice['wht_rule_id'])->get()->getRowArray();
+        if ($rule !== null && $rule['certificate_required'] === 'Y') {
+            $certificate = [
+                'wht_cert_status' => SubscriptionInvoiceModel::CERT_WAITING,
+                'wht_cert_due_at' => self::addTime($paidAt, 'P' . (int) $rule['certificate_due_days'] . 'D'),
+            ];
+        }
         $paid = $this->change('subscription_invoice', $invoice, [
             'invoice_status' => SubscriptionInvoiceModel::STATUS_PAID,
             'paid_at'        => $paidAt,
             'period_start'   => $start,
             'period_end'     => $end,
-        ], $actorId, 'Paid invoice ' . $invoice['invoice_no'], ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
+        ] + $certificate, $actorId, 'Paid invoice ' . $invoice['invoice_no'], ['invoice_status' => SubscriptionInvoiceModel::STATUS_PENDING]);
         if (! $paid) {
             throw new BillingException('SubscriptionAdmin.invoiceNotPending', 409);
         }

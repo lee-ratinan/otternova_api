@@ -118,7 +118,9 @@ final class SubscriptionsTest extends CIUnitTestCase
 
         $response = $this->send('v1/client/subscription/current', ['business_slug' => 'otter-cafe']);
         $response->assertStatus(200);
-        $this->assertSame(['plan_code' => 'free', 'subscription' => null, 'invoices' => []], $this->body($response)['data']);
+        $data = $this->body($response)['data'];
+        $this->assertSame(['plan_code' => 'free', 'subscription' => null, 'invoices' => []], array_diff_key($data, ['withholding' => true]));
+        $this->assertSame(['wht_status' => 'N', 'wht_rule_code' => null, 'legal_name' => null, 'tax_branch_code' => null, 'has_tax_id' => false, 'rules' => []], $data['withholding']);
     }
 
     public function testPlansShowTheCountrysPricesAndTheNextChange(): void
@@ -535,7 +537,7 @@ final class SubscriptionsTest extends CIUnitTestCase
 
         command('billing:run');
         $output = $this->getStreamFilterBuffer();
-        $this->assertStringContainsString('voided 1, cancelled 0, invoiced 0, suspended 0, expired 0, skipped 0, failed 0', $output);
+        $this->assertStringContainsString('voided 1, cancelled 0, invoiced 0, suspended 0, expired 0, topped_up 0, skipped 0, failed 0', $output);
     }
 
     // ---- helpers ----
@@ -573,7 +575,7 @@ final class SubscriptionsTest extends CIUnitTestCase
     private function renewalInvoice(int $subscriptionId): string
     {
         $this->db->table('subscription_invoice')->insert(['public_id' => 'renewal00001', 'invoice_no' => 'INV-202612-000002', 'subscription_id' => $subscriptionId,
-            'plan_version_id' => 1, 'currency_code' => 'THB', 'list_price' => '299.00', 'amount_due' => '299.00', 'due_at' => '2026-12-13 05:00:00']);
+            'plan_version_id' => 1, 'currency_code' => 'THB', 'list_price' => '299.00', 'amount_due' => '299.00', 'amount_payable' => '299.00', 'due_at' => '2026-12-13 05:00:00']);
 
         return 'renewal00001';
     }

@@ -92,6 +92,12 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('payment/approve', 'SubscriptionAdmin::approvePayment');
         $routes->post('payment/reject', 'SubscriptionAdmin::rejectPayment');
         $routes->get('slip/(:segment)', 'SubscriptionAdmin::slip/$1');
+        $routes->post('withholding', 'SubscriptionAdmin::withholding');
+        $routes->post('withholding/review', 'SubscriptionAdmin::reviewWithholding');
+        $routes->post('certificates', 'SubscriptionAdmin::certificates');
+        $routes->post('certificate/accept', 'SubscriptionAdmin::acceptCertificate');
+        $routes->post('certificate/reject', 'SubscriptionAdmin::rejectCertificate');
+        $routes->get('certificate-file/(:segment)', 'SubscriptionAdmin::certificateFile/$1');
     });
 
     // Admin app's activity log: the Executive Office only, as it holds every table's changes; see App\Controllers\ActivityLogs
@@ -113,6 +119,9 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('resume', 'Subscriptions::resume');
         $routes->post('change-plan', 'Subscriptions::changePlan');
         $routes->post('invoices', 'Subscriptions::invoices');
+        $routes->post('withholding', 'Subscriptions::withholding');
+        $routes->post('withholding/withdraw', 'Subscriptions::withdrawWithholding');
+        $routes->post('certificate', 'Subscriptions::certificate');
     });
 
     // Client app: client accounts only (a valid token with typ C)
