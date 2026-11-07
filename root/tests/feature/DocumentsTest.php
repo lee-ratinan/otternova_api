@@ -1,5 +1,6 @@
 <?php
 
+use App\Database\Migrations\CreateBillingDocumentTable;
 use App\Libraries\DocumentRenderer;
 use App\Libraries\FieldEncryption;
 use App\Libraries\ImageProcessor;
@@ -15,6 +16,7 @@ use CodeIgniter\Test\Mock\MockCURLRequest;
 use CodeIgniter\Test\TestResponse;
 use Config\App;
 use Config\Billing;
+use Config\Database;
 use Config\Services;
 
 /**
@@ -209,6 +211,28 @@ final class DocumentsTest extends CIUnitTestCase
         $response = $this->document('v1/client/documents/invoice/INV-202611-000001');
         $response->assertStatus(200);
         $this->assertStringContainsString('data:image/png;base64,' . self::PNG, $response->response()->getBody());
+    }
+
+    public function testBillingGoesOnWithoutTheDocumentTableAndDocumentsWaitForIt(): void
+    {
+        $migration = new CreateBillingDocumentTable(Database::forge($this->DBGroup));
+        $migration->down();
+        $this->db->resetDataCache();
+
+        // the invoice is made and paid all the same; its documents are not frozen
+        $invoice = $this->subscribe();
+        $this->activate($invoice);
+        $this->seeInDatabase('subscription_invoice', ['public_id' => $invoice, 'invoice_status' => 'D', 'receipt_no' => 'RCT-202611-000001']);
+        $this->document('v1/client/documents/invoice/INV-202611-000001')->assertStatus(503);
+        $this->document('v1/client/documents/receipt/RCT-202611-000001')->assertStatus(503);
+
+        // once migrated, each is frozen when first opened, and kept
+        $migration->up();
+        $this->db->resetDataCache();
+        $html = $this->document('v1/client/documents/invoice/INV-202611-000001')->response()->getBody();
+        $this->assertStringContainsString('INV-202611-000001', $html);
+        $this->assertSame($html, $this->document('v1/client/documents/invoice/INV-202611-000001')->response()->getBody());
+        $this->document('v1/client/documents/receipt/RCT-202611-000001')->assertStatus(200);
     }
 
     public function testTheFrozenDocumentKeepsTheTaxIdEncrypted(): void

@@ -87,6 +87,10 @@ class DocumentRenderer
      */
     public function freeze(array $invoice, string $kind, ?string $issuedAt = null): void
     {
+        // billing goes on without it: the document is frozen when first opened instead, as for invoices made before
+        if (! self::hasTable('freeze the ' . $kind . ' of invoice ' . $invoice['invoice_no'])) {
+            return;
+        }
         $db   = db_connect();
         $type = self::TYPES[$kind];
         if ($db->table('billing_document')->where('invoice_id', $invoice['id'])->where('document_type', $type)->countAllResults() > 0) {
@@ -106,13 +110,17 @@ class DocumentRenderer
      * QR, then stored and sent as stored from then on
      * @param array  $invoice Stored subscription_invoice row
      * @param string $kind    invoice or receipt
-     * @return string|null Null when its QR could not be fetched, so it was not rendered; to be tried again
+     * @return string|null Null when it cannot be rendered and kept yet (its QR could not be fetched, or there is no
+     *                     billing_document table), so it is not sent once in a form it would not keep; to be tried again
      * @throws RuntimeException When it has no receipt or its template is missing
      */
     public function page(array $invoice, string $kind): ?string
     {
         if ($kind === 'receipt' && empty($invoice['receipt_no'])) {
             throw new RuntimeException('Invoice ' . $invoice['invoice_no'] . ' has no receipt');
+        }
+        if (! self::hasTable('open the ' . $kind . ' of invoice ' . $invoice['invoice_no'])) {
+            return null;
         }
         $stored = $this->stored($invoice, $kind);
         if ($stored === null) {
@@ -145,6 +153,22 @@ class DocumentRenderer
             ->update($row + ['html_sha256' => hash('sha256', $html), 'rendered_at' => SubscriptionBilling::now()]);
 
         return $this->stored($invoice, $kind)['html'];
+    }
+
+    /**
+     * Whether the billing_document table is there; when it is not (the CreateBillingDocumentTable migration has not
+     * been run), says so in the log, with what could not be done
+     * @param string $what For the log
+     * @return bool
+     */
+    private static function hasTable(string $what): bool
+    {
+        if (db_connect()->tableExists('billing_document')) {
+            return true;
+        }
+        log_message('critical', 'Could not {what}: there is no billing_document table. Run "php spark migrate" (CreateBillingDocumentTable).', ['what' => $what]);
+
+        return false;
     }
 
     /**
