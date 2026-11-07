@@ -62,7 +62,7 @@ class PlanLimits extends BaseConfig
             self::VARIANTS                => 2,
             self::WEBPAGES                => 0,
             self::IMAGE_PER_ARTIFACT      => 1,
-            self::IMAGE_PER_WEBPAGE       => 1,
+            self::IMAGE_PER_WEBPAGE       => 0,
             self::AI_CREDIT_TEXT_ATTEMPTS => 0,
             self::AI_CREDIT_IMG_ATTEMPTS  => 0,
             self::PRIVATE_SESSION_BOOKING => true,
