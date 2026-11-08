@@ -164,6 +164,10 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('staff/services/save', 'Staff::saveServices');
         $routes->post('staff/salary/add', 'Staff::addSalary');
         $routes->post('staff/salary/edit', 'Staff::editSalary');
+        $routes->post('staff/hours', 'Staff::hours');
+        $routes->post('staff/hours/save', 'Staff::saveHours');
+        $routes->post('staff/hours-exception/save', 'Staff::saveHoursException');
+        $routes->post('staff/hours-exception/delete', 'Staff::deleteHoursException');
         $routes->post('commission-policy', 'Staff::policy');
         $routes->post('commission-policy/save', 'Staff::savePolicy');
         // the people of a business and their accounts: its active owners only; see App\Controllers\Employees

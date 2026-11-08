@@ -4,11 +4,13 @@ namespace App\Controllers;
 
 use App\Libraries\ApiResponse;
 use App\Models\ArtifactMasterModel;
+use App\Models\BusinessClientHoursModel;
 use App\Models\BusinessClientLinkModel;
 use App\Models\BusinessClientSalaryModel;
 use App\Models\BusinessMasterModel;
 use App\Models\BusinessServiceClientLinkModel;
 use App\Models\BusinessStoreClientLinkModel;
+use App\Models\BusinessStoreHoursModel;
 use App\Models\BusinessStoreModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
@@ -358,6 +360,239 @@ class Staff extends BaseController
         }
 
         return ApiResponse::success(['commission' => $policy], 200, lang('Staff.policySaved'));
+    }
+
+    /**
+     * POST /client/staff/hours { business_slug, uid }
+     * When and where the person works: "stores" (the ones they work in now: public_id, store_name, store_timezone,
+     * translations), "weekly" (their regular shifts: store_public_id, day_of_week 1 Monday to 7 Sunday, start_time,
+     * end_time), "exceptions" (from today on: exception_date, exception_type V vacation, S sick, O other,
+     * exception_reason, off, shifts [{store_public_id, start_time, end_time}]), "today" (the earliest date anywhere)
+     * and max_shifts. Times are HH:MM in each store's timezone; an end not after the start is on the next day.
+     * @return ResponseInterface
+     */
+    public function hours(): ResponseInterface
+    {
+        $endpoint = 'v1/client/staff/hours';
+        [$link, , $error] = $this->person($endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        $businessId = (int) $link['business_id'];
+        $clientId   = (int) $link['client_id'];
+        $hours      = model(BusinessClientHoursModel::class);
+        try {
+            [$stores, $publicIds] = $this->storesOf($link);
+            $today      = self::earliestToday();
+            $storeOut   = static fn (array $row): array => ['store_public_id' => $publicIds[$row['store_id']] ?? null] + array_diff_key($row, ['store_id' => 1]);
+            $weekly     = array_map($storeOut, $hours->weeklyOf($businessId, $clientId));
+            $exceptions = array_map(static fn (array $e): array => array_merge($e, ['shifts' => array_map($storeOut, $e['shifts'])]), $hours->exceptionsFrom($businessId, $clientId, $today));
+        } catch (Throwable $e) {
+            log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Staff.loadFailed'), 500);
+        }
+
+        return ApiResponse::success([
+            'person'     => $this->personOut($link),
+            'stores'     => array_values(array_map(static fn (array $s): array => array_diff_key($s, ['id' => 1]), $stores)),
+            'weekly'     => $weekly,
+            'exceptions' => $exceptions,
+            'today'      => $today,
+            'max_shifts' => BusinessClientHoursModel::MAX_SHIFTS_PER_DAY,
+        ]);
+    }
+
+    /**
+     * POST /client/staff/hours/save { business_slug, uid, weekly: [{store_public_id, day_of_week, start_time, end_time}, ...] }
+     * Replaces the person's regular shifts, each at a store they work in now; a day left out is a day off. Shifts must
+     * not overlap, at any store, a late one running into the next day's first included (Sunday's into Monday's).
+     * Removed shifts are kept, inactive.
+     * @return ResponseInterface
+     */
+    public function saveHours(): ResponseInterface
+    {
+        $endpoint = 'v1/client/staff/hours/save';
+        [$link, $input, $error] = $this->person($endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        $weekly = $input['weekly'] ?? null;
+        if (! is_array($weekly) || ! array_is_list($weekly)) {
+            return ApiResponse::error(lang('Staff.invalidFields'), 422, ['weekly' => lang('Staff.invalidList')]);
+        }
+        $hours = model(BusinessClientHoursModel::class);
+        try {
+            $storeIds = array_flip($this->storesOf($link)[1]);
+            $rows     = [];
+            $errors   = [];
+            foreach ($weekly as $i => $item) {
+                $item = is_array($item) ? $item : [];
+                $day  = $item['day_of_week'] ?? null;
+                $day  = is_int($day) || (is_string($day) && ctype_digit($day)) ? (int) $day : 0;
+                if ($day < 1 || $day > 7) {
+                    $errors['weekly.' . $i . '.day_of_week'] = lang('Staff.invalidDay');
+                    continue;
+                }
+                [$row, $rowErrors] = $this->shiftIn($item, 'weekly.' . $i, $storeIds);
+                $errors += $rowErrors;
+                if ($row !== null) {
+                    $rows[] = ['store_id' => $row['store_id'], 'day_of_week' => $day, 'start_time' => $row['start_time'], 'end_time' => $row['end_time']];
+                }
+            }
+            $problem = $errors === [] ? $hours->weeklyError((int) $link['business_id'], $rows) : null;
+            if ($problem !== null) {
+                $errors['weekly'] = lang($problem, [BusinessClientHoursModel::MAX_SHIFTS_PER_DAY]);
+            }
+            if ($errors !== []) {
+                return ApiResponse::error(lang('Staff.invalidFields'), 422, $errors);
+            }
+            $hours->replaceWeekly((int) $link['business_id'], (int) $link['client_id'], $rows, $this->actorId(), $link['uid']);
+        } catch (Throwable $e) {
+            log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Staff.saveFailed'), 500);
+        }
+
+        return ApiResponse::success(['uid' => $link['uid']], 200, lang('Staff.hoursSaved'));
+    }
+
+    /**
+     * POST /client/staff/hours-exception/save { business_slug, uid, exception_date, exception_type, exception_reason, shifts: [{store_public_id, start_time, end_time}, ...] }
+     * Sets the person's shifts on a date (today or later) in place of their regular ones: exception_type V (vacation
+     * or leave), S (sick) or O (other: a swapped shift, an extra day), for whoever looks to see why; exception_reason
+     * an optional note; shifts [] for a day off. Whatever the date had is replaced. The shifts must not overlap each
+     * other, the late shift of the day before, or the first shift of the day after.
+     * @return ResponseInterface
+     */
+    public function saveHoursException(): ResponseInterface
+    {
+        $endpoint = 'v1/client/staff/hours-exception/save';
+        [$link, $input, $error] = $this->person($endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        $errors = [];
+        $date   = self::date($input['exception_date'] ?? null);
+        if ($date === null) {
+            $errors['exception_date'] = lang('Staff.invalidDate');
+        } elseif ($date < self::earliestToday()) {
+            $errors['exception_date'] = lang('Staff.pastDate');
+        }
+        $type = $input['exception_type'] ?? null;
+        if (! in_array($type, BusinessClientHoursModel::TYPES, true)) {
+            $errors['exception_type'] = lang('Staff.invalidExceptionType');
+        }
+        $reason = is_string($input['exception_reason'] ?? null) ? trim($input['exception_reason']) : '';
+        if (mb_strlen($reason) > 255) {
+            $errors['exception_reason'] = lang('Staff.reasonTooLong', [255]);
+        }
+        $list = $input['shifts'] ?? [];
+        if (! is_array($list) || ! array_is_list($list)) {
+            return ApiResponse::error(lang('Staff.invalidFields'), 422, $errors + ['shifts' => lang('Staff.invalidList')]);
+        }
+        $hours = model(BusinessClientHoursModel::class);
+        try {
+            $storeIds = array_flip($this->storesOf($link)[1]);
+            $rows     = [];
+            foreach ($list as $i => $item) {
+                [$row, $rowErrors] = $this->shiftIn(is_array($item) ? $item : [], 'shifts.' . $i, $storeIds);
+                $errors += $rowErrors;
+                if ($row !== null) {
+                    $rows[] = $row;
+                }
+            }
+            $problem = $errors === [] ? $hours->exceptionError((int) $link['business_id'], (int) $link['client_id'], $date, $rows) : null;
+            if ($problem !== null) {
+                $errors['shifts'] = lang($problem, [BusinessClientHoursModel::MAX_SHIFTS_PER_DAY]);
+            }
+            if ($errors !== []) {
+                return ApiResponse::error(lang('Staff.invalidFields'), 422, $errors);
+            }
+            $hours->saveException((int) $link['business_id'], (int) $link['client_id'], $date, $type, $reason === '' ? null : $reason, $rows, $this->actorId(), $link['uid']);
+        } catch (Throwable $e) {
+            log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Staff.saveFailed'), 500);
+        }
+
+        return ApiResponse::success(['uid' => $link['uid'], 'exception_date' => $date], 200, lang('Staff.hoursExceptionSaved'));
+    }
+
+    /**
+     * POST /client/staff/hours-exception/delete { business_slug, uid, exception_date }
+     * Gives the date back the person's regular shifts; what it had is kept, inactive. 404 when it has no exception.
+     * @return ResponseInterface
+     */
+    public function deleteHoursException(): ResponseInterface
+    {
+        $endpoint = 'v1/client/staff/hours-exception/delete';
+        [$link, $input, $error] = $this->person($endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        $date = self::date($input['exception_date'] ?? null);
+        if ($date === null) {
+            return ApiResponse::error(lang('Staff.invalidFields'), 422, ['exception_date' => lang('Staff.invalidDate')]);
+        }
+        try {
+            $deleted = model(BusinessClientHoursModel::class)->deleteException((int) $link['business_id'], (int) $link['client_id'], $date, $this->actorId(), $link['uid']);
+        } catch (Throwable $e) {
+            log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Staff.saveFailed'), 500);
+        }
+        if (! $deleted) {
+            return ApiResponse::error(lang('Staff.exceptionNotFound'), 404);
+        }
+
+        return ApiResponse::success(['uid' => $link['uid'], 'exception_date' => $date], 200, lang('Staff.hoursExceptionDeleted'));
+    }
+
+    /**
+     * The stores the person works in now
+     * @param array $link findStaff()
+     * @return array{0: list<array>, 1: array<int, string>} [listOfBusiness() rows with ids and store_timezone, store id => public_id]
+     */
+    private function storesOf(array $link): array
+    {
+        $active = array_flip(model(BusinessStoreClientLinkModel::class)->storeIdsOf((int) $link['business_id'], (int) $link['client_id']));
+        $stores = array_values(array_filter(model(BusinessStoreModel::class)->listOfBusiness((int) $link['business_id'], true),
+            static fn (array $s): bool => isset($active[$s['id']])));
+        $stores = array_map(static fn (array $s): array => array_intersect_key($s, array_flip(['id', 'public_id', 'store_name', 'store_type', 'store_timezone', 'translations'])), $stores);
+
+        return [$stores, array_column($stores, 'public_id', 'id')];
+    }
+
+    /**
+     * A shift of the request, at one of the stores the person works in now, its times normalized
+     * @param array              $item
+     * @param string             $key      Its place in the request, for the errors
+     * @param array<string, int> $storeIds public_id => id of those stores
+     * @return array{0: array{store_id: int, start_time: string, end_time: string}|null, 1: array<string, string>}
+     */
+    private function shiftIn(array $item, string $key, array $storeIds): array
+    {
+        $publicId = $item['store_public_id'] ?? null;
+        $storeId  = is_string($publicId) ? ($storeIds[$publicId] ?? null) : null;
+        $start    = BusinessStoreHoursModel::normalizeTime($item['start_time'] ?? null);
+        $end      = BusinessStoreHoursModel::normalizeTime($item['end_time'] ?? null);
+        $errors   = array_filter([
+            $key . '.store_public_id' => $storeId === null ? lang('Staff.notTheirStore') : null,
+            $key . '.start_time'      => $start === null ? lang('Staff.invalidTime') : null,
+            $key . '.end_time'        => $end === null ? lang('Staff.invalidTime') : null,
+        ]);
+
+        return [$errors === [] ? ['store_id' => $storeId, 'start_time' => $start, 'end_time' => $end] : null, $errors];
+    }
+
+    /**
+     * Today's date where it is earliest (UTC-12): the first date that is not yet over anywhere
+     * @return string Y-m-d
+     */
+    private static function earliestToday(): string
+    {
+        return gmdate('Y-m-d', time() - 12 * 3600);
     }
 
     /**

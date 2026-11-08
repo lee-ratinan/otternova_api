@@ -67,7 +67,37 @@ final class StaffTest extends CIUnitTestCase
 
         $stores = $this->show()['stores'];
         $this->assertSame([[$bangkok, false], [$pattaya, true]], array_map(static fn ($s) => [$s['public_id'], $s['assigned']], $stores));
-        $this->assertSame(1, $this->db->table('business_store_client_link')->countAllResults());
+        // taken off a store, the row stays, inactive
+        $this->assertSame([['A'], ['I']], array_map(static fn ($r) => [$r['link_status']],
+            $this->db->table('business_store_client_link')->orderBy('link_status')->get()->getResultArray()));
+    }
+
+    public function testTakingSomeoneOffAStoreEndsTheirShiftsThereButKeepsThem(): void
+    {
+        [$storeId, $store] = $this->store($this->businessId, 'Bangkok');
+        [$otherId, $other] = $this->store($this->businessId, 'Pattaya');
+        $save = fn (array $stores) => $this->send('v1/client/staff/stores/save', ['business_slug' => 'otter-music', 'uid' => 'teacherexamplecom', 'stores' => $stores]);
+        $save([$store, $other])->assertStatus(200);
+        $clientId = (int) $this->db->table('business_store_client_link')->get()->getRow()->client_id;
+        $shift    = fn (int $at, int $day) => $this->db->table('business_client_hours')->insert(['business_id' => $this->businessId, 'client_id' => $clientId,
+            'store_id' => $at, 'day_of_week' => $day, 'start_time' => '09:00:00', 'end_time' => '17:00:00']);
+        $shift($storeId, 1);
+        $shift($otherId, 2);
+        $exception = fn (string $date) => $this->db->table('business_client_hours_exceptions')->insert(['business_id' => $this->businessId, 'client_id' => $clientId,
+            'exception_date' => $date, 'exception_type' => 'O', 'store_id' => $storeId, 'start_time' => '10:00:00', 'end_time' => '14:00:00']);
+        $exception('2000-01-01'); // past: what happened
+        $exception('2999-01-01'); // to come
+
+        $save([$other])->assertStatus(200);
+        $status = fn (string $table) => array_column($this->db->table($table)->select('store_id, active_status')->orderBy('id')->get()->getResultArray(), 'active_status');
+        $this->assertSame(['I', 'A'], $status('business_client_hours'));
+        $this->assertSame(['A', 'I'], $status('business_client_hours_exceptions'));
+
+        // put back, the store is theirs again, but the old shifts stay inactive
+        $save([$store, $other])->assertStatus(200);
+        $this->assertSame(['A', 'A'], array_column($this->db->table('business_store_client_link')->orderBy('id')->get()->getResultArray(), 'link_status'));
+        $this->assertSame(['I', 'A'], $status('business_client_hours'));
+        $this->assertSame([true, true], array_column($this->show()['stores'], 'assigned'));
     }
 
     public function testServicesCarryTheCommissionAndTheThreshold(): void

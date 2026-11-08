@@ -468,9 +468,9 @@ class BusinessClientLinkModel extends Model
             ->where('l.business_id', $businessId)
             ->orderBy('a.full_name')->orderBy('a.id')
             ->get()->getResultArray();
-        $count = fn (string $table): array => array_column($this->db->table($table)->select('client_id, COUNT(*) AS n')
-            ->where('business_id', $businessId)->groupBy('client_id')->get()->getResultArray(), 'n', 'client_id');
-        $stores   = $count('business_store_client_link');
+        $count = fn (string $table, array $where = []): array => array_column($this->db->table($table)->select('client_id, COUNT(*) AS n')
+            ->where('business_id', $businessId)->where($where)->groupBy('client_id')->get()->getResultArray(), 'n', 'client_id');
+        $stores   = $count('business_store_client_link', ['link_status' => 'A']); // the stores they work in now
         $services = $count('business_service_client_link');
         $salaries = [];
         $current  = $this->db->table('business_client_salary')->select('client_id, salary_amount, salary_period')
