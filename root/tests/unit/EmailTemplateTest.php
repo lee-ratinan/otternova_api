@@ -34,12 +34,13 @@ final class EmailTemplateTest extends CIUnitTestCase
         $this->assertNull($mailer->supportedLocale(null));
     }
 
-    public function testUntranslatedLocaleFallsBackToTheDefaultLocale(): void
+    public function testTemplateIsTranslatedIntoTheGivenLocale(): void
     {
         $html = (new EmailService())->render('S', 'B', 'th');
 
         $this->assertStringContainsString('<html lang="th">', $html);
-        $this->assertStringContainsString('Contact Support', $html);
+        $this->assertStringContainsString('ติดต่อฝ่ายสนับสนุน', $html);
+        $this->assertStringNotContainsString('Contact Support', $html);
         $this->assertStringNotContainsString('Email.template', $html);
     }
 }

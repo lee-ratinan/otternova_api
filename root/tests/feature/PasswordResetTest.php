@@ -114,8 +114,9 @@ final class PasswordResetTest extends CIUnitTestCase
         $this->request('unset@example.com')->assertStatus(200);
 
         $this->assertSame(['th-TH', null], $this->mailer->locales);
-        // no Thai translation yet, so the email still reads in the default locale
-        $this->assertStringContainsString('reset the password', $this->mailer->sent[0]['body']);
+        $this->assertStringContainsString('ตั้งรหัสผ่านใหม่', $this->mailer->sent[0]['body']);
+        // no preferred language: the request's locale, the default one here
+        $this->assertStringContainsString('reset the password', $this->mailer->sent[1]['body']);
     }
 
     public function testOnlyTheRequestedAccountTypeGetsALink(): void
