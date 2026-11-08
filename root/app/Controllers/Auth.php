@@ -293,7 +293,7 @@ class Auth extends BaseController
             $this->acceptInvitation($invitation);
             // the stored name and password stay: only whoever owns the inbox may activate, and with what they chose first
             $token = model(AuthActivationModel::class)->createActivation((int) $existing['id'], $expiresAt);
-            $this->sendActivation($existing['email_address'], $existing['full_name'], $token);
+            $this->sendActivation($existing['email_address'], $existing['full_name'], $token, $this->languageOf($existing));
         } else {
             if ($existing['account_type'] === AuthAccountModel::TYPE_CLIENT) {
                 $this->acceptInvitation($invitation);
@@ -301,7 +301,7 @@ class Auth extends BaseController
             service('emailService')->send(EmailService::TYPE_ACCOUNT_EXISTS, $existing['email_address'], [
                 'full_name' => $existing['full_name'],
                 'link'      => $this->appLink($existing['account_type']),
-            ]);
+            ], $this->languageOf($existing));
         }
 
         return ApiResponse::success(null, 200, lang('Auth.signUpReceived', [$email]));
@@ -390,7 +390,7 @@ class Auth extends BaseController
                 'full_name' => $account['full_name'],
                 'link'      => $this->appLink($account['account_type']) . 'reset-password?token=' . $token,
                 'minutes'   => intdiv($config->passwordResetTtl, MINUTE),
-            ]);
+            ], $this->languageOf($account));
         }
 
         return ApiResponse::success(null, 200, lang('Auth.resetRequested', [$email]));
@@ -541,7 +541,7 @@ class Auth extends BaseController
             'full_name' => $account['full_name'],
             'otp'       => $otp,
             'minutes'   => intdiv($config->otpTtl, MINUTE),
-        ]);
+        ], $this->languageOf($account));
 
         return ApiResponse::success([
             'otp_required'   => true,
@@ -640,18 +640,29 @@ class Auth extends BaseController
 
     /**
      * Email the activation link, which points at the Client app (LINK_CLIENT in .env)
-     * @param string $email
-     * @param string $fullName
-     * @param string $token
+     * @param string      $email
+     * @param string      $fullName
+     * @param string      $token
+     * @param string|null $language The account's preferred_language; null (a new account) for the request's locale
      * @return void
      */
-    private function sendActivation(string $email, string $fullName, string $token): void
+    private function sendActivation(string $email, string $fullName, string $token, ?string $language = null): void
     {
         service('emailService')->send(EmailService::TYPE_ACCOUNT_ACTIVATION, $email, [
             'full_name' => $fullName,
             'link'      => $this->appLink(AuthAccountModel::TYPE_CLIENT) . 'activate-account?token=' . $token,
             'hours'     => intdiv(config(AuthConfig::class)->activationTtl, HOUR),
-        ]);
+        ], $language);
+    }
+
+    /**
+     * The preferred_language an account's emails are written in
+     * @param array $account An auth_master row, id and account_type included
+     * @return string|null
+     */
+    private function languageOf(array $account): ?string
+    {
+        return model(AuthAccountModel::class)->preferredLanguage((int) $account['id'], (string) $account['account_type']);
     }
 
     /**

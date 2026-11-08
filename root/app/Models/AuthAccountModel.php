@@ -533,6 +533,23 @@ class AuthAccountModel extends AuthMasterModel
     }
 
     /**
+     * The account's preferred_language from its profile row (a BCP 47 tag, not necessarily a supported locale)
+     * @param int    $id          auth_master.id
+     * @param string $accountType
+     * @return string|null null when not set, or the account has no profile row
+     */
+    public function preferredLanguage(int $id, string $accountType): ?string
+    {
+        $table = self::PROFILES[$accountType]['table'] ?? null;
+        if ($table === null) {
+            return null;
+        }
+        $language = $this->db->table($table)->select('preferred_language')->where('auth_id', $id)->get()->getRowArray()['preferred_language'] ?? null;
+
+        return is_string($language) && trim($language) !== '' ? trim($language) : null;
+    }
+
+    /**
      * The user object of the signed-in response; an empty avatar_path becomes the initials avatar of full_name
      * @param array $account A row from one of the find methods above
      * @return array

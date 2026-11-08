@@ -1,6 +1,17 @@
 <?php
 // Subject and body of each EmailService::TYPE_* email; {placeholders} come from the $data passed to send()
 return [
+    // Text around the content in Views/email/template-v1.php; company_address is left out of the footer while it is empty
+    'template' => [
+        'closing_message'     => 'If you have any questions, please contact our support team.',
+        'best_regards'        => 'Best regards,',
+        'team_name'           => 'OtterNova Team',
+        'company_name'        => 'OtterNova',
+        'company_address'     => '',
+        'contact_support'     => 'Contact Support',
+        'privacy_policy'      => 'Privacy Policy',
+        'all_rights_reserved' => 'All rights reserved.',
+    ],
     'login_otp' => [
         'subject' => 'Your OtterNova sign-in code',
         'body'    => "Hello {full_name},\n\nYour sign-in code is {otp}. It expires in {minutes} minutes.\n\nIf you did not try to sign in, please change your password.",

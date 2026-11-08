@@ -46,6 +46,16 @@ final class PasswordResetTest extends CIUnitTestCase
         $this->mailer = new class () extends EmailService {
             public array $sent = [];
 
+            /** @var list<string|null> the locale passed to each send() */
+            public array $locales = [];
+
+            public function send(string $type, string $to, array $data = [], ?string $locale = null): bool
+            {
+                $this->locales[] = $locale;
+
+                return parent::send($type, $to, $data, $locale);
+            }
+
             protected function deliver(string $to, string $subject, string $body): bool
             {
                 $this->sent[] = ['to' => $to, 'subject' => $subject, 'body' => $body];
@@ -91,6 +101,21 @@ final class PasswordResetTest extends CIUnitTestCase
         $this->assertSame(lang('Email.password_reset.subject'), $this->mailer->sent[0]['subject']);
         $this->assertNotSame('', $this->sentToken());
         $this->seeNumRecords(1, 'auth_password_reset', []);
+    }
+
+    public function testTheLinkIsSentInTheAccountsPreferredLanguage(): void
+    {
+        $this->createClient('thai@example.com');
+        $this->createClient('unset@example.com');
+        $authId = (int) $this->db->table('auth_master')->where('email_address', 'thai@example.com')->get()->getRowArray()['id'];
+        $this->db->table('client_master')->where('auth_id', $authId)->update(['preferred_language' => 'th-TH']);
+
+        $this->request('thai@example.com')->assertStatus(200);
+        $this->request('unset@example.com')->assertStatus(200);
+
+        $this->assertSame(['th-TH', null], $this->mailer->locales);
+        // no Thai translation yet, so the email still reads in the default locale
+        $this->assertStringContainsString('reset the password', $this->mailer->sent[0]['body']);
     }
 
     public function testOnlyTheRequestedAccountTypeGetsALink(): void
