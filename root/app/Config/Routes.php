@@ -49,6 +49,13 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('image-delete', 'Images::delete');
     });
 
+    // Admin app's inbox of the public contact form's messages: any staff member; see App\Controllers\Inbox
+    $routes->group('staff/inbox', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
+        $routes->post('messages', 'Inbox::messages');
+        $routes->post('message', 'Inbox::message');
+        $routes->post('message/status', 'Inbox::setStatus');
+    });
+
     // Admin app's internal ledger: staff of the Executive Office and Finance only; see App\Controllers\Ledger
     $routes->group('staff/ledger', ['filter' => ['jwt:S', 'department:EXE,FIN']], static function (RouteCollection $routes) {
         $routes->post('entries', 'Ledger::entries');
