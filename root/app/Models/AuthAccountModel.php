@@ -225,6 +225,26 @@ class AuthAccountModel extends AuthMasterModel
     }
 
     /**
+     * The people active in a business, for its colleagues' list of public profiles, by name. Only public keys go
+     * out (uid).
+     * @param int $businessId
+     * @return list<array{uid: string, full_name: string, display_name: string|null, avatar_path: string|null, status_emoji: string|null, status_message: string|null, client_role: string, start_date: string}>
+     */
+    public function colleaguesOf(int $businessId): array
+    {
+        return $this->db->table('business_client_link l')
+            ->select('a.uid, a.full_name, c.display_name, a.avatar_path, c.status_emoji, c.status_message, l.client_role, l.start_date')
+            ->join('client_master c', 'c.id = l.client_id')
+            ->join($this->table . ' a', 'a.id = c.auth_id')
+            ->where('l.business_id', $businessId)
+            ->where('l.client_status', BusinessClientLinkModel::STATUS_ACTIVE)
+            ->orderBy('a.full_name')
+            ->orderBy('a.id')
+            ->get()
+            ->getResultArray();
+    }
+
+    /**
      * account_type => profile table of the account form: its model (for the validation rules), its columns but
      * id, auth_id and the timestamps, and which of those may be NULL
      */

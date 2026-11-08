@@ -164,6 +164,16 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('store/hours/save', 'StoreHours::save');
         $routes->post('store/hours-exception/save', 'StoreHours::saveException');
         $routes->post('store/hours-exception/delete', 'StoreHours::deleteException');
+        // the resources of a business (rooms, equipment) and which of them its services need: its active owners and
+        // managers only; see App\Controllers\Resources
+        $routes->post('resource-types', 'Resources::types');
+        $routes->post('resource-type/create', 'Resources::createType');
+        $routes->post('resource-type/edit', 'Resources::editType');
+        $routes->post('resources', 'Resources::list');
+        $routes->post('resource/create', 'Resources::create');
+        $routes->post('resource/edit', 'Resources::edit');
+        $routes->post('artifact/resources', 'Resources::needs');
+        $routes->post('artifact/resources/save', 'Resources::saveNeeds');
         // where the people of a business work and what they are paid: its active owners and managers only; see App\Controllers\Staff
         $routes->post('staff', 'Staff::list');
         $routes->post('staff/show', 'Staff::show');
@@ -186,6 +196,9 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('employee/find', 'Employees::find');
         $routes->post('employee/add', 'Employees::add');
         $routes->post('employee/invite', 'Employees::invite');
+        // the public profiles of the people of a business: anyone active in it; see App\Controllers\Colleagues
+        $routes->post('colleagues', 'Colleagues::list');
+        $routes->post('colleague', 'Colleagues::show');
         $routes->post('image-upload', 'Images::upload');
         $routes->post('image-delete', 'Images::delete');
         // the images of an artifact: the active owners and managers of its business only; see App\Controllers\ArtifactImages
