@@ -5,7 +5,7 @@ return [
         'best_regards'        => 'ขอแสดงความนับถือ',
         'team_name'           => 'ทีมงาน OtterNova',
         'company_name'        => 'OtterNova',
-        'company_address'     => '',
+        'company_address'     => '##/## ถนนสรงประภา แขวงดอนเมือง เขตดอนเมือง กรุงเทพมหานคร 10210 ประเทศไทย',
         'contact_support'     => 'ติดต่อฝ่ายสนับสนุน',
         'privacy_policy'      => 'นโยบายความเป็นส่วนตัว',
         'all_rights_reserved' => 'สงวนลิขสิทธิ์',

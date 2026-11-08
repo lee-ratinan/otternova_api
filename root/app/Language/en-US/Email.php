@@ -7,7 +7,7 @@ return [
         'best_regards'        => 'Best regards,',
         'team_name'           => 'OtterNova Team',
         'company_name'        => 'OtterNova',
-        'company_address'     => '',
+        'company_address'     => '##/## Thanon Song Prapha, Khwaeng Don Mueang, Khet Don Mueang, Bangkok, 10210 THAILAND',
         'contact_support'     => 'Contact Support',
         'privacy_policy'      => 'Privacy Policy',
         'all_rights_reserved' => 'All rights reserved.',
