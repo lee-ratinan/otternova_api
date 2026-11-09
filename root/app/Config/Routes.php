@@ -4,6 +4,8 @@ use CodeIgniter\Router\RouteCollection;
 
 /** @var RouteCollection $routes */
 $routes->get('/', 'Home::index');
+// The container's health check; see App\Controllers\Health
+$routes->get('health', 'Health::index');
 
 // Uploaded images, as saved by /v1/staff/image-upload and /v1/client/image-upload; see App\Controllers\Images
 // The initials avatar shown when auth_master.avatar_path is empty; see App\Libraries\InitialsAvatar
