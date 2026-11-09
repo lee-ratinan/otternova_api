@@ -63,6 +63,9 @@ Vagrantfile
 /writable/debugbar/*
 !/writable/debugbar/index.html
 
+/writable/geoip/*
+!/writable/geoip/index.html
+
 php_errors.log
 
 #-------------------------

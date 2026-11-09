@@ -11,10 +11,11 @@
     },
     "require": {
         "php": "^8.2",
+        "ext-gd": "*",
         "codeigniter4/framework": "^4.7",
         "firebase/php-jwt": "^7.2",
         "giggsey/libphonenumber-for-php": "^9.0",
-        "ext-gd": "*"
+        "maxmind-db/reader": "^1.12"
     },
     "require-dev": {
         "fakerphp/faker": "^1.9",

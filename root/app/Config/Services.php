@@ -5,9 +5,11 @@ namespace Config;
 use App\Libraries\AuthContext;
 use App\Libraries\ContactFormGuard;
 use App\Libraries\EmailService;
+use App\Libraries\GeoLocator;
 use App\Libraries\ImageProcessor;
 use App\Libraries\JwtService;
 use App\Libraries\LoginThrottle;
+use App\Libraries\TrackerGuard;
 use CodeIgniter\Config\BaseService;
 
 /**
@@ -76,8 +78,29 @@ class Services extends BaseService
     }
 
     /**
-     * The signed-in account of the current request (set by the jwt filter)
+     * The origin, bot and throttle checks of the visitor tracker
      */
+    public static function trackerGuard(bool $getShared = true): TrackerGuard
+    {
+        if ($getShared) {
+            return static::getSharedInstance('trackerGuard');
+        }
+
+        return new TrackerGuard(service('cache'), config(Tracker::class));
+    }
+
+    /**
+     * Where an IP address is, for the tracker jobs
+     */
+    public static function geoLocator(bool $getShared = true): GeoLocator
+    {
+        if ($getShared) {
+            return static::getSharedInstance('geoLocator');
+        }
+
+        return new GeoLocator(config(Tracker::class)->geoipDatabase);
+    }
+
     public static function imageProcessor(bool $getShared = true): ImageProcessor
     {
         if ($getShared) {
@@ -87,6 +110,9 @@ class Services extends BaseService
         return new ImageProcessor();
     }
 
+    /**
+     * The signed-in account of the current request (set by the jwt filter)
+     */
     public static function authContext(bool $getShared = true): AuthContext
     {
         if ($getShared) {
