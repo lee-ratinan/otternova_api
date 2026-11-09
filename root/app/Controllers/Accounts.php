@@ -287,8 +287,8 @@ class Accounts extends BaseController
 
     /**
      * POST /staff/staff-members {}
-     * Every staff member with a staff_master row, by name, for the account form's Line Manager dropdown.
-     * Inactive staff are included: the form labels them, and a manager who has left must still show by name.
+     * Every staff member with a staff_master row, by name, for the account form's Line Manager dropdown
+     * and the staff profiles gallery (with avatar_path: the picture, else the initials avatar). Inactive staff are included: the form labels them, and a manager who has left must still show by name.
      * @return ResponseInterface
      */
     public function staffMembers(): ResponseInterface

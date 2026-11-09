@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Libraries\InitialsAvatar;
 use CodeIgniter\Model;
 
 /**
@@ -218,15 +219,18 @@ class StaffMasterModel extends Model
     public const MAX_REPORTING_DEPTH = 50;
 
     /**
-     * Every staff member with a staff_master row, whatever their status, for the Admin app's Line Manager dropdown.
-     * id is staff_master.id, the value manager_staff_id stores. No password_hash, notes or identity numbers.
+     * Every staff member with a staff_master row, whatever their status, for the Admin app's Line Manager dropdown
+     * and its staff profiles gallery. id is staff_master.id, the value manager_staff_id stores.
+     * avatar_path is the uploaded picture, else the initials avatar of full_name (null when it gives no initials).
+     * No password_hash, notes or identity numbers.
      * @return list<array>
      */
     public function listForLookup(): array
     {
         $rows = $this->db->table($this->table)
             ->select('staff_master.id, auth_master.uid, auth_master.full_name, auth_master.email_address, '
-                . 'staff_master.employee_code, staff_master.job_title, staff_master.department_id, auth_master.account_status')
+                . 'auth_master.avatar_path, staff_master.employee_code, staff_master.job_title, staff_master.department_id, '
+                . 'auth_master.account_status')
             ->join('auth_master', 'auth_master.id = staff_master.auth_id', 'inner')
             ->where('auth_master.account_type', AuthMasterModel::TYPE_STAFF)
             ->orderBy('auth_master.full_name', 'ASC')
@@ -237,6 +241,9 @@ class StaffMasterModel extends Model
         return array_map(static function (array $row) {
             $row['id']            = (int) $row['id'];
             $row['department_id'] = (int) $row['department_id'];
+            if ($row['avatar_path'] === null || $row['avatar_path'] === '') {
+                $row['avatar_path'] = InitialsAvatar::urlFor($row['full_name']);
+            }
 
             return $row;
         }, $rows);
