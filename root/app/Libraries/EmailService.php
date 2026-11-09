@@ -27,6 +27,12 @@ class EmailService
         'tattananan.boss@gmail.com',
     ];
 
+    /** In beta, emails to these domains (lowercase, without "@") go to the tester's own address instead */
+    private const BETA_REDIRECT_DOMAINS = [
+        'eikin.otternova.com' => 'lee.ratinan@gmail.com',
+        'tat.otternova.com'   => 'tattananan.boss@gmail.com',
+    ];
+
     private const TEMPLATE = 'email/template-v1';
 
     /** Locale of the email being sent, for the template text (null: the request's locale) */
@@ -154,7 +160,7 @@ class EmailService
     }
 
     /**
-     * Sends the email for real in production, and in beta only to known testers (see canSendTo()).
+     * Sends the email for real in production, and in beta only to known testers (see recipientFor()).
      * Everywhere else, and for anyone else in beta, the log line stands in for the email.
      * @param string $to
      * @param string $subject
@@ -163,10 +169,15 @@ class EmailService
      */
     protected function deliver(string $to, string $subject, string $body): bool
     {
-        if (! $this->canSendTo($to)) {
+        $recipient = $this->recipientFor($to);
+        if ($recipient === null) {
             log_message('info', "Email to {to}: {subject}\n{body}", ['to' => $to, 'subject' => $subject, 'body' => $body]);
 
             return true;
+        }
+        if ($recipient !== $to) {
+            log_message('info', 'Email to {to} redirected to {recipient}', ['to' => $to, 'recipient' => $recipient]);
+            $to = $recipient;
         }
 
         $email = service('email');
@@ -189,26 +200,34 @@ class EmailService
     }
 
     /**
-     * Whether an email to this address really goes out: anyone in production; in beta, only
-     * BETA_ALLOWED_DOMAINS and BETA_ALLOWED_EMAILS; nobody in any other environment.
+     * Where an email to this address really goes, or null when it does not go out: the address itself in production;
+     * in beta, the address itself for BETA_ALLOWED_EMAILS and BETA_ALLOWED_DOMAINS, or the tester's address for
+     * BETA_REDIRECT_DOMAINS; nowhere in any other environment.
      * @param string $to
-     * @return bool
+     * @return string|null
      */
-    protected function canSendTo(string $to): bool
+    protected function recipientFor(string $to): ?string
     {
         if (ENVIRONMENT === 'production') {
-            return true;
+            return $to;
         }
         if (ENVIRONMENT !== 'beta') {
-            return false;
+            return null;
         }
 
-        $to = strtolower(trim($to));
-        if (in_array($to, self::BETA_ALLOWED_EMAILS, true)) {
-            return true;
+        $address = strtolower(trim($to));
+        if (in_array($address, self::BETA_ALLOWED_EMAILS, true)) {
+            return $to;
         }
-        $at = strrpos($to, '@');
+        $at = strrpos($address, '@');
+        if ($at === false) {
+            return null;
+        }
+        $domain = substr($address, $at + 1);
+        if (isset(self::BETA_REDIRECT_DOMAINS[$domain])) {
+            return self::BETA_REDIRECT_DOMAINS[$domain];
+        }
 
-        return $at !== false && in_array(substr($to, $at + 1), self::BETA_ALLOWED_DOMAINS, true);
+        return in_array($domain, self::BETA_ALLOWED_DOMAINS, true) ? $to : null;
     }
 }
