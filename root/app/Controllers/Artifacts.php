@@ -145,9 +145,11 @@ class Artifacts extends BaseController
      *   or null), tax_calculation (I, E or X) and tax_percentage (above 0 and at most 100 for I and E; NULL for X)
      * - translations: { language_code: { artifact_name, artifact_description } }, optional
      * - variants: at least one, each { sku, barcode, price_active, price_compare, variant_status, weight_grams,
-     *   duration_minutes, sort_order, attribute_values: [value public_id, ...],
+     *   duration_minutes, booking_type, staff_required, capacity, sort_order, attribute_values: [value public_id, ...],
      *   inventory: [{ store_public_id, quantity }] }. barcode and weight_grams are kept for products only,
-     *   duration_minutes for services only; inventory, for products only, creates the variant's stock at the stores
+     *   duration_minutes, booking_type, staff_required and capacity for services only: booking_type A (appointment, the
+     *   default) or G (group), staff_required 1-255 (1 by default), and capacity 1-65535, the most customers in one
+     *   session, required for G and not kept for A; inventory, for products only, creates the variant's stock at the stores
      *   picked. Every variant uses the same attributes, with a different combination of their values.
      * Refused with 409 once the business has as many artifacts of the type as its plan allows
      * (Config\PlanLimits::PRODUCTS or SERVICES, discontinued ones not counted), or when there are more variants than
@@ -536,14 +538,31 @@ class Artifacts extends BaseController
             $errors[$key . '.variant_status'] = lang('Artifact.invalidVariantStatus');
         }
 
-        foreach (['weight_grams' => [0, 4294967295], 'duration_minutes' => [1, 65535], 'sort_order' => [0, 65535]] as $field => [$min, $max]) {
-            $number = $whole($value($field, $field === 'sort_order' ? $index : null), $min, $max);
+        $row['booking_type'] = strtoupper((string) $text($value('booking_type', ArtifactMasterModel::BOOKING_APPOINTMENT)));
+        if (! in_array($row['booking_type'], [ArtifactMasterModel::BOOKING_APPOINTMENT, ArtifactMasterModel::BOOKING_GROUP], true)) {
+            $errors[$key . '.booking_type'] = lang('Artifact.invalidBookingType');
+        }
+
+        $defaults = ['sort_order' => $index, 'staff_required' => 1];
+        foreach (['weight_grams' => [0, 4294967295], 'duration_minutes' => [1, 65535], 'staff_required' => [1, 255], 'capacity' => [1, 65535], 'sort_order' => [0, 65535]] as $field => [$min, $max]) {
+            $number = $whole($value($field, $defaults[$field] ?? null), $min, $max);
             if ($number === false) {
                 $errors[$key . '.' . $field] = lang('Artifact.invalidNumber', [$min, $max]);
             }
             $row[$field] = is_int($number) ? $number : null;
         }
         $row['sort_order'] ??= $index;
+        $row['staff_required'] ??= 1;
+
+        // a group session takes up to capacity customers; an appointment is one customer's
+        if ($row['booking_type'] === ArtifactMasterModel::BOOKING_GROUP) {
+            if ($row['capacity'] === null && ! isset($errors[$key . '.capacity'])) {
+                $errors[$key . '.capacity'] = lang('Artifact.capacityRequired');
+            }
+        } else {
+            $row['capacity'] = null;
+            unset($errors[$key . '.capacity']);
+        }
 
         // what the other type has no use for is not kept
         foreach ($type === ArtifactMasterModel::TYPE_PRODUCT ? ArtifactMasterModel::SERVICE_ONLY_FIELDS : ArtifactMasterModel::PRODUCT_ONLY_FIELDS as $field) {

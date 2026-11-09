@@ -27,7 +27,7 @@ class ResourceMasterModel extends Model
     protected $returnType       = 'array';
     protected $useSoftDeletes   = false;
     protected $protectFields    = true;
-    protected $allowedFields    = ['public_id', 'business_id', 'store_id', 'resource_type_id', 'resource_name', 'resource_status', 'sort_order'];
+    protected $allowedFields    = ['public_id', 'business_id', 'store_id', 'resource_type_id', 'resource_name', 'capacity', 'resource_status', 'sort_order'];
 
     /** public_id: CHAR(12), see PublicIdTrait */
     protected int $publicIdLength = 12;
@@ -38,6 +38,7 @@ class ResourceMasterModel extends Model
 
     protected $validationRules = [
         'resource_name'   => 'required|max_length[255]',
+        'capacity'        => 'required|is_natural_no_zero|less_than_equal_to[65535]', // customers at once
         'resource_status' => 'required|in_list[A,I]',
         'sort_order'      => 'required|is_natural|less_than_equal_to[65535]',
     ];
@@ -53,7 +54,7 @@ class ResourceMasterModel extends Model
     public function listOfBusiness(int $businessId, ?int $storeId = null, ?int $typeId = null): array
     {
         $builder = $this->db->table($this->table . ' r')
-            ->select('r.public_id, r.resource_name, r.resource_status, r.sort_order, s.public_id AS store_public_id, s.store_name, '
+            ->select('r.public_id, r.resource_name, r.capacity, r.resource_status, r.sort_order, s.public_id AS store_public_id, s.store_name, '
                 . 't.public_id AS type_public_id, t.type_name, t.type_status')
             ->join('business_store s', 's.id = r.store_id')
             ->join('resource_type t', 't.id = r.resource_type_id')
@@ -70,6 +71,7 @@ class ResourceMasterModel extends Model
         return array_map(static fn (array $row): array => [
             'public_id'       => $row['public_id'],
             'resource_name'   => $row['resource_name'],
+            'capacity'        => (int) $row['capacity'],
             'resource_status' => $row['resource_status'],
             'sort_order'      => (int) $row['sort_order'],
             'store'           => ['public_id' => $row['store_public_id'], 'store_name' => $row['store_name']],
@@ -117,16 +119,16 @@ class ResourceMasterModel extends Model
     }
 
     /**
-     * Update a resource's name, status and order; only what changes is written and logged
+     * Update a resource's name, capacity, status and order; only what changes is written and logged
      * @param array $stored   The resource_master row
-     * @param array $resource Checked resource_name, resource_status, sort_order
+     * @param array $resource Checked resource_name, capacity, resource_status, sort_order
      * @param int   $actorId
      * @return void
      * @throws Throwable When a write fails; nothing is written then
      */
     public function updateLogged(array $stored, array $resource, int $actorId): void
     {
-        $changes = ActivityLog::changes($stored, array_intersect_key($resource, array_flip(['resource_name', 'resource_status', 'sort_order'])));
+        $changes = ActivityLog::changes($stored, array_intersect_key($resource, array_flip(['resource_name', 'capacity', 'resource_status', 'sort_order'])));
         if ($changes === []) {
             return;
         }

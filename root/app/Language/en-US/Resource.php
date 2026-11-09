@@ -36,6 +36,7 @@ return [
         'buffer_minutes'   => 'Turnover time (minutes)',
         'type_status'      => 'Status',
         'resource_name'    => 'Name',
+        'capacity'         => 'Capacity (people at once)',
         'resource_status'  => 'Status',
         'sort_order'       => 'Order',
     ],

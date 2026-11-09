@@ -124,6 +124,45 @@ final class ArtifactsTest extends CIUnitTestCase
         $this->assertArrayHasKey('variants.0.inventory', $this->body($response)['errors']);
     }
 
+    public function testAServiceVariantIsBookedAsAnAppointmentOrAGroup(): void
+    {
+        $service = ['artifact_name' => 'Muay Thai', 'artifact_type' => 'S', 'tax_calculation' => 'X'];
+        $response = $this->create(['artifact' => $service, 'variants' => [
+            ['price_active' => 1500, 'duration_minutes' => 60, 'capacity' => 5, 'attribute_values' => [$this->color['Blue']]], // an appointment by default; capacity not kept
+            ['price_active' => 800, 'booking_type' => 'g', 'staff_required' => 2, 'capacity' => 12, 'attribute_values' => [$this->color['Red']]],
+        ]]);
+        $response->assertStatus(200);
+        $data     = $this->body($response)['data'];
+        $variants = array_map(static fn (array $v): array => [$v['booking_type'], $v['staff_required'], $v['capacity']], $data['variants']);
+        $this->assertSame([['A', 1, null], ['G', 2, 12]], $variants);
+
+        // turned into an appointment, a group variant drops its capacity
+        $group = $data['variants'][1]['public_id'];
+        $this->edit(['public_id' => $data['artifact']['public_id'], 'variants' => [
+            ['public_id' => $data['variants'][0]['public_id']],
+            ['public_id' => $group, 'booking_type' => 'A'],
+        ]])->assertStatus(200);
+        $this->seeInDatabase('artifact_variant', ['public_id' => $group, 'booking_type' => 'A', 'staff_required' => 2, 'capacity' => null]);
+
+        foreach ([
+            [['price_active' => 1, 'booking_type' => 'X'], 'variants.0.booking_type'],
+            [['price_active' => 1, 'booking_type' => 'G'], 'variants.0.capacity'],
+            [['price_active' => 1, 'booking_type' => 'G', 'capacity' => 0], 'variants.0.capacity'],
+            [['price_active' => 1, 'staff_required' => 0], 'variants.0.staff_required'],
+            [['price_active' => 1, 'staff_required' => 256], 'variants.0.staff_required'],
+        ] as $n => [$variant, $field]) {
+            $response = $this->create(['artifact' => $service, 'variants' => [$variant]]);
+            $response->assertStatus(422);
+            $this->assertArrayHasKey($field, $this->body($response)['errors'] ?? [], $n . ': ' . $field);
+        }
+
+        // a product has none of them
+        $response = $this->create(['artifact' => ['artifact_type' => 'P'] + $service, 'variants' => [['price_active' => 1, 'booking_type' => 'G', 'staff_required' => 3]]]);
+        $response->assertStatus(200);
+        $variant = $this->body($response)['data']['variants'][0];
+        $this->assertSame([null, null, null], [$variant['booking_type'], $variant['staff_required'], $variant['capacity']]);
+    }
+
     public function testTheFieldsAreChecked(): void
     {
         $product = ['artifact_name' => 'T-Shirt', 'artifact_type' => 'P', 'tax_calculation' => 'X'];

@@ -80,7 +80,7 @@ class Resources extends BaseController
     /**
      * POST /client/resources { business_slug, store_public_id, type_public_id }
      * The resources of that business, of one store and one type when given, by store, type, sort_order and name: for
-     * each, public_id, resource_name, resource_status, sort_order, store { public_id, store_name } and resource_type
+     * each, public_id, resource_name, capacity, resource_status, sort_order, store { public_id, store_name } and resource_type
      * { public_id, type_name, type_status }
      * @return ResponseInterface
      */
@@ -111,9 +111,10 @@ class Resources extends BaseController
 
     /**
      * POST /client/resource/create { business_slug, resource: { store_public_id, type_public_id, resource_name,
-     * resource_status, sort_order } }
+     * capacity, resource_status, sort_order } }
      * The store must be a physical store of the business and the type an active type of it; both are fixed once
-     * created. resource_status A (the default) or I; sort_order 0-65535, 0 when left out, the order free resources
+     * created. capacity 1-65535, 1 when left out, how many customers it holds at once (a group session takes no more
+     * than its resources hold). resource_status A (the default) or I; sort_order 0-65535, 0 when left out, the order free resources
      * are picked in.
      * @return ResponseInterface { public_id }
      */
@@ -123,7 +124,7 @@ class Resources extends BaseController
     }
 
     /**
-     * POST /client/resource/edit { public_id, resource: { resource_name, resource_status, sort_order } }
+     * POST /client/resource/edit { public_id, resource: { resource_name, capacity, resource_status, sort_order } }
      * A field left out keeps its value. The store and the type cannot change: a store_public_id or type_public_id
      * other than the resource's own is refused.
      * @return ResponseInterface { public_id }
@@ -331,7 +332,7 @@ class Resources extends BaseController
             return $error;
         }
 
-        $defaults = ['resource_name' => '', 'resource_status' => ResourceMasterModel::STATUS_ACTIVE, 'sort_order' => 0];
+        $defaults = ['resource_name' => '', 'capacity' => 1, 'resource_status' => ResourceMasterModel::STATUS_ACTIVE, 'sort_order' => 0];
         $resource = [];
         foreach ($defaults as $field => $default) {
             $value            = array_key_exists($field, $in) ? $in[$field] : ($stored[$field] ?? $default);
@@ -352,6 +353,7 @@ class Resources extends BaseController
             if ($errors !== []) {
                 return ApiResponse::error(lang('Resource.invalidFields'), 422, $errors);
             }
+            $resource['capacity']   = (int) $resource['capacity'];
             $resource['sort_order'] = (int) $resource['sort_order'];
             if ($resources->nameTaken((int) $store['id'], (int) $type['id'], $resource['resource_name'], $stored === null ? null : (int) $stored['id'])) {
                 return ApiResponse::error(lang('Resource.invalidFields'), 422, ['resource_name' => lang('Resource.resourceNameTaken')]);

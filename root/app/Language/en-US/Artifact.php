@@ -19,6 +19,8 @@ return [
     'invalidPrice'            => 'Please enter a price of 0 or more, with at most 2 decimals.',
     'compareNotHigher'        => 'The compare-at price must be higher than the price.',
     'invalidVariantStatus'    => 'The status of a variant must be A (active) or I (inactive).',
+    'invalidBookingType'      => 'The booking type must be A (appointment) or G (group).',
+    'capacityRequired'        => 'Please enter how many customers one group session takes.',
     'invalidNumber'           => 'Please enter a whole number from {0} to {1}.',
     'invalidAttributeValues'  => 'Please send the choices of the variant as a list.',
     'attributeValueNotFound'  => 'One of these choices is not an option of this business.',

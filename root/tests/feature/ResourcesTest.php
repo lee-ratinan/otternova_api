@@ -98,7 +98,7 @@ final class ResourcesTest extends CIUnitTestCase
         foreach (['102', '101', '103'] as $sort => $name) {
             $this->send('v1/client/resource/create', ['business_slug' => 'otter-spa', 'resource' => [
                 'store_public_id' => $this->storePublicId, 'type_public_id' => $room, 'resource_name' => $name, 'sort_order' => $sort,
-            ]])->assertStatus(200);
+            ] + ($name === '102' ? ['capacity' => 2] : [])])->assertStatus(200);
         }
         // the same name at another store, or of another type, is fine
         $this->send('v1/client/resource/create', ['business_slug' => 'otter-spa', 'resource' => ['store_public_id' => $other, 'type_public_id' => $room, 'resource_name' => '101']])->assertStatus(200);
@@ -106,6 +106,7 @@ final class ResourcesTest extends CIUnitTestCase
 
         $list = $this->body($this->send('v1/client/resources', ['business_slug' => 'otter-spa', 'store_public_id' => $this->storePublicId, 'type_public_id' => $room]))['data']['resources'];
         $this->assertSame(['102', '101', '103'], array_column($list, 'resource_name')); // by sort_order
+        $this->assertSame([2, 1, 1], array_column($list, 'capacity')); // 1 when left out
         $this->assertSame(['public_id' => $this->storePublicId, 'store_name' => 'Bangkok'], $list[0]['store']);
         $this->assertSame(['public_id' => $room, 'type_name' => 'Massage room', 'type_status' => 'A'], $list[0]['resource_type']);
         $this->assertCount(5, $this->body($this->send('v1/client/resources', ['business_slug' => 'otter-spa']))['data']['resources']);
@@ -113,11 +114,15 @@ final class ResourcesTest extends CIUnitTestCase
         $types = $this->body($this->send('v1/client/resource-types', ['business_slug' => 'otter-spa']))['data']['resource_types'];
         $this->assertSame([1, 4], array_column($types, 'resource_count'));
 
-        // edit: name, status and order only
+        // edit: name, capacity, status and order only
         $publicId = $list[0]['public_id'];
         $this->send('v1/client/resource/edit', ['public_id' => $publicId, 'resource' => ['resource_status' => 'I', 'store_public_id' => $this->storePublicId]])->assertStatus(200);
-        $this->seeInDatabase('resource_master', ['public_id' => $publicId, 'resource_name' => '102', 'resource_status' => 'I', 'sort_order' => 0]);
+        $this->seeInDatabase('resource_master', ['public_id' => $publicId, 'resource_name' => '102', 'capacity' => 2, 'resource_status' => 'I', 'sort_order' => 0]);
+        $this->send('v1/client/resource/edit', ['public_id' => $publicId, 'resource' => ['capacity' => '20']])->assertStatus(200);
+        $this->seeInDatabase('resource_master', ['public_id' => $publicId, 'capacity' => 20]);
         foreach ([
+            [['capacity' => 0], 'capacity'],
+            [['capacity' => 70000], 'capacity'],
             [['store_public_id' => $other], 'store_public_id'],
             [['type_public_id' => $kit], 'type_public_id'],
             [['resource_name' => '101'], 'resource_name'],

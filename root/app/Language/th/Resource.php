@@ -36,6 +36,7 @@ return [
         'buffer_minutes'   => 'เวลาเตรียมหลังใช้งาน (นาที)',
         'type_status'      => 'สถานะ',
         'resource_name'    => 'ชื่อ',
+        'capacity'         => 'ความจุ (คนต่อครั้ง)',
         'resource_status'  => 'สถานะ',
         'sort_order'       => 'ลำดับ',
     ],
