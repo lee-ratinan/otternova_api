@@ -188,6 +188,13 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('resource/edit', 'Resources::edit');
         $routes->post('artifact/resources', 'Resources::needs');
         $routes->post('artifact/resources/save', 'Resources::saveNeeds');
+        // the sessions of a business's group services, their slots and what each slot holds: its active owners and
+        // managers only; see App\Controllers\ServiceSessions
+        $routes->post('sessions', 'ServiceSessions::list');
+        $routes->post('session', 'ServiceSessions::show');
+        $routes->post('session/options', 'ServiceSessions::options');
+        $routes->post('session/create', 'ServiceSessions::create');
+        $routes->post('session/edit', 'ServiceSessions::edit');
         // where the people of a business work and what they are paid: its active owners and managers only; see App\Controllers\Staff
         $routes->post('staff', 'Staff::list');
         $routes->post('staff/show', 'Staff::show');
