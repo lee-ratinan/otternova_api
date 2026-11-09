@@ -195,6 +195,41 @@ final class SubscriptionsTest extends CIUnitTestCase
         $this->pay($invoice, 'bank_transfer')->assertStatus(200);
     }
 
+    public function testPaymentsNotifyTheStaffToCheckThenTheOwners(): void
+    {
+        $exe = service('jwt')->issue($this->createStaff('exe@otternova.com', 'EXE'))['access_token'];
+        $this->createStaff('eng@otternova.com', 'ENG');
+        $manager = $this->createMember('manager@example.com', 'M');
+        $invoice = $this->subscribe();
+        $payment = $this->body($this->pay($invoice, 'bank_transfer'))['data']['payment_public_id'];
+
+        // the Executive Office and Finance are asked to check it; Engineering and the business are not
+        $this->seeNumRecords(2, 'notification_master', ['event_type' => 'payment.slip_submitted']);
+        $this->seeNumRecords(2, 'notification_master', []);
+        $latest = $this->body($this->send('v1/staff/notifications/latest', [], $exe))['data'];
+        $this->assertSame(1, $latest['unread_count']);
+        $this->assertSame(['Payment to check', 'OtterCafe paid THB 299.00 for invoice INV-202611-000001. Please check the slip and approve it.',
+            '/admin/clients/invoices/view/' . $invoice, 'bi-cash-coin', 'warning', false],
+            [$latest['rows'][0]['title'], $latest['rows'][0]['message'], $latest['rows'][0]['target_url'], $latest['rows'][0]['icon'], $latest['rows'][0]['tone'], $latest['rows'][0]['is_read']]);
+
+        // once FIN rejects it, the staff's are read for everyone and the owners (not the managers) hear why
+        $this->send('v1/staff/subscriptions/payment/reject', ['public_id' => $payment, 'failure_reason' => 'The slip is unreadable'], $this->staff)->assertStatus(200);
+        $this->assertSame(0, $this->body($this->send('v1/staff/notifications/latest', [], $exe))['data']['unread_count']);
+        $this->assertSame(0, $this->body($this->send('v1/client/notifications/latest', [], $manager))['data']['unread_count']);
+        $owner = $this->body($this->send('v1/client/notifications/latest', []))['data'];
+        $this->assertSame(1, $owner['unread_count']);
+        $this->assertSame(['Payment rejected', '/admin/plans', ['business_slug' => 'otter-cafe', 'business_name' => 'OtterCafe']],
+            [$owner['rows'][0]['title'], $owner['rows'][0]['target_url'], $owner['rows'][0]['business']]);
+        $this->assertStringContainsString('The slip is unreadable', $owner['rows'][0]['message']);
+
+        // paid again and approved: the owners hear of it too
+        $payment = $this->body($this->pay($invoice, 'bank_transfer'))['data']['payment_public_id'];
+        $this->send('v1/staff/subscriptions/payment/approve', ['public_id' => $payment], $this->staff)->assertStatus(200);
+        $owner = $this->body($this->send('v1/client/notifications/latest', []))['data'];
+        $this->assertSame([2, 'Payment approved'], [$owner['unread_count'], $owner['rows'][0]['title']]);
+        $this->seeNumRecords(0, 'notification_master', ['event_type' => 'payment.slip_submitted', 'read_at' => null]);
+    }
+
     public function testDiscountsCutTheInvoiceAndCountTheirUses(): void
     {
         $this->discount(['discount_code' => 'TENOFF', 'discount_value' => '10.00', 'max_redemptions' => 1]);

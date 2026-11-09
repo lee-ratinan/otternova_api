@@ -2,6 +2,7 @@
 
 namespace App\Libraries;
 
+use App\Models\BusinessClientLinkModel;
 use App\Models\BusinessMasterModel;
 use App\Models\DiscountMasterModel;
 use App\Models\PaymentMethodModel;
@@ -42,6 +43,9 @@ class SubscriptionBilling
 
     /** The format of every time the billing tables store */
     public const DATETIME = 'Y-m-d H:i:s';
+
+    /** The departments that check the payments staff confirm, as the staff/subscriptions routes allow */
+    public const PAYMENT_DEPARTMENTS = ['EXE', 'FIN'];
 
     protected BaseConnection $db;
     private ActivityLog $log;
@@ -270,6 +274,7 @@ class SubscriptionBilling
                 $stored = $this->db->table('payment_transaction')->where('id', $id)->get()->getRowArray();
                 $this->change('payment_transaction', $stored, ['slip_path' => $placeSlip($id)], $actorId, $summary);
             }
+            $this->notifyPayment(Notifier::PAYMENT_SLIP_SUBMITTED, $invoice, $id, $actorId);
 
             return $id;
         });
@@ -420,6 +425,7 @@ class SubscriptionBilling
                 throw new BillingException('SubscriptionAdmin.paymentNotPending', 409);
             }
             $this->markPaid($invoice, $transaction['created_at'], $actorId);
+            $this->notifyPayment(Notifier::PAYMENT_APPROVED, $invoice, (int) $transaction['id'], $actorId);
         });
     }
 
@@ -447,7 +453,46 @@ class SubscriptionBilling
             if (! $done) {
                 throw new BillingException('SubscriptionAdmin.paymentNotPending', 409);
             }
+            $invoice = $this->db->table('subscription_invoice')->where('id', $transaction['invoice_id'])->get()->getRowArray();
+            $this->notifyPayment(Notifier::PAYMENT_REJECTED, $invoice, (int) $transaction['id'], $actorId, ['reason' => $reason]);
         });
+    }
+
+    /**
+     * Notify about a payment, inside the transaction that records it: a slip sent goes to the Executive Office and
+     * Finance to check (Admin app's invoice page); an approval or rejection goes to the business's owners (Client
+     * app's plans page), and marks the staff's notifications of that payment read for everyone, as it is handled
+     * @param string $eventType Notifier::PAYMENT_*
+     * @param array  $invoice   Stored subscription_invoice row
+     * @param int    $transactionId
+     * @param int    $actorId   Not notified
+     * @param array  $params    More placeholders, such as the reason
+     * @return void
+     */
+    private function notifyPayment(string $eventType, array $invoice, int $transactionId, int $actorId, array $params = []): void
+    {
+        $business = $this->db->table('subscription_master s')
+            ->select('b.id, b.business_name')
+            ->join('business_master b', 'b.id = s.business_id', 'inner')
+            ->where('s.id', $invoice['subscription_id'])
+            ->get()->getRowArray();
+        $amount  = $invoice['amount_payable'] ?? $invoice['amount_due'];
+        $params += [
+            'business'   => (string) ($business['business_name'] ?? ''),
+            'amount'     => $invoice['currency_code'] . ' ' . number_format((float) $amount, 2),
+            'invoice_no' => $invoice['invoice_no'],
+        ];
+        $subject  = ['payment_transaction', $transactionId];
+        $notifier = new Notifier();
+        if ($eventType === Notifier::PAYMENT_SLIP_SUBMITTED) {
+            $notifier->toDepartments(self::PAYMENT_DEPARTMENTS, $eventType, $params, '/admin/clients/invoices/view/' . $invoice['public_id'], $subject, $actorId);
+
+            return;
+        }
+        $notifier->markSubjectRead('payment_transaction', $transactionId, Notifier::PAYMENT_SLIP_SUBMITTED);
+        if ($business !== null) {
+            $notifier->toBusiness((int) $business['id'], [BusinessClientLinkModel::ROLE_OWNER], $eventType, $params, '/admin/plans', $subject, $actorId);
+        }
     }
 
     /**

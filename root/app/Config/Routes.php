@@ -52,6 +52,18 @@ $routes->group('v1', static function (RouteCollection $routes) {
     });
 
     // Admin app's inbox of the public contact form's messages: any staff member; see App\Controllers\Inbox
+    // Each app's own notifications, the signed-in account's only: staff and clients alike; see App\Controllers\Notifications
+    foreach (['staff/notifications' => 'jwt:S', 'client/notifications' => 'jwt:C'] as $prefix => $filter) {
+        $routes->group($prefix, ['filter' => $filter], static function (RouteCollection $routes) {
+            $routes->post('latest', 'Notifications::latest');
+            $routes->post('list', 'Notifications::list');
+            $routes->post('read', 'Notifications::read');
+            $routes->post('read-all', 'Notifications::readAll');
+            $routes->post('delete', 'Notifications::delete');
+            $routes->post('delete-read', 'Notifications::deleteRead');
+        });
+    }
+
     $routes->group('staff/inbox', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
         $routes->post('messages', 'Inbox::messages');
         $routes->post('message', 'Inbox::message');
