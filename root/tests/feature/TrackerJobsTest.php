@@ -171,8 +171,10 @@ final class TrackerJobsTest extends CIUnitTestCase
         $this->raw($shop + ['visitor_id' => 'VisitorBBBBBBBBB', 'session_id' => 'SessionCCCCCCCCC', 'occurred_at' => '2026-11-09 12:00:00', 'path' => '/somchai-cafe/product/Ab3x']);
         $this->raw($shop + ['visitor_id' => 'VisitorBBBBBBBBB', 'session_id' => 'SessionCCCCCCCCC', 'occurred_at' => '2026-11-09 12:00:30', 'path' => '/somchai-cafe/product/Ab3x',
             'event_type' => 'event', 'event_name' => 'add_to_cart']);
-        // a new visitor who bounces, from a desktop
-        $this->raw($shop + ['visitor_id' => 'VisitorCCCCCCCCC', 'session_id' => 'SessionDDDDDDDDD', 'occurred_at' => '2026-11-09 23:59:59', 'path' => '/somchai-cafe', 'user_agent' => self::DESKTOP]);
+        // a new visitor who bounces, from a desktop, at 23:59:59 in Bangkok, the business's timezone
+        $this->raw($shop + ['visitor_id' => 'VisitorCCCCCCCCC', 'session_id' => 'SessionDDDDDDDDD', 'occurred_at' => '2026-11-09 16:59:59', 'path' => '/somchai-cafe', 'user_agent' => self::DESKTOP]);
+        // a minute later it is the next day there
+        $this->raw($shop + ['visitor_id' => 'VisitorEEEEEEEEE', 'session_id' => 'SessionFFFFFFFFF', 'occurred_at' => '2026-11-09 17:00:59', 'path' => '/somchai-cafe']);
         // the website, the next day
         $this->raw(['visitor_id' => 'VisitorDDDDDDDDD', 'session_id' => 'SessionEEEEEEEEE', 'occurred_at' => '2026-11-10 00:00:00']);
         $this->merger->processBatch();
@@ -213,6 +215,11 @@ final class TrackerJobsTest extends CIUnitTestCase
         $this->assertSame(1, (int) $find('path', '/somchai-cafe')['bounces']);
 
         $this->assertSame(0, $this->db->table('tracker_daily')->where('day', '2026-11-09')->where('site', 'www')->countAllResults());
+
+        $rollup->rollupDay('2026-11-10');
+        $next = $this->db->table('tracker_daily')->where(['day' => '2026-11-10', 'dimension' => 'total'])->orderBy('site')->get()->getResultArray();
+        $this->assertSame(['mart', 'www'], array_column($next, 'site'));
+        $this->assertSame([1, 1], array_map('intval', array_column($next, 'visits')));
     }
 
     public function testZeroesTheIpAddressesOfOldVisits(): void

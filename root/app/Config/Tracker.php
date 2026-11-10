@@ -56,8 +56,20 @@ class Tracker extends BaseConfig
     /** Days a visit, its pages and an idle visitor are kept; tracker_daily is kept for good */
     public int $visitRetentionDays = 395;
 
-    /** Days back tracker:rollup rebuilds each run, so that visits merged late (open across midnight) are counted */
+    /**
+     * Days back tracker:rollup rebuilds each run, so that visits merged late (open across midnight) are counted;
+     * it also rebuilds tomorrow (UTC), which is already today east of UTC
+     */
     public int $rollupDays = 2;
+
+    /**
+     * The timezone whose days the website and the marketplace's own pages are counted in. A business's are counted
+     * in its country's (BusinessStoreModel::defaultTimezone()).
+     */
+    public string $localTimezone = 'Asia/Bangkok';
+
+    /** The longest period the traffic endpoints report on, in days */
+    public int $maxReportDays = 366;
 
     /** The MaxMind GeoLite2-City database, which tracker:geoip-update downloads; no locations while it is missing */
     public string $geoipDatabase = WRITEPATH . 'geoip/GeoLite2-City.mmdb';

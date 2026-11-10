@@ -2,6 +2,7 @@
 
 namespace App\Libraries;
 
+use App\Models\BusinessStoreModel;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\I18n\Time;
 use Config\Tracker;
@@ -9,9 +10,10 @@ use Throwable;
 
 /**
  * The daily upkeep of the tracker, run by php spark tracker:rollup:
- * - rebuilds tracker_daily for a UTC day from tracker_visit, tracker_visit_page and tracker_visitor. A visit counts on
- *   the day it started, a page on the day it was first viewed in the visit. Rebuilding replaces the day's rows, so it
- *   is safe to run again, and recent days are rebuilt each run to count visits merged late;
+ * - rebuilds tracker_daily for a local day (see rollupDay()) from tracker_visit, tracker_visit_page and
+ *   tracker_visitor. A visit counts on the day it started, a page on the day it was first viewed in the visit.
+ *   Rebuilding replaces the day's rows, so it is safe to run again, and recent days are rebuilt each run to count
+ *   visits merged late;
  * - zeroes the last part of the IP addresses of visits older than Config\Tracker::$ipAnonymiseDays;
  * - deletes visits (and their pages) and idle visitors older than Config\Tracker::$visitRetentionDays.
  */
@@ -33,28 +35,40 @@ class TrackerRollup
     }
 
     /**
-     * Rebuild the tracker_daily rows of one day
-     * @param string $day YYYY-MM-DD, UTC
+     * Rebuild the tracker_daily rows of one day. The day is local: a business's from midnight to midnight in its
+     * country's timezone, the website's and the marketplace's own pages' in Config\Tracker::$localTimezone.
+     * @param string $day YYYY-MM-DD
      * @return int The rows written
      * @throws Throwable When it failed; the day's rows are then as they were
      */
     public function rollupDay(string $day): int
     {
-        $start = Time::createFromFormat('Y-m-d H:i:s', $day . ' 00:00:00', 'UTC');
-        $from  = $start->toDateTimeString();
-        $until = $start->addDays(1)->toDateTimeString();
-
-        $rows = [];
-        foreach (self::VISIT_DIMENSIONS as $dimension => $column) {
-            foreach ($this->visitTotals($column, $from, $until) as $row) {
-                $rows[] = ['day' => $day, 'dimension' => $dimension] + $row;
-            }
+        // the businesses with visits around that day, by timezone; every UTC offset is within a day either side
+        $around = Time::createFromFormat('Y-m-d H:i:s', $day . ' 00:00:00', 'UTC');
+        $ids    = array_map('intval', array_column($this->db->table('tracker_visit')->distinct()->select('business_id')
+            ->where('started_at >=', $around->subDays(1)->toDateTimeString())
+            ->where('started_at <', $around->addDays(2)->toDateTimeString())
+            ->get()->getResultArray(), 'business_id'));
+        $byZone = [];
+        foreach ($this->timezonesOf($ids) as $businessId => $timezone) {
+            $byZone[$timezone][] = $businessId;
         }
+
         // a page has no funnel of its own; insertBatch() needs the same fields in every row
         $noFunnel = ['funnel_view_item' => 0, 'funnel_add_to_cart' => 0, 'funnel_checkout_start' => 0,
             'funnel_checkout_confirm' => 0, 'orders' => 0, 'revenue' => 0];
-        foreach ($this->pageTotals($from, $until) as $row) {
-            $rows[] = ['day' => $day, 'dimension' => 'path'] + $row + $noFunnel;
+        $rows = [];
+        foreach ($byZone as $timezone => $businessIds) {
+            [$from, $until] = self::utcWindow($day, $day, $timezone);
+            $only           = ' AND v.business_id IN (' . implode(',', $businessIds) . ')';
+            foreach (self::VISIT_DIMENSIONS as $dimension => $column) {
+                foreach ($this->visitTotals($column, $from, $until, $only) as $row) {
+                    $rows[] = ['day' => $day, 'dimension' => $dimension] + $row;
+                }
+            }
+            foreach ($this->pageTotals($from, $until, $only) as $row) {
+                $rows[] = ['day' => $day, 'dimension' => 'path'] + $row + $noFunnel;
+            }
         }
 
         $this->db->resetTransStatus()->transException(true)->transBegin();
@@ -135,13 +149,53 @@ class TrackerRollup
     }
 
     /**
+     * The timezone each business's days are counted in: its country's (the first of listSupportedTimezones(), as
+     * for its stores); Config\Tracker::$localTimezone for 0 (the website and the marketplace's own pages) and for a
+     * business that is gone
+     * @param list<int> $businessIds
+     * @return array<int, string> business_id => timezone
+     */
+    public function timezonesOf(array $businessIds): array
+    {
+        $zones = [];
+        foreach ($businessIds as $id) {
+            $zones[$id] = $this->config->localTimezone;
+        }
+        $ids = array_values(array_filter($businessIds, static fn (int $id): bool => $id > 0));
+        if ($ids !== []) {
+            helper('list');
+            foreach ($this->db->table('business_master')->select('id, country_code')->whereIn('id', $ids)->get()->getResultArray() as $row) {
+                $zones[(int) $row['id']] = BusinessStoreModel::defaultTimezone((string) $row['country_code']) ?? $this->config->localTimezone;
+            }
+        }
+
+        return $zones;
+    }
+
+    /**
+     * The UTC times of the start of a local day and the start of the day after another
+     * @param string $from     YYYY-MM-DD
+     * @param string $to       YYYY-MM-DD, the last day in
+     * @param string $timezone
+     * @return array{0: string, 1: string} [from, until) as Y-m-d H:i:s in UTC
+     */
+    public static function utcWindow(string $from, string $to, string $timezone): array
+    {
+        $start = Time::createFromFormat('Y-m-d H:i:s', $from . ' 00:00:00', $timezone);
+        $end   = Time::createFromFormat('Y-m-d H:i:s', $to . ' 00:00:00', $timezone)->addDays(1);
+
+        return [$start->setTimezone('UTC')->toDateTimeString(), $end->setTimezone('UTC')->toDateTimeString()];
+    }
+
+    /**
      * The visits of a day grouped by site, business and a column
      * @param string $column SQL
      * @param string $from
      * @param string $until
+     * @param string $only   More SQL conditions on v, starting with AND
      * @return list<array>
      */
-    private function visitTotals(string $column, string $from, string $until): array
+    private function visitTotals(string $column, string $from, string $until, string $only = ''): array
     {
         $visit   = $this->db->prefixTable('tracker_visit');
         $visitor = $this->db->prefixTable('tracker_visitor');
@@ -155,7 +209,7 @@ class TrackerRollup
             . ' ' . $funnel(4) . ' AS orders, COALESCE(SUM(v.order_value), 0) AS revenue'
             . ' FROM ' . $visit . ' v'
             . ' LEFT JOIN ' . $visitor . ' tv ON tv.site = v.site AND tv.business_id = v.business_id AND tv.visitor_id = v.visitor_id'
-            . ' WHERE v.started_at >= ? AND v.started_at < ?'
+            . ' WHERE v.started_at >= ? AND v.started_at < ?' . $only
             . ' GROUP BY v.site, v.business_id, ' . $column;
 
         return array_map([$this, 'numbers'], $this->db->query($sql, [$from, $until, $from, $until])->getResultArray());
@@ -165,9 +219,10 @@ class TrackerRollup
      * The pages first viewed in their visit on a day, grouped by site, business and path
      * @param string $from
      * @param string $until
+     * @param string $only  More SQL conditions on v, starting with AND
      * @return list<array>
      */
-    private function pageTotals(string $from, string $until): array
+    private function pageTotals(string $from, string $until, string $only = ''): array
     {
         $page    = $this->db->prefixTable('tracker_visit_page');
         $visit   = $this->db->prefixTable('tracker_visit');
@@ -181,7 +236,7 @@ class TrackerRollup
             . ' FROM ' . $page . ' p'
             . ' JOIN ' . $visit . ' v ON v.id = p.visit_id'
             . ' LEFT JOIN ' . $visitor . ' tv ON tv.site = v.site AND tv.business_id = v.business_id AND tv.visitor_id = v.visitor_id'
-            . ' WHERE p.first_viewed_at >= ? AND p.first_viewed_at < ?'
+            . ' WHERE p.first_viewed_at >= ? AND p.first_viewed_at < ?' . $only
             . ' GROUP BY v.site, v.business_id, p.path';
 
         return array_map([$this, 'numbers'], $this->db->query($sql, [$from, $until, $from, $until])->getResultArray());

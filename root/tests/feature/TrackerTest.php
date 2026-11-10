@@ -242,7 +242,7 @@ final class TrackerTest extends CIUnitTestCase
         if ($origin !== null) {
             $headers['Origin'] = $origin;
         }
-        $response = $this->withHeaders($headers)->withBody($body)->call('post', 'v1/track');
+        $response = $this->withHeaders($headers)->withBody($body)->call('POST', 'v1/track');
         $response->assertStatus(204);
 
         return $response;

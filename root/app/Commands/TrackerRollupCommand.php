@@ -10,8 +10,9 @@ use Config\Tracker;
 use Throwable;
 
 /**
- * php spark tracker:rollup — rebuilds tracker_daily for today and the days before it (Config\Tracker::$rollupDays
- * in all, or the one day of --day), zeroes old IP addresses and deletes expired visits; see App\Libraries\TrackerRollup.
+ * php spark tracker:rollup — rebuilds tracker_daily for the last Config\Tracker::$rollupDays days, today and tomorrow
+ * (UTC dates; each business's days are local, see App\Libraries\TrackerRollup), or the one day of --day; then zeroes
+ * old IP addresses and deletes expired visits.
  * Safe to run again at any time. Hourly keeps today's numbers fresh, a few minutes after tracker:process:
  *   7 * * * * cd /path/to/root && php spark tracker:rollup >> writable/logs/tracker-rollup.log 2>&1
  * To fill in past days: php spark tracker:rollup --day 2026-11-01
@@ -43,7 +44,8 @@ class TrackerRollupCommand extends BaseCommand
         } else {
             $today = Time::today('UTC');
             $days  = [];
-            for ($i = max(1, $config->rollupDays) - 1; $i >= 0; $i--) {
+            // today east of UTC is already tomorrow in UTC
+            for ($i = max(1, $config->rollupDays); $i >= -1; $i--) {
                 $days[] = $today->subDays($i)->toDateString();
             }
         }

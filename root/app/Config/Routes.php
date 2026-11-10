@@ -68,6 +68,14 @@ $routes->group('v1', static function (RouteCollection $routes) {
         });
     }
 
+    // Admin app's traffic of the website and the marketplace, from the tracker: any staff member; see App\Controllers\Traffic
+    $routes->group('staff/traffic', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
+        $routes->post('overview', 'Traffic::staffOverview');
+        $routes->post('breakdown', 'Traffic::staffBreakdown');
+        $routes->post('visits', 'Traffic::staffVisits');
+        $routes->post('businesses', 'Traffic::staffBusinesses');
+    });
+
     $routes->group('staff/inbox', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
         $routes->post('messages', 'Inbox::messages');
         $routes->post('message', 'Inbox::message');
@@ -212,6 +220,11 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('staff/hours-exception/delete', 'Staff::deleteHoursException');
         $routes->post('commission-policy', 'Staff::policy');
         $routes->post('commission-policy/save', 'Staff::savePolicy');
+        // the traffic of a business's marketplace pages, from the tracker: its active owners and managers only;
+        // see App\Controllers\Traffic
+        $routes->post('traffic/overview', 'Traffic::clientOverview');
+        $routes->post('traffic/breakdown', 'Traffic::clientBreakdown');
+        $routes->post('traffic/visits', 'Traffic::clientVisits');
         // the people of a business and their accounts: its active owners only; see App\Controllers\Employees
         $routes->post('employees', 'Employees::list');
         $routes->post('employee', 'Employees::show');

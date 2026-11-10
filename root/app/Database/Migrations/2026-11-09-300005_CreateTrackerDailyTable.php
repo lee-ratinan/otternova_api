@@ -5,10 +5,10 @@ namespace App\Database\Migrations;
 use CodeIgniter\Database\Migration;
 
 /**
- * Creates the tracker_daily table: the traffic of a site or business per UTC day, which the daily tracker job
+ * Creates the tracker_daily table: the traffic of a site or business per local day, which the daily tracker job
  * rebuilds from tracker_visit and tracker_visit_page once the day is over. Kept for good, after the visits it was
  * made from are deleted, and what the traffic screens of the Admin and Client apps read.
- * - day: the UTC date; site, business_id: as in tracker_visit (business_id 0 for www and the marketplace's own pages)
+ * - day: the local date (the business's country's, or Config\Tracker::$localTimezone); site, business_id: as in tracker_visit (business_id 0 for www and the marketplace's own pages)
  * - dimension, dimension_value: what the row counts: total ('' value, the whole site or business), path (a page),
  *   country (a country code, '' when unknown), source (a source_type of tracker_visit) or device (a device_type)
  * - pageviews, visits, visitors, new_visitors (first seen that day), bounces, visible_s: of the visits, or of the
