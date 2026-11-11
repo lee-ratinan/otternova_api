@@ -1,0 +1,17 @@
+<?php
+
+// App\Controllers\Mart: หน้าสาธารณะของธุรกิจบนมาร์เก็ตเพลส
+return [
+    'slugRequired'     => 'ธุรกิจใด? ต้องระบุ business_slug',
+    'businessNotFound' => 'ไม่พบธุรกิจนี้',
+    'artifactNotFound' => 'ไม่พบสินค้าหรือบริการนี้',
+    'categoryNotFound' => 'ไม่พบหมวดหมู่นี้',
+    'loadFailed'       => 'ไม่สามารถโหลดหน้านี้ได้ กรุณาลองอีกครั้ง',
+    'invalidQuery'     => 'ตัวกรองบางรายการไม่ถูกต้อง',
+    'invalidIds'       => 'ids ต้องเป็นรหัสสาธารณะ คั่นด้วยเครื่องหมายจุลภาค',
+    'tooManyIds'       => 'ระบุรหัสสาธารณะได้ครั้งละไม่เกิน {0} รายการ',
+    'invalidSort'      => 'sort ต้องเป็น name, price_asc, price_desc, rating หรือ newest',
+    'invalidType'      => 'type ต้องเป็น P (สินค้า) หรือ S (บริการ)',
+    'invalidPage'      => 'page ต้องเป็นจำนวนเต็มตั้งแต่ 1 ขึ้นไป',
+    'invalidPerPage'   => 'per_page ต้องเป็นจำนวนเต็มตั้งแต่ 1 ถึง {0}',
+];

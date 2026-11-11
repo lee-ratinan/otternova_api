@@ -4,6 +4,7 @@ namespace Config;
 
 use App\Filters\DepartmentAccess;
 use App\Filters\JwtAuth;
+use App\Filters\MartCacheRefresh;
 use CodeIgniter\Config\Filters as BaseFilters;
 use CodeIgniter\Filters\Cors;
 use CodeIgniter\Filters\CSRF;
@@ -38,6 +39,7 @@ class Filters extends BaseFilters
         'performance'   => PerformanceMetrics::class,
         'jwt'           => JwtAuth::class, // Authorization: Bearer <jwt>, for every signed-in endpoint
         'department'    => DepartmentAccess::class, // staff of the departments given only; after 'jwt:S'
+        'martCacheRefresh' => MartCacheRefresh::class, // clears a business's cached mart answers after a change
     ];
 
     /**
@@ -110,5 +112,21 @@ class Filters extends BaseFilters
      *
      * @var array<string, array<string, list<string>>>
      */
-    public array $filters = [];
+    public array $filters = [
+        // the Client app's endpoints that change what the public mart pages show (App\Controllers\Mart)
+        'martCacheRefresh' => ['after' => [
+            'v1/client/business/edit',
+            'v1/client/store/create',
+            'v1/client/store/edit',
+            'v1/client/website/save',
+            'v1/client/website/logo-upload',
+            'v1/client/website/logo-delete',
+            'v1/client/artifact/create',
+            'v1/client/artifact/edit',
+            'v1/client/artifact/image-*',
+            'v1/client/artifact-category/*',
+            'v1/client/artifact-attribute/*',
+            'v1/client/artifact-review/*',
+        ]],
+    ];
 }

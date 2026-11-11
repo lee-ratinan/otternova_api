@@ -96,6 +96,22 @@ class BusinessWebsiteModel extends Model
     }
 
     /**
+     * The artifact_master.id of the featured artifacts of each section, in their order, whatever their status
+     * @param int $businessId
+     * @return array<string, list<int>> by section
+     */
+    public function featuredIdsOf(int $businessId): array
+    {
+        $featured = array_fill_keys(self::SECTIONS, []);
+        foreach ($this->db->table(self::FEATURED_TABLE)->select('section, artifact_id')->where('business_id', $businessId)
+            ->orderBy('section')->orderBy('sort_order')->get()->getResultArray() as $row) {
+            $featured[$row['section']][] = (int) $row['artifact_id'];
+        }
+
+        return $featured;
+    }
+
+    /**
      * The business's active artifacts, the ones that may be featured, by name
      * @param int $businessId
      * @return list<array{id: int, public_id: string, artifact_name: string, artifact_type: string}>

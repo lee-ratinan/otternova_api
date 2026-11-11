@@ -868,24 +868,7 @@ if (!function_exists('listSupportedTypefaces')) {
      */
     function listSupportedTypefaces(): array
     {
-        return [
-            // Thai-based
-            'th'    => [
-                'Athiti'                => 'family=Athiti:wght@400;700',
-                'Bai Jamjuree'          => 'family=Bai+Jamjuree:ital,wght@0,400;0,700;1,400;1,700',
-                'Chonburi'              => 'family=Chonburi',
-                'Itim'                  => 'family=Itim',
-                'Kanit'                 => 'family=Kanit:ital,wght@0,400;0,700;1,400;1,700',
-                'Mitr'                  => 'family=Mitr:wght@400;700',
-                'Noto Sans Thai'        => 'family=Noto+Sans+Thai:wght@400..700',
-                'Noto Sans Thai Looped' => 'family=Noto+Sans+Thai+Looped:wght@400..700',
-                'Noto Serif Thai'       => 'family=Noto+Serif+Thai:wght@100..900',
-                'Pattaya'               => 'family=Pattaya',
-                'Pridi'                 => 'family=Pridi:wght@400;700',
-                'Prompt'                => 'family=Prompt:ital,wght@0,400;0,700;1,400;1,700',
-                'Sarabun'               => 'family=Sarabun:ital,wght@0,400;0,700;1,400;1,700',
-                'Sriracha'              => 'family=Sriracha',
-            ],
+        $typefaces = [
             // For Latin-based
             'en-US' => [
                 'Audiowide'          => 'family=Audiowide',
@@ -902,8 +885,43 @@ if (!function_exists('listSupportedTypefaces')) {
                 'Roboto'             => 'family=Roboto:ital,wght@0,400;0,700;1,400;1,700',
                 'Schoolbell'         => 'family=Schoolbell',
                 'Ubuntu'             => 'family=Ubuntu:ital,wght@0,400;0,700;1,400;1,700'
-            ]
+            ],
+            'ja'    => [
+                'BIZ UDGothic'      => 'family=BIZ+UDGothic:wght@400;700',
+                'M PLUS 1'          => 'family=M+PLUS+1:wght@400;700',
+                'M PLUS Rounded 1c' => 'family=M+PLUS+Rounded+1c:wght@400;700',
+                'Noto Sans JP'      => 'family=Noto+Sans+JP:wght@400;700',
+                'Noto Serif JP'     => 'family=Noto+Serif+JP:wght@400;700',
+                'Shippori Mincho'   => 'family=Shippori+Mincho:wght@400;700'
+            ],
+            'th'    => [
+                'Athiti'                => 'family=Athiti:wght@400;700',
+                'Bai Jamjuree'          => 'family=Bai+Jamjuree:ital,wght@0,400;0,700;1,400;1,700',
+                'Chonburi'              => 'family=Chonburi',
+                'Itim'                  => 'family=Itim',
+                'Kanit'                 => 'family=Kanit:ital,wght@0,400;0,700;1,400;1,700',
+                'Mitr'                  => 'family=Mitr:wght@400;700',
+                'Noto Sans Thai'        => 'family=Noto+Sans+Thai:wght@400;700',
+                'Noto Sans Thai Looped' => 'family=Noto+Sans+Thai+Looped:wght@400;700',
+                'Noto Serif Thai'       => 'family=Noto+Serif+Thai:wght@400;700',
+                'Pattaya'               => 'family=Pattaya',
+                'Pridi'                 => 'family=Pridi:wght@400;700',
+                'Prompt'                => 'family=Prompt:ital,wght@0,400;0,700;1,400;1,700',
+                'Sarabun'               => 'family=Sarabun:ital,wght@0,400;0,700;1,400;1,700',
+                'Sriracha'              => 'family=Sriracha',
+            ],
+            'zh-TW' => [
+                'Huninn'         => 'family=Huninn',
+                'LXGW WenKai TC' => 'family=LXGW+WenKai+TC:wght@400;700',
+                'Noto Sans TC'   => 'family=Noto+Sans+TC:wght@400;700',
+                'Noto Serif TC'  => 'family=Noto+Serif+TC:wght@400;700',
+                'Zen Old Mincho' => 'family=Zen+Old+Mincho:wght@400;700'
+            ],
         ];
+        $typefaces['id']    = $typefaces['en-US'];
+        $typefaces['ms']    = $typefaces['en-US'];
+        $typefaces['zh-SG'] = $typefaces['zh-TW'];
+        return $typefaces;
     }
 }
 
@@ -961,12 +979,27 @@ if (!function_exists('listDefaultThemeVariables')) {
                 '--heading-font' => 'Oswald, sans-serif',
                 '--nav-font'     => 'Oswald, sans-serif'
             ],
+            'ja'    => [
+                '--default-font' => '"Noto Sans JP", system-ui, -apple-system, "Noto Sans", sans-serif',
+                '--heading-font' => '"M PLUS Rounded 1c", sans-serif',
+                '--nav-font'     => '"M PLUS Rounded 1c", sans-serif'
+            ],
             'th'    => [
                 '--default-font' => '"Noto Serif Thai", Sarabun, system-ui, -apple-system, "Noto Sans", sans-serif',
                 '--heading-font' => 'Prompt, sans-serif',
                 '--nav-font'     => 'Prompt, sans-serif'
+            ],
+            'zh-TW' => [
+                '--default-font' => '"Noto Sans TC", system-ui, -apple-system, "Noto Sans", sans-serif',
+                '--heading-font' => '"Zen Old Mincho", sans-serif',
+                '--nav-font'     => '"Zen Old Mincho", sans-serif'
             ]
         ];
+        if (in_array($locale, ['id', 'ms'])) {
+            $locale = 'en-US';
+        } else if ('zh-SG' === $locale) {
+            $locale = 'zh-TW';
+        }
         $usedFonts = $fonts[$locale] ?? $fonts['en-US'];
         return [
             'fonts'  => $usedFonts,

@@ -38,6 +38,14 @@ $routes->group('v1', static function (RouteCollection $routes) {
     // App\Controllers\Tracker and App\Libraries\TrackerGuard
     $routes->post('track', 'Tracker::collect');
 
+    // The public pages of a business on the marketplace (otternova_mart): no sign-in needed, cached; see
+    // App\Controllers\Mart and App\Libraries\MartCache
+    $routes->group('mart', static function (RouteCollection $routes) {
+        $routes->get('site', 'Mart::site');
+        $routes->get('artifacts', 'Mart::artifacts');
+        $routes->get('artifact', 'Mart::artifact');
+    });
+
     // Admin app: staff accounts only (a valid token with typ S)
     $routes->group('staff', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');

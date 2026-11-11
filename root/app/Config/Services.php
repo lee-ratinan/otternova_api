@@ -9,6 +9,7 @@ use App\Libraries\GeoLocator;
 use App\Libraries\ImageProcessor;
 use App\Libraries\JwtService;
 use App\Libraries\LoginThrottle;
+use App\Libraries\MartCache;
 use App\Libraries\TrackerGuard;
 use CodeIgniter\Config\BaseService;
 
@@ -87,6 +88,18 @@ class Services extends BaseService
         }
 
         return new TrackerGuard(service('cache'), config(Tracker::class));
+    }
+
+    /**
+     * The cache of the public mart endpoints
+     */
+    public static function martCache(bool $getShared = true): MartCache
+    {
+        if ($getShared) {
+            return static::getSharedInstance('martCache');
+        }
+
+        return new MartCache(service('cache'), config(Mart::class));
     }
 
     /**
