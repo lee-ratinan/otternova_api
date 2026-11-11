@@ -981,3 +981,18 @@ if (!function_exists('listDefaultThemeVariables')) {
         ];
     }
 }
+
+if (!function_exists('listTypefacesOfLanguage')) {
+    /**
+     * The typefaces a language of listLanguages() may use on a business's web pages: its own list of
+     * listSupportedTypefaces() when it has one, else the Latin one (en-US), so a language is never left without
+     * fonts; the browser falls back to a system font for the letters a typeface does not have
+     * @param string $languageCode
+     * @return array name => Google Fonts query (family=...)
+     */
+    function listTypefacesOfLanguage(string $languageCode): array
+    {
+        $typefaces = listSupportedTypefaces();
+        return $typefaces[$languageCode] ?? $typefaces['en-US'] ?? [];
+    }
+}

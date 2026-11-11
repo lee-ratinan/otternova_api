@@ -225,6 +225,11 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('traffic/overview', 'Traffic::clientOverview');
         $routes->post('traffic/breakdown', 'Traffic::clientBreakdown');
         $routes->post('traffic/visits', 'Traffic::clientVisits');
+        // how a business's web pages look: its active owners and managers only; see App\Controllers\Websites
+        $routes->post('website', 'Websites::show');
+        $routes->post('website/save', 'Websites::save');
+        $routes->post('website/logo-upload', 'Websites::logoUpload');
+        $routes->post('website/logo-delete', 'Websites::logoDelete');
         // the people of a business and their accounts: its active owners only; see App\Controllers\Employees
         $routes->post('employees', 'Employees::list');
         $routes->post('employee', 'Employees::show');

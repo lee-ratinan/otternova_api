@@ -63,6 +63,55 @@ class ImageProcessor
     }
 
     /**
+     * The size of an image as it is shown, after its EXIF orientation
+     * @param string $source An image file
+     * @return array{0: int, 1: int} [width, height]
+     * @throws RuntimeException With ERROR_UNREADABLE
+     */
+    public function uprightSize(string $source): array
+    {
+        $image = $this->upright($this->open($source), $source);
+
+        return [imagesx($image), imagesy($image)];
+    }
+
+    /**
+     * Turns an image into a WebP of exactly $width x $height without cutting any of it off: scaled, up or down, to the
+     * largest size that fits, centred, the rest transparent. For logos, which a crop would cut the edges off.
+     * @param string $source  An image file
+     * @param string $target  Where the WebP goes; overwritten
+     * @param int    $width
+     * @param int    $height
+     * @param int    $minSide The shortest side the original may have
+     * @param int    $quality 0-100
+     * @return void
+     * @throws RuntimeException With one of the ERROR_ codes as its message
+     */
+    public function fit(string $source, string $target, int $width, int $height, int $minSide, int $quality): void
+    {
+        $image      = $this->upright($this->open($source), $source);
+        $origWidth  = imagesx($image);
+        $origHeight = imagesy($image);
+        if (min($origWidth, $origHeight) < $minSide) {
+            throw new RuntimeException(self::ERROR_TOO_SMALL);
+        }
+
+        $scale     = min($width / $origWidth, $height / $origHeight);
+        $fitWidth  = max(1, (int) round($origWidth * $scale));
+        $fitHeight = max(1, (int) round($origHeight * $scale));
+
+        $canvas = imagecreatetruecolor($width, $height);
+        imagealphablending($canvas, false);
+        imagesavealpha($canvas, true);
+        imagefill($canvas, 0, 0, imagecolorallocatealpha($canvas, 0, 0, 0, 127));
+        imagecopyresampled($canvas, $image, intdiv($width - $fitWidth, 2), intdiv($height - $fitHeight, 2), 0, 0, $fitWidth, $fitHeight, $origWidth, $origHeight);
+
+        if (! @imagewebp($canvas, $target, $quality)) {
+            throw new RuntimeException(self::ERROR_SAVE);
+        }
+    }
+
+    /**
      * @param string $source
      * @return \GdImage
      * @throws RuntimeException

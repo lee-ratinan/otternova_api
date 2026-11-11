@@ -64,5 +64,34 @@ class ImageUpload extends BaseConfig
             'ownRowOnly'  => [],
             'access'      => self::ACCESS_PUBLIC, // the shop shows them to anyone
         ],
+        // a business's logo on its web pages, uploaded and deleted by App\Controllers\Websites, which picks the size
+        // from the original's shape ($logoShapes); width and height here are the larger, wide one. No uploaders, so
+        // the generic image-upload and image-delete refuse it, as they cannot check the business
+        'business-logo' => [
+            'uploaders'   => [],
+            'width'       => 2000,
+            'height'      => 1000,
+            'target'      => 'business_website.logo_path',
+            'ownerColumn' => 'id',
+            'ownRowOnly'  => [],
+            'access'      => self::ACCESS_PUBLIC, // on the business's public pages
+        ],
     ];
+
+    /**
+     * The sizes of a business-logo, by business_website.logo_shape. A logo is square when its width is less than
+     * $logoWideRatio times its height (portrait ones too), else wide; it is fitted into that size whole, the rest
+     * left transparent (ImageProcessor::fit)
+     * @var array<string, array{width: int, height: int}>
+     */
+    public array $logoShapes = [
+        'S' => ['width' => 1000, 'height' => 1000],
+        'W' => ['width' => 2000, 'height' => 1000],
+    ];
+
+    /** Width over height from which a logo is wide: √2, halfway between 1:1 and 2:1 on a log scale */
+    public float $logoWideRatio = M_SQRT2;
+
+    /** The shortest side a logo may have, so it is not blown up from a thumbnail */
+    public int $logoMinSide = 200;
 }
