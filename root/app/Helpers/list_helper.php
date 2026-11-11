@@ -54,20 +54,20 @@ if (!function_exists("listLanguages")) {
     {
         return [
             "en-US" => "English (US)",
-//            "en-GB" => "English (GB)",
-//            "en-AU" => "English (AU)",
+            //            "en-GB" => "English (GB)",
+            //            "en-AU" => "English (AU)",
             "id"    => "Bahasa Indonesia",
             "ms"    => "Bahasa Malaysia",
-//            "vi"    => "tiếng Việt (Vietnamese)",
+            //            "vi"    => "tiếng Việt (Vietnamese)",
             "th"    => "ภาษาไทย (Thai)",
             "zh-SG" => "华语 (Huayu)",
             "ja"    => "日本語 (Japanese)",
-//            "ko"    => "한국어 (Korean)",
+            //            "ko"    => "한국어 (Korean)",
             "zh-TW" => "國語 (Mandarin)",
-//            "nan-TW" => "台語 (Taiwanese)",
-//            "ta"    => "தமிழ் (Tamil)",
-//            "su"    => "ᮘᮞ ᮞᮥᮔ᮪ᮓ / Basa Sunda (Sundanese)",
-//            "jv"    => "ꦧꦱꦗꦮ / Basa Jawa (Javanese)"
+            //            "nan-TW" => "台語 (Taiwanese)",
+            //            "ta"    => "தமிழ் (Tamil)",
+            //            "su"    => "ᮘᮞ ᮞᮥᮔ᮪ᮓ / Basa Sunda (Sundanese)",
+            //            "jv"    => "ꦧꦱꦗꦮ / Basa Jawa (Javanese)"
         ];
     }
 }
