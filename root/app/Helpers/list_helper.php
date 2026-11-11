@@ -46,7 +46,7 @@ if (!function_exists("listSupportedLanguages")) {
 }
 if (!function_exists("listLanguages")) {
     /**
-     * List all languages
+     * List all languages - this will be available on mart
      * TODO: add more languages
      * @return array
      */
@@ -54,20 +54,20 @@ if (!function_exists("listLanguages")) {
     {
         return [
             "en-US" => "English (US)",
-            "en-GB" => "English (GB)",
-            "en-AU" => "English (AU)",
+//            "en-GB" => "English (GB)",
+//            "en-AU" => "English (AU)",
             "id"    => "Bahasa Indonesia",
             "ms"    => "Bahasa Malaysia",
-            "vi"    => "tiếng Việt (Vietnamese)",
+//            "vi"    => "tiếng Việt (Vietnamese)",
             "th"    => "ภาษาไทย (Thai)",
             "zh-SG" => "华语 (Huayu)",
             "ja"    => "日本語 (Japanese)",
-            "ko"    => "한국어 (Korean)",
+//            "ko"    => "한국어 (Korean)",
             "zh-TW" => "國語 (Mandarin)",
-            "nan-TW" => "台語 (Taiwanese)",
-            "ta"    => "தமிழ் (Tamil)",
-            "su"    => "ᮘᮞ ᮞᮥᮔ᮪ᮓ / Basa Sunda (Sundanese)",
-            "jv"    => "ꦧꦱꦗꦮ / Basa Jawa (Javanese)"
+//            "nan-TW" => "台語 (Taiwanese)",
+//            "ta"    => "தமிழ் (Tamil)",
+//            "su"    => "ᮘᮞ ᮞᮥᮔ᮪ᮓ / Basa Sunda (Sundanese)",
+//            "jv"    => "ꦧꦱꦗꦮ / Basa Jawa (Javanese)"
         ];
     }
 }
@@ -857,6 +857,127 @@ if (!function_exists('listSupportedTelephoneCountryCodes')) {
             "TW" => "+886",
             "JP" => "+81",
             "KR" => "+82",
+        ];
+    }
+}
+
+if (!function_exists('listSupportedTypefaces')) {
+    /**
+     * List supported typefaces
+     * @return array
+     */
+    function listSupportedTypefaces(): array
+    {
+        return [
+            // Thai-based
+            'th'    => [
+                'Athiti'                => 'family=Athiti:wght@400;700',
+                'Bai Jamjuree'          => 'family=Bai+Jamjuree:ital,wght@0,400;0,700;1,400;1,700',
+                'Chonburi'              => 'family=Chonburi',
+                'Itim'                  => 'family=Itim',
+                'Kanit'                 => 'family=Kanit:ital,wght@0,400;0,700;1,400;1,700',
+                'Mitr'                  => 'family=Mitr:wght@400;700',
+                'Noto Sans Thai'        => 'family=Noto+Sans+Thai:wght@400..700',
+                'Noto Sans Thai Looped' => 'family=Noto+Sans+Thai+Looped:wght@400..700',
+                'Noto Serif Thai'       => 'family=Noto+Serif+Thai:wght@100..900',
+                'Pattaya'               => 'family=Pattaya',
+                'Pridi'                 => 'family=Pridi:wght@400;700',
+                'Prompt'                => 'family=Prompt:ital,wght@0,400;0,700;1,400;1,700',
+                'Sarabun'               => 'family=Sarabun:ital,wght@0,400;0,700;1,400;1,700',
+                'Sriracha'              => 'family=Sriracha',
+            ],
+            // For Latin-based
+            'en-US' => [
+                'Audiowide'          => 'family=Audiowide',
+                'Cormorant Garamond' => 'family=Cormorant+Garamond:ital,wght@0,400;0,700;1,400;1,700',
+                'Inter'              => 'family=Inter:ital,wght@0,400;0,700;1,400;1,700',
+                'Lato'               => 'family=Lato:ital,wght@0,400;0,700;1,400;1,700',
+                'Merriweather'       => 'family=Merriweather:ital,wght@0,400..700;1,400..700',
+                'Montserrat'         => 'family=Montserrat:ital,wght@0,400;0,700;1,400;1,700',
+                'Noto Sans'          => 'family=Noto+Sans:ital,wght@0,400;0,700;1,400;1,700',
+                'Noto Serif'         => 'family=Noto+Serif:ital,wght@0,400;0,700;1,400;1,700',
+                'Open Sans'          => 'family=Open+Sans:ital,wght@0,400;0,700;1,400;1,700',
+                'Oswald'             => 'family=Oswald:wght@400;700',
+                'Playfair Display'   => 'family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700',
+                'Roboto'             => 'family=Roboto:ital,wght@0,400;0,700;1,400;1,700',
+                'Schoolbell'         => 'family=Schoolbell',
+                'Ubuntu'             => 'family=Ubuntu:ital,wght@0,400;0,700;1,400;1,700'
+            ]
+        ];
+    }
+}
+
+if (!function_exists('listSupportedTypefacesFlat')) {
+    /**
+     * List supported typefaces - flattened array
+     * @return array
+     */
+    function listSupportedTypefacesFlat(): array
+    {
+        $fontConfig = listSupportedTypefaces();
+        $flattened = [];
+        foreach ($fontConfig as $locale => $fonts) {
+            foreach ($fonts as $name => $queryString) {
+                $flattened[$name] = $queryString; // Keyed by name to prevent duplicate keys across locales
+            }
+        }
+        return $flattened;
+    }
+}
+
+if (!function_exists('listSupportedTypefacesNameOnly')) {
+    /**
+     * List supported typefaces - name only
+     * @param string|null $locale
+     * @return array
+     */
+    function listSupportedTypefacesNameOnly(?string $locale = null): array
+    {
+        $fontConfig = listSupportedTypefaces();
+        if ($locale !== null) {
+            // Return names for a specific locale only
+            return isset($fontConfig[$locale]) ? array_keys($fontConfig[$locale]) : [];
+        }
+        // Flatten all locales and remove duplicates
+        $allNames = [];
+        foreach ($fontConfig as $localeGroup) {
+            $allNames = array_merge($allNames, array_keys($localeGroup));
+        }
+        return array_values(array_unique($allNames));
+    }
+}
+
+
+if (!function_exists('listDefaultThemeVariables')) {
+    /**
+     * @param string|null $locale
+     * @return array
+     */
+    function listDefaultThemeVariables(?string $locale = null): array
+    {
+        $fonts = [
+            'en-US' => [
+                '--default-font' => 'Raleway, system-ui, -apple-system, "Noto Sans", sans-serif',
+                '--heading-font' => 'Oswald, sans-serif',
+                '--nav-font'     => 'Oswald, sans-serif'
+            ],
+            'th'    => [
+                '--default-font' => '"Noto Serif Thai", Sarabun, system-ui, -apple-system, "Noto Sans", sans-serif',
+                '--heading-font' => 'Prompt, sans-serif',
+                '--nav-font'     => 'Prompt, sans-serif'
+            ]
+        ];
+        $usedFonts = $fonts[$locale] ?? $fonts['en-US'];
+        return [
+            'fonts'  => $usedFonts,
+            'colors' => [
+                '--background-color' => '#ffffff', /* Background color for the entire website, including individual sections */
+                '--default-color'    => '#5a6577', /* Default color used for the majority of the text content across the entire website */
+                '--heading-color'    => '#10243d', /* Color for headings, subheadings and title throughout the website */
+                '--accent-color'     => '#ff7533', /* Accent color that represents your brand on the website. It's used for buttons, links, and other elements that need to stand out */
+                '--surface-color'    => '#ffffff', /* The surface color is used as a background of boxed elements within sections, such as cards, icon boxes, or other elements that require a visual separation from the global background. */
+                '--contrast-color'   => '#ffffff' /* Contrast color for text, ensuring readability against backgrounds of accent, heading, or default colors. */
+            ]
         ];
     }
 }
