@@ -423,16 +423,30 @@ class MartCatalogModel extends Model
             ->where('business_id', $businessId)
             ->orderBy('store_name')->orderBy('id')
             ->get()->getResultArray();
-        $names = $this->namesIn('business_store_translation', 'store_id', 'store_name', array_map('intval', array_column($rows, 'id')), $language);
+        $texts = [];
+        if ($rows !== []) {
+            // the name and address in the visitor's language; each column falls back to business_store's on its own
+            $translated = $this->db->table('business_store_translation')
+                ->select('store_id, ' . implode(', ', BusinessStoreModel::TRANSLATED_FIELDS))
+                ->whereIn('store_id', array_map('intval', array_column($rows, 'id')))->where('language_code', $language)
+                ->get()->getResultArray();
+            foreach ($translated as $text) {
+                $texts[(int) $text['store_id']] = array_filter(
+                    array_intersect_key($text, array_flip(BusinessStoreModel::TRANSLATED_FIELDS)),
+                    static fn ($value) => $value !== null && (string) $value !== ''
+                );
+            }
+        }
 
         return array_map(static fn (array $row): array => [
             'public_id'        => $row['public_id'],
-            'name'             => $names[(int) $row['id']] ?? $row['store_name'],
+            'name'             => $texts[(int) $row['id']]['store_name'] ?? $row['store_name'],
             'type'             => $row['store_type'],
             'phone_number'     => $row['store_phone_number'],
-            'address_line_1'   => $row['store_address_line_1'],
-            'address_line_2'   => $row['store_address_line_2'],
-            'city'             => $row['store_city'],
+            // an online store has no address, translated or not
+            'address_line_1'   => $row['store_type'] === BusinessStoreModel::TYPE_ONLINE ? null : ($texts[(int) $row['id']]['store_address_line_1'] ?? $row['store_address_line_1']),
+            'address_line_2'   => $row['store_type'] === BusinessStoreModel::TYPE_ONLINE ? null : ($texts[(int) $row['id']]['store_address_line_2'] ?? $row['store_address_line_2']),
+            'city'             => $row['store_type'] === BusinessStoreModel::TYPE_ONLINE ? null : ($texts[(int) $row['id']]['store_city'] ?? $row['store_city']),
             'subdivision_code' => $row['store_subdivision_code'],
             'postal_code'      => $row['store_postal_code'],
         ], $rows);

@@ -20,7 +20,7 @@ final class NotificationSchemaTest extends CIUnitTestCase
     {
         parent::setUp();
 
-        $this->db->table('auth_master')->insert(['uid' => 'u1', 'email_address' => 'a@example.com', 'full_name' => 'A']);
+        $this->db->table('auth_master')->insert(['public_id' => bin2hex(random_bytes(6)), 'uid' => 'u1', 'email_address' => 'a@example.com', 'full_name' => 'A']);
         $this->db->table('business_type')->insert(['type_code' => 'spa', 'public_id' => 'ty01']);
         $this->db->table('business_master')->insert(['business_type_id' => 1, 'business_name' => 'Spa', 'business_slug' => 'spa',
             'contact_email_address' => 'spa@example.com', 'country_code' => 'TH', 'currency_code' => 'THB']);
@@ -59,7 +59,7 @@ final class NotificationSchemaTest extends CIUnitTestCase
 
     public function testNotificationsGoWithTheirRecipientOrBusiness(): void
     {
-        $this->db->table('auth_master')->insert(['uid' => 'u2', 'email_address' => 'b@example.com', 'full_name' => 'B']);
+        $this->db->table('auth_master')->insert(['public_id' => bin2hex(random_bytes(6)), 'uid' => 'u2', 'email_address' => 'b@example.com', 'full_name' => 'B']);
         $this->db->table('notification_master')->insert(['public_id' => 'notif0000001', 'auth_id' => 1, 'event_type' => 'payment.approved', 'business_id' => 1]);
         $this->db->table('notification_master')->insert(['public_id' => 'notif0000002', 'auth_id' => 2, 'event_type' => 'payment.slip_submitted']);
 

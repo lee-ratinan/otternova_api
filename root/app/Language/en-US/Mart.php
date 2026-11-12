@@ -14,4 +14,9 @@ return [
     'invalidType'      => 'type must be P (products) or S (services).',
     'invalidPage'      => 'page must be a whole number from 1.',
     'invalidPerPage'   => 'per_page must be a whole number from 1 to {0}.',
+    'variantNotBookable' => 'This service cannot be booked by time.',
+    'invalidDate'        => 'date must be a date, YYYY-MM-DD.',
+    'dateOutsideWindow'  => 'Bookings are taken from {0} to {1}.',
+    'storeNotFound'      => 'There is no such store for this service.',
+    'staffNotFound'      => 'There is no such person for this service.',
 ];

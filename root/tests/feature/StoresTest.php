@@ -57,7 +57,7 @@ final class StoresTest extends CIUnitTestCase
         $response = $this->send([
             'business_slug' => 'otter-cafe-th',
             'store'         => ['store_name' => 'Bangkok', 'store_type' => 'p', 'store_phone_number' => ' +6621234567 ', 'store_address_line_1' => '1 Sukhumvit Rd', 'store_city' => 'Bangkok', 'store_subdivision_code' => 'th-10', 'store_postal_code' => '10110'],
-            'translations'  => ['th' => ' กรุงเทพฯ ', 'ja' => ''],
+            'translations'  => ['th' => ['store_name' => ' กรุงเทพฯ ', 'store_address_line_1' => ' 1 ถนนสุขุมวิท ', 'store_city' => 'กรุงเทพมหานคร'], 'ja' => ['store_name' => '']],
         ]);
         $response->assertStatus(200);
         $publicId = $this->body($response)['data']['public_id'];
@@ -73,7 +73,7 @@ final class StoresTest extends CIUnitTestCase
         $stores = $this->body($response)['data']['stores'];
         $this->assertSame(['Bangkok', 'Online Store'], array_column($stores, 'store_name'));
         $this->assertSame(['+6621234567', '021234567'], array_column($stores, 'store_phone_number')); // kept for an online store too
-        $this->assertSame([$publicId, 'P', '1 Sukhumvit Rd', 'TH-10', ['th' => 'กรุงเทพฯ']],
+        $this->assertSame([$publicId, 'P', '1 Sukhumvit Rd', 'TH-10', ['th' => ['store_name' => 'กรุงเทพฯ', 'store_address_line_1' => '1 ถนนสุขุมวิท', 'store_address_line_2' => null, 'store_city' => 'กรุงเทพมหานคร']]],
             [$stores[0]['public_id'], $stores[0]['store_type'], $stores[0]['store_address_line_1'], $stores[0]['store_subdivision_code'], $stores[0]['translations']]);
         $this->assertSame(['O', null, null, []], [$stores[1]['store_type'], $stores[1]['store_address_line_1'], $stores[1]['store_subdivision_code'], $stores[1]['translations']]);
         $this->assertArrayNotHasKey('id', $stores[0]);
@@ -110,9 +110,18 @@ final class StoresTest extends CIUnitTestCase
         $response->assertStatus(422);
         $this->assertSame(['store_name' => lang('Store.nameTaken')], $this->body($response)['errors']);
 
-        $response = $this->send(['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => 'Pattaya', 'store_type' => 'P'], 'translations' => ['fr' => 'Pattaya']]);
+        $response = $this->send(['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => 'Pattaya', 'store_type' => 'P'], 'translations' => ['fr' => ['store_name' => 'Pattaya']]]);
         $response->assertStatus(422);
-        $this->assertSame(lang('Store.unknownLanguage'), $this->body($response)['errors']['translations.fr']);
+        $this->assertSame(lang('Translation.unknownLanguage'), $this->body($response)['errors']['translations.fr']);
+
+        // an address in a language needs the name in it too, and fits the column
+        $response = $this->send(['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => 'Pattaya', 'store_type' => 'P'], 'translations' => ['th' => ['store_city' => 'พัทยา']]]);
+        $response->assertStatus(422);
+        $this->assertSame(lang('Translation.nameRequired'), $this->body($response)['errors']['translations.th.store_name']);
+        $response = $this->send(['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => 'Pattaya', 'store_type' => 'P'], 'translations' => ['th' => ['store_name' => 'พัทยา', 'store_city' => str_repeat('ก', 129)]]]);
+        $response->assertStatus(422);
+        $this->assertSame(['translations.th.store_city'], array_keys($this->body($response)['errors']));
+        $this->send(['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => 'Pattaya', 'store_type' => 'P'], 'translations' => ['th' => 'พัทยา']])->assertStatus(422);
 
         $this->send(['store' => ['store_name' => 'Pattaya', 'store_type' => 'P']])->assertStatus(400);
         $this->send(['business_slug' => 'nobody', 'store' => ['store_name' => 'Pattaya', 'store_type' => 'P']])->assertStatus(404);
@@ -123,20 +132,23 @@ final class StoresTest extends CIUnitTestCase
         $publicId = $this->body($this->send([
             'business_slug' => 'otter-cafe-th',
             'store'         => ['store_name' => 'Pattaya', 'store_type' => 'P', 'store_address_line_1' => '2 Beach Rd', 'store_subdivision_code' => 'TH-20'],
-            'translations'  => ['th' => 'พัทยา', 'ja' => 'パタヤ'],
+            'translations'  => ['th' => ['store_name' => 'พัทยา'], 'ja' => ['store_name' => 'パタヤ']],
         ]))['data']['public_id'];
 
-        $response = $this->send(['public_id' => $publicId, 'store' => ['store_city' => 'Pattaya'], 'translations' => ['th' => 'พัทยา']], null, 'v1/client/store/edit');
+        $response = $this->send(['public_id' => $publicId, 'store' => ['store_city' => 'Pattaya'], 'translations' => ['th' => ['store_name' => 'พัทยา', 'store_address_line_1' => '2 ถนนชายหาด', 'store_city' => 'พัทยา']]], null, 'v1/client/store/edit');
         $response->assertStatus(200);
         $row = $this->db->table('business_store')->where('public_id', $publicId)->get()->getRowArray();
         $this->assertSame(['Pattaya', '2 Beach Rd', 'Pattaya', 'TH-20'], [$row['store_name'], $row['store_address_line_1'], $row['store_city'], $row['store_subdivision_code']]);
         $names = $this->db->table('business_store_translation')->where('store_id', $row['id'])->get()->getResultArray();
         $this->assertSame(['th' => 'พัทยา'], array_column($names, 'store_name', 'language_code'));
+        $this->assertSame(['2 ถนนชายหาด', 'พัทยา'], [$names[0]['store_address_line_1'], $names[0]['store_city']]);
 
         $this->send(['public_id' => $publicId, 'store' => ['store_type' => 'O']], null, 'v1/client/store/edit')->assertStatus(200);
         $row = $this->db->table('business_store')->where('public_id', $publicId)->get()->getRowArray();
         $this->assertSame(['O', null, null, null], [$row['store_type'], $row['store_address_line_1'], $row['store_city'], $row['store_subdivision_code']]);
-        $this->assertSame(1, $this->db->table('business_store_translation')->where('store_id', $row['id'])->countAllResults()); // names left out, kept
+        $names = $this->db->table('business_store_translation')->where('store_id', $row['id'])->get()->getResultArray();
+        // translations left out are kept, but an online store loses its translated address too
+        $this->assertSame([['th', 'พัทยา', null, null]], array_map(static fn (array $n) => [$n['language_code'], $n['store_name'], $n['store_address_line_1'], $n['store_city']], $names));
 
         $this->send(['public_id' => 'nope', 'store' => []], null, 'v1/client/store/edit')->assertStatus(404);
         $this->send(['store' => []], null, 'v1/client/store/edit')->assertStatus(400);
@@ -229,7 +241,7 @@ final class StoresTest extends CIUnitTestCase
             'account_status'  => 'A',
             'account_type'    => $type,
         ];
-        $this->db->table('auth_master')->insert($account);
+        $this->db->table('auth_master')->insert($account + ['public_id' => bin2hex(random_bytes(6))]);
         $account['id'] = $this->db->insertID();
 
         return $account;

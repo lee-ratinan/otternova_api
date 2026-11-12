@@ -245,7 +245,7 @@ final class BusinessModelsTest extends CIUnitTestCase
      */
     private function createAccount(string $email, string $type): int
     {
-        $this->db->table('auth_master')->insert([
+        $this->db->table('auth_master')->insert(['public_id' => bin2hex(random_bytes(6)), 
             'uid'            => preg_replace('/[^a-z0-9]/', '', $email),
             'email_address'  => $email,
             'password_hash'  => 'x',

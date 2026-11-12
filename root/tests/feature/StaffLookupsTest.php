@@ -191,7 +191,7 @@ final class StaffLookupsTest extends CIUnitTestCase
             'account_type'     => 'S',
             'admin_notes'      => 'internal note',
         ];
-        $this->db->table('auth_master')->insert($account);
+        $this->db->table('auth_master')->insert($account + ['public_id' => bin2hex(random_bytes(6))]);
         $account['id'] = $this->db->insertID();
 
         return $account;

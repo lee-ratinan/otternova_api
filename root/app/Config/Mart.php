@@ -31,4 +31,13 @@ class Mart extends BaseConfig
 
     /** Approved reviews /mart/artifact sends, the newest first */
     public int $reviewCount = 10;
+
+    /**
+     * Minutes between the starts /mart/slots offers, on the store's clock (30: 10:00, 10:30 ...); an opening at 10:15
+     * offers 10:30 first
+     */
+    public int $slotStepMinutes = 30;
+
+    /** Days /mart/slots looks through for the first with a free time, when no date is asked for */
+    public int $firstDateSearchDays = 14;
 }

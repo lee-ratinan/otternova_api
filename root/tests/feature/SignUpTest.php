@@ -236,7 +236,7 @@ final class SignUpTest extends CIUnitTestCase
 
     private function createAccount(string $email, array $overrides = []): void
     {
-        $this->db->table('auth_master')->insert($overrides + [
+        $this->db->table('auth_master')->insert($overrides + ['public_id' => bin2hex(random_bytes(6)), 
             'uid'            => preg_replace('/[^a-z0-9]/', '', $email),
             'email_address'  => $email,
             'password_hash'  => password_hash(self::PASSWORD, PASSWORD_DEFAULT),

@@ -8,8 +8,8 @@ use InvalidArgumentException;
 use Throwable;
 
 /**
- * Model for the business_store table: a branch of a business, physical (P) or online (O), with its names in other
- * languages in business_store_translation. Only a physical store has an address: the writes here save the address
+ * Model for the business_store table: a branch of a business, physical (P) or online (O), with its names and addresses
+ * in other languages in business_store_translation. Only a physical store has an address: the writes here save the address
  * columns of an online store as NULL. Its subdivision must be one of listSupportedSubdivisions() of its business's
  * country, and its store_timezone one of listSupportedTimezones() of it, which localeErrors() checks. Its opening
  * hours are in BusinessStoreHoursModel.
@@ -19,6 +19,7 @@ class BusinessStoreModel extends Model
     use FieldConfigurationTrait;
     use PublicIdTrait;
     use TransactionTrait;
+    use TranslationWriteTrait;
 
     // store_type
     public const TYPE_PHYSICAL = 'P';
@@ -32,6 +33,15 @@ class BusinessStoreModel extends Model
         'store_subdivision_code',
         'store_postal_code',
     ];
+
+    /** The table of the store's texts in other languages */
+    public const TRANSLATION_TABLE = 'business_store_translation';
+
+    /** Columns of TRANSLATION_TABLE, the name (which a language cannot do without) first */
+    public const TRANSLATED_FIELDS = ['store_name', 'store_address_line_1', 'store_address_line_2', 'store_city'];
+
+    /** Columns of TRANSLATED_FIELDS that only a physical store has */
+    public const TRANSLATED_ADDRESS_FIELDS = ['store_address_line_1', 'store_address_line_2', 'store_city'];
 
     /** Columns fixed once the store is created */
     public const FIXED_FIELDS = ['business_id'];
@@ -162,11 +172,11 @@ class BusinessStoreModel extends Model
     }
 
     /**
-     * The stores of a business with their names in other languages, by name. The ids stay inside; a store goes out
-     * by its public_id.
+     * The stores of a business with their names and addresses in other languages, by name. The ids stay inside; a
+     * store goes out by its public_id.
      * @param int  $businessId
      * @param bool $withIds Keep the internal id, for the caller's own use; strip it before anything goes out
-     * @return list<array>
+     * @return list<array> each with translations: language_code => [column of TRANSLATED_FIELDS => text]
      */
     public function listOfBusiness(int $businessId, bool $withIds = false): array
     {
@@ -180,17 +190,9 @@ class BusinessStoreModel extends Model
         if ($stores === []) {
             return [];
         }
-        $names = [];
-        $rows  = $this->db->table('business_store_translation')
-            ->select('store_id, language_code, store_name')
-            ->whereIn('store_id', array_column($stores, 'id'))
-            ->get()
-            ->getResultArray();
-        foreach ($rows as $row) {
-            $names[(int) $row['store_id']][$row['language_code']] = $row['store_name'];
-        }
+        $translations = $this->translationsOf(self::TRANSLATION_TABLE, 'store_id', array_map('intval', array_column($stores, 'id')), self::TRANSLATED_FIELDS);
 
-        return array_map(static function (array $store) use ($names, $withIds) {
+        return array_map(static function (array $store) use ($translations, $withIds) {
             $id = (int) $store['id'];
             if ($withIds) {
                 $store['id'] = $id;
@@ -198,24 +200,18 @@ class BusinessStoreModel extends Model
                 unset($store['id']);
             }
 
-            return $store + ['translations' => $names[$id] ?? []];
+            return $store + ['translations' => $translations[$id] ?? []];
         }, $stores);
     }
 
     /**
-     * The names of a store in other languages
+     * The names and addresses of a store in other languages
      * @param int $id
-     * @return array language_code => store_name
+     * @return array language_code => [column of TRANSLATED_FIELDS => text]
      */
-    public function namesOf(int $id): array
+    public function translationsOfStore(int $id): array
     {
-        $rows = $this->db->table('business_store_translation')
-            ->select('language_code, store_name')
-            ->where('store_id', $id)
-            ->get()
-            ->getResultArray();
-
-        return array_column($rows, 'store_name', 'language_code');
+        return $this->translationsOf(self::TRANSLATION_TABLE, 'store_id', [$id], self::TRANSLATED_FIELDS)[$id] ?? [];
     }
 
     /**
@@ -235,12 +231,28 @@ class BusinessStoreModel extends Model
     }
 
     /**
-     * Create a store with its names in one transaction, logged to log_activity in it, unless the business has
+     * $translations with the translated address columns NULL when $store is an online store
+     * @param array $store
+     * @param array $translations language_code => [column of TRANSLATED_FIELDS => text]
+     * @return array
+     */
+    public static function translationsWithoutOnlineAddress(array $store, array $translations): array
+    {
+        if (($store['store_type'] ?? null) !== self::TYPE_ONLINE) {
+            return $translations;
+        }
+
+        return array_map(static fn (array $texts): array => array_merge($texts, array_fill_keys(self::TRANSLATED_ADDRESS_FIELDS, null)), $translations);
+    }
+
+    /**
+     * Create a store with its names and addresses in other languages in one transaction, logged to log_activity in it, unless the business has
      * $maxStores stores already. The business's row is locked first (on MySQL), so two creates at once cannot both
      * take the last place.
      * @param array    $store     Checked business_store columns (localeErrors() included), business_id included
      * @param int      $actorId   auth_master.id of whoever creates it
-     * @param array    $names     language_code => store_name, for languages of listLanguages(); optional
+     * @param array    $names     language_code => [column of TRANSLATED_FIELDS => text], from TranslationInputTrait;
+     *                            optional. The address is left out for an online store
      * @param int|null $maxStores The business's cap (Config\PlanLimits::STORES); null for none
      * @return string|null The new store's public_id, or null when the business is at its cap; nothing is written then
      * @throws Throwable When a write fails (such as the name being taken meanwhile); nothing is written then
@@ -248,6 +260,7 @@ class BusinessStoreModel extends Model
     public function createWithNames(array $store, int $actorId, array $names = [], ?int $maxStores = null): ?string
     {
         $store = self::withoutOnlineAddress($store);
+        $names = self::translationsWithoutOnlineAddress($store, $names);
         $log   = new ActivityLog();
 
         $publicId = $this->withPublicId(fn (string $publicId) => $this->inTransaction(function () use ($store, $actorId, $names, $log, $publicId, $maxStores) {
@@ -263,7 +276,7 @@ class BusinessStoreModel extends Model
             $this->db->table($this->table)->insert($store);
             $id = (int) $this->db->insertID();
             $log->inserted($actorId, 'Created store ' . $publicId . ' of business ' . $store['business_id'], $this->table, $id, $store);
-            $this->writeNames($id, $publicId, [], $names, $actorId, $log);
+            $this->writeTranslations(self::TRANSLATION_TABLE, 'store_id', $id, 'store ' . $publicId, [], $names, $actorId, $log);
 
             return $publicId;
         }));
@@ -272,13 +285,14 @@ class BusinessStoreModel extends Model
     }
 
     /**
-     * Update a store and its names in one transaction, logged to log_activity in it.
+     * Update a store and its names and addresses in other languages in one transaction, logged to log_activity in it.
      * Only the columns and names whose value changes are written and logged.
      * @param array      $stored  The business_store row
      * @param array      $store   Checked business_store columns
      * @param int        $actorId auth_master.id of whoever makes the change
-     * @param array|null $names   language_code => store_name; a language left out or empty loses its name.
-     *                            Null leaves the names as they are
+     * @param array|null $names   language_code => [column of TRANSLATED_FIELDS => text], from TranslationInputTrait;
+     *                            a language left out loses its translation. Null leaves them as they are, but for
+     *                            the address of a store that becomes an online store
      * @return void
      * @throws InvalidArgumentException When $store changes a column of FIXED_FIELDS
      * @throws Throwable When a write fails; nothing is written then
@@ -292,50 +306,15 @@ class BusinessStoreModel extends Model
         }
         $id  = (int) $stored['id'];
         $log = new ActivityLog();
-        $this->inTransaction(function () use ($stored, $id, $changes, $actorId, $names, $log) {
+        $this->inTransaction(function () use ($stored, $store, $id, $changes, $actorId, $names, $log) {
             if ($changes !== []) {
                 $this->db->table($this->table)->where('id', $id)->update($changes);
                 $log->updated($actorId, 'Updated store ' . $stored['public_id'], $this->table, $id, $stored, $changes);
             }
-            if ($names !== null) {
-                $this->writeNames($id, $stored['public_id'], $this->namesOf($id), $names, $actorId, $log, true);
-            }
+            $storedNames = $this->translationsOfStore($id);
+            $online      = ['store_type' => $store['store_type'] ?? $stored['store_type']];
+            $names       = self::translationsWithoutOnlineAddress($online, $names ?? $storedNames);
+            $this->writeTranslations(self::TRANSLATION_TABLE, 'store_id', $id, 'store ' . $stored['public_id'], $storedNames, $names, $actorId, $log, true);
         });
-    }
-
-    /**
-     * Insert, update or (with $replace) delete the names that differ from $stored
-     * @param int         $id
-     * @param string      $publicId
-     * @param array       $stored  language_code => store_name
-     * @param array       $names   language_code => store_name; languages not in listLanguages() are ignored
-     * @param int         $actorId
-     * @param ActivityLog $log
-     * @param bool        $replace Delete the stored names that $names leaves out or empties
-     * @return void
-     */
-    private function writeNames(int $id, string $publicId, array $stored, array $names, int $actorId, ActivityLog $log, bool $replace = false): void
-    {
-        helper('list');
-        $table = 'business_store_translation';
-        foreach (array_keys(listLanguages()) as $language) {
-            $name = trim((string) ($names[$language] ?? ''));
-            $key  = ['store_id' => $id, 'language_code' => $language];
-            if ($name === '') {
-                if ($replace && isset($stored[$language])) {
-                    $old = $this->db->table($table)->where($key)->get()->getRowArray();
-                    $this->db->table($table)->where('id', $old['id'])->delete();
-                    $log->deleted($actorId, 'Removed ' . $language . ' name of store ' . $publicId, $table, (int) $old['id'], $old);
-                }
-            } elseif (! isset($stored[$language])) {
-                $row = $key + ['store_name' => $name];
-                $this->db->table($table)->insert($row);
-                $log->inserted($actorId, 'Named store ' . $publicId . ' in ' . $language, $table, (int) $this->db->insertID(), $row);
-            } elseif ($stored[$language] !== $name) {
-                $old = $this->db->table($table)->select('id, store_name')->where($key)->get()->getRowArray();
-                $this->db->table($table)->where('id', $old['id'])->update(['store_name' => $name]);
-                $log->updated($actorId, 'Renamed store ' . $publicId . ' in ' . $language, $table, (int) $old['id'], $old, ['store_name' => $name]);
-            }
-        }
     }
 }

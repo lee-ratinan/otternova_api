@@ -328,7 +328,7 @@ final class AccountsTest extends CIUnitTestCase
             'account_type'     => 'C',
             'admin_notes'      => 'internal note',
         ];
-        $this->db->table('auth_master')->insert($account);
+        $this->db->table('auth_master')->insert($account + ['public_id' => bin2hex(random_bytes(6))]);
         $account['id'] = $this->db->insertID();
 
         return $account;
@@ -372,6 +372,7 @@ final class AccountsTest extends CIUnitTestCase
         for ($i = 0; $i < $count; $i++) {
             $email  = sprintf('user%02d@example.com', $i);
             $rows[] = [
+                'public_id'      => bin2hex(random_bytes(6)),
                 'uid'            => preg_replace('/[^a-z0-9]/', '', $email),
                 'email_address'  => $email,
                 'full_name'      => 'User ' . $i,

@@ -320,7 +320,7 @@ final class ArtifactImagesTest extends CIUnitTestCase
             'account_status'  => 'A',
             'account_type'    => 'C',
         ];
-        $this->db->table('auth_master')->insert($account);
+        $this->db->table('auth_master')->insert($account + ['public_id' => bin2hex(random_bytes(6))]);
         $account['id'] = (int) $this->db->insertID();
         $this->db->table('client_master')->insert(['auth_id' => $account['id']]);
         $clientId = (int) $this->db->insertID();

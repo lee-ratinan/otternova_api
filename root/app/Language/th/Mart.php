@@ -14,4 +14,9 @@ return [
     'invalidType'      => 'type ต้องเป็น P (สินค้า) หรือ S (บริการ)',
     'invalidPage'      => 'page ต้องเป็นจำนวนเต็มตั้งแต่ 1 ขึ้นไป',
     'invalidPerPage'   => 'per_page ต้องเป็นจำนวนเต็มตั้งแต่ 1 ถึง {0}',
+    'variantNotBookable' => 'บริการนี้ไม่สามารถจองตามเวลาได้',
+    'invalidDate'        => 'date ต้องเป็นวันที่ในรูปแบบ YYYY-MM-DD',
+    'dateOutsideWindow'  => 'รับจองตั้งแต่ {0} ถึง {1}',
+    'storeNotFound'      => 'ไม่พบสาขานี้สำหรับบริการนี้',
+    'staffNotFound'      => 'ไม่พบพนักงานคนนี้สำหรับบริการนี้',
 ];

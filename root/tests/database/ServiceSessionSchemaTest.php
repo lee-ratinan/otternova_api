@@ -39,7 +39,7 @@ final class ServiceSessionSchemaTest extends CIUnitTestCase
             $this->db->table('resource_master')->insert(['public_id' => 'resrc000000' . $business, 'business_id' => $business, 'store_id' => $business,
                 'resource_type_id' => $business, 'resource_name' => 'Main studio', 'capacity' => 20]);
         }
-        $this->db->table('auth_master')->insert(['uid' => 'u1', 'email_address' => 'u1@example.com', 'password_hash' => 'x', 'password_expiry' => '2027-01-01',
+        $this->db->table('auth_master')->insert(['public_id' => bin2hex(random_bytes(6)), 'uid' => 'u1', 'email_address' => 'u1@example.com', 'password_hash' => 'x', 'password_expiry' => '2027-01-01',
             'full_name' => 'Somsak', 'otp_mode' => 'X', 'account_status' => 'A', 'account_type' => 'C']);
         $this->db->table('client_master')->insert(['auth_id' => $this->db->insertID()]);
         $this->clientId = (int) $this->db->insertID();

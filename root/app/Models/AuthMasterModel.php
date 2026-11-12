@@ -5,11 +5,13 @@ namespace App\Models;
 use CodeIgniter\Model;
 
 /**
- * Model for the auth_master table
+ * Model for the auth_master table. public_id (PublicIdTrait) is what a person goes out under where they are shown to
+ * others (a staff member on the mart); uid is made from the email address, so it never goes out there.
  */
 class AuthMasterModel extends Model
 {
     use FieldConfigurationTrait;
+    use PublicIdTrait;
 
     // otp_mode
     public const OTP_EMAIL     = 'E';
@@ -33,6 +35,7 @@ class AuthMasterModel extends Model
     protected $useSoftDeletes   = false;
     protected $protectFields    = true;
     protected $allowedFields    = [
+        'public_id',
         'uid',
         'email_address',
         'telephone_number',
@@ -45,6 +48,9 @@ class AuthMasterModel extends Model
         'account_type',
         'admin_notes',
     ];
+
+    protected int $publicIdLength = 12;
+    protected $beforeInsert       = ['fillPublicId'];
 
     // created_at and updated_at are maintained by the database
     protected $useTimestamps = false;

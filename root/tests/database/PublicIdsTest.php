@@ -1,6 +1,8 @@
 <?php
 
 use App\Database\Migrations\AddPublicIds;
+use App\Models\AuthAccountModel;
+use App\Models\AuthMasterModel;
 use App\Models\BusinessTypeModel;
 use App\Models\CustomerMasterModel;
 use App\Models\OtternovaLedgerAccountModel;
@@ -32,7 +34,7 @@ final class PublicIdsTest extends CIUnitTestCase
     {
         parent::setUp();
 
-        $this->db->table('auth_master')->insert([
+        $this->db->table('auth_master')->insert(['public_id' => bin2hex(random_bytes(6)), 
             'uid'            => 'admin',
             'email_address'  => 'admin@otternova.com',
             'password_hash'  => 'x',
@@ -41,6 +43,22 @@ final class PublicIdsTest extends CIUnitTestCase
             'account_type'   => 'S',
         ]);
         $this->actor = (int) $this->db->insertID();
+    }
+
+    public function testEveryAccountGetsAPublicId(): void
+    {
+        $id = (new AuthMasterModel())->insert(['uid' => 'seeded', 'email_address' => 'seeded@otternova.com', 'full_name' => 'Seeded']);
+        (new AuthAccountModel())->createPendingClient(['uid' => 'client', 'email_address' => 'client@example.com', 'password_hash' => 'x', 'full_name' => 'Client'], [], time() + 3600);
+        $this->db->table('otternova_department')->insert(['department_code' => 'ENG', 'department_name' => 'Engineering', 'country_code' => 'TH']);
+        (new AuthAccountModel())->createStaffWithProfile(['uid' => 'staff', 'email_address' => 'staff@otternova.com', 'password_hash' => 'x', 'full_name' => 'Staff', 'account_type' => 'S'],
+            ['department_id' => (int) $this->db->insertID(), 'employee_code' => 'E001', 'job_title' => 'Tester', 'employment_status' => 'A', 'employment_start_date' => '2026-01-01', 'work_country_code' => 'TH', 'legal_first_name' => 'Staff', 'legal_last_name' => 'Member'], $this->actor);
+
+        $ids = array_column($this->db->table('auth_master')->select('uid, public_id')->whereIn('uid', ['seeded', 'client', 'staff'])->get()->getResultArray(), 'public_id', 'uid');
+        $this->assertCount(3, array_unique($ids));
+        foreach ($ids as $publicId) {
+            $this->assertMatchesRegularExpression('/^[0-9A-Za-z_-]{12}$/', $publicId);
+        }
+        $this->assertSame($ids['seeded'], (new AuthMasterModel())->publicIdOf($id));
     }
 
     public function testEveryCreateGetsAPublicIdOfItsLength(): void

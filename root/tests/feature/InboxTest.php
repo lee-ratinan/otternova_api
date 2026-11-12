@@ -147,7 +147,7 @@ final class InboxTest extends CIUnitTestCase
             'account_status'  => 'A',
             'account_type'    => $type,
         ];
-        $this->db->table('auth_master')->insert($account);
+        $this->db->table('auth_master')->insert($account + ['public_id' => bin2hex(random_bytes(6))]);
         $account['id'] = (int) $this->db->insertID();
 
         return $account;

@@ -121,7 +121,7 @@ final class NotificationsTest extends CIUnitTestCase
         $account = ['uid' => preg_replace('/[^a-z0-9]/', '', $email), 'email_address' => $email, 'full_name' => 'Otter Tester',
             'password_hash' => password_hash('correct horse battery staple', PASSWORD_DEFAULT), 'password_expiry' => '2027-01-01',
             'otp_mode' => 'X', 'account_status' => 'A', 'account_type' => $type];
-        $this->db->table('auth_master')->insert($account);
+        $this->db->table('auth_master')->insert($account + ['public_id' => bin2hex(random_bytes(6))]);
         $account['id'] = $this->db->insertID();
 
         return $account;

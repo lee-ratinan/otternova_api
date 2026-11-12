@@ -327,14 +327,15 @@ class AuthAccountModel extends AuthMasterModel
         $table     = self::FORM_PROFILES[self::TYPE_STAFF]['table'];
         $log       = new ActivityLog();
         $encrypted = (new FieldEncryption())->encryptRow($table, $profile);
-        $this->inTransaction(function () use ($account, $profile, $encrypted, $actorId, $table, $log) {
+        $this->withPublicId(fn (string $publicId) => $this->inTransaction(function () use ($account, $profile, $encrypted, $actorId, $table, $log, $publicId) {
+            $account = ['public_id' => $publicId] + $account;
             $this->db->table($this->table)->insert($account);
             $id = (int) $this->db->insertID();
             $log->inserted($actorId, 'Created account ' . $account['uid'], $this->table, $id, $account);
 
             $this->db->table($table)->insert($encrypted + ['auth_id' => $id]);
             $log->inserted($actorId, 'Created staff profile of ' . $account['uid'], $table, (int) $this->db->insertID(), $profile + ['auth_id' => $id]);
-        });
+        }));
     }
 
     /**
@@ -353,7 +354,8 @@ class AuthAccountModel extends AuthMasterModel
         $account = ['account_type' => self::TYPE_CLIENT, 'account_status' => self::STATUS_PENDING] + $account;
         $crypt   = new FieldEncryption();
 
-        return $this->inTransaction(function () use ($account, $profile, $expiresAt, $table, $log, $crypt) {
+        return $this->withPublicId(fn (string $publicId) => $this->inTransaction(function () use ($account, $profile, $expiresAt, $table, $log, $crypt, $publicId) {
+            $account = ['public_id' => $publicId] + $account;
             $this->db->table($this->table)->insert($account);
             $id = (int) $this->db->insertID();
             $log->inserted($id, 'Signed up as client ' . $account['uid'], $this->table, $id, $account);
@@ -363,7 +365,7 @@ class AuthAccountModel extends AuthMasterModel
             $log->inserted($id, 'Created client profile of ' . $account['uid'], $table, (int) $this->db->insertID(), $row);
 
             return model(AuthActivationModel::class)->insertActivation($id, $expiresAt, $log);
-        });
+        }));
     }
 
     /**

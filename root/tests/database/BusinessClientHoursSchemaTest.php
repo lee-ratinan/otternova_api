@@ -37,7 +37,7 @@ final class BusinessClientHoursSchemaTest extends CIUnitTestCase
         }
         $this->storeId      = 1;
         $this->otherStoreId = 2;
-        $this->db->table('auth_master')->insert(['uid' => 'u1', 'email_address' => 'u1@example.com', 'password_hash' => 'x', 'password_expiry' => '2027-01-01',
+        $this->db->table('auth_master')->insert(['public_id' => bin2hex(random_bytes(6)), 'uid' => 'u1', 'email_address' => 'u1@example.com', 'password_hash' => 'x', 'password_expiry' => '2027-01-01',
             'full_name' => 'U', 'otp_mode' => 'X', 'account_status' => 'A', 'account_type' => 'C']);
         $this->db->table('client_master')->insert(['auth_id' => $this->db->insertID()]);
         $this->clientId = (int) $this->db->insertID();

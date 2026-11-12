@@ -44,6 +44,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('site', 'Mart::site');
         $routes->get('artifacts', 'Mart::artifacts');
         $routes->get('artifact', 'Mart::artifact');
+        $routes->get('slots', 'Mart::slots');
     });
 
     // Admin app: staff accounts only (a valid token with typ S)

@@ -74,6 +74,11 @@ final class MartTest extends CIUnitTestCase
         [$category, $categoryP] = $this->category('Drinks');
         $this->db->table('artifact_master')->where('id', $shirt)->update(['category_id' => $category]);
         $this->store($this->businessId, 'Riverside');
+        // a physical store with its name and part of its address in Thai: the rest falls back to business_store's
+        $this->db->table('business_store')->insert(['public_id' => 'Sukhumvit001', 'business_id' => $this->businessId, 'store_name' => 'Sukhumvit',
+            'store_type' => 'P', 'store_timezone' => 'Asia/Bangkok', 'store_address_line_1' => '1 Sukhumvit Rd', 'store_address_line_2' => 'Floor 2', 'store_city' => 'Bangkok']);
+        $this->db->table('business_store_translation')->insert(['store_id' => (int) $this->db->insertID(), 'language_code' => 'th', 'store_name' => 'สุขุมวิท',
+            'store_address_line_1' => '1 ถนนสุขุมวิท', 'store_city' => 'กรุงเทพมหานคร']);
 
         $this->send('v1/client/website/save', ['business_slug' => 'otter-cafe', 'languages' => [
             $this->language('en-US', ['hero_headline' => 'Best coffee', 'heading_font' => 'Montserrat']),
@@ -97,6 +102,8 @@ final class MartTest extends CIUnitTestCase
         $this->assertSame([$mugP], array_column($th['featured']['highest_rated'], 'public_id'));
         $this->assertSame([['public_id' => $categoryP, 'name' => 'Drinks', 'artifact_count' => 1]], $th['categories']);
         $this->assertSame('Riverside', $th['stores'][0]['name']);
+        $this->assertSame(['สุขุมวิท', '1 ถนนสุขุมวิท', 'Floor 2', 'กรุงเทพมหานคร'],
+            [$th['stores'][1]['name'], $th['stores'][1]['address_line_1'], $th['stores'][1]['address_line_2'], $th['stores'][1]['city']]);
 
         // a language the business does not have: its default, the first
         $ja = $this->data($this->get('v1/mart/site?business_slug=otter-cafe&lang=ja'));

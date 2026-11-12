@@ -19,6 +19,7 @@ use Throwable;
 class Stores extends BaseController
 {
     use ManagedBusinessTrait;
+    use TranslationInputTrait;
 
     /** The business_store columns a client fills in when creating or editing a store */
     private const FORM_FIELDS = [
@@ -39,13 +40,19 @@ class Stores extends BaseController
     /** Fields saved in capitals, so "th-10" is accepted as TH-10 */
     private const UPPERCASE_FIELDS = ['store_type', 'store_subdivision_code'];
 
-    /** business_store_translation.store_name */
-    private const TRANSLATION_MAX_LENGTH = 255;
+    /** The columns of business_store_translation and their longest lengths, the name (required) first */
+    private const TRANSLATION_FIELDS = [
+        'store_name'           => 255,
+        'store_address_line_1' => 255,
+        'store_address_line_2' => 255,
+        'store_city'           => 128,
+    ];
 
     /**
      * POST /client/stores { business_slug }
      * The stores of that business, by name: for each, public_id, store_name, store_type, store_timezone, store_phone_number, the address columns (NULL
-     * for an online store) and its names in other languages as translations; with the business's plan_code, max_stores
+     * for an online store) and its names and addresses in other languages as translations (language_code =>
+     * {store_name, store_address_line_1, store_address_line_2, store_city}); with the business's plan_code, max_stores
      * (its cap, Config\PlanLimits::STORES) and can_add (false once it has max_stores stores, so create would be refused)
      * @return ResponseInterface
      */
@@ -79,11 +86,13 @@ class Stores extends BaseController
     }
 
     /**
-     * POST /client/store/create { business_slug, store: {...}, translations: {language_code: store_name} }
-     * Creates a store of that business, with its names in other languages (business_store_translation).
+     * POST /client/store/create { business_slug, store: {...}, translations: {language_code: {store_name,
+     * store_address_line_1, store_address_line_2, store_city}} }
+     * Creates a store of that business, with its names and addresses in other languages (business_store_translation).
      * store.store_type is P (physical) or O (online); an online store's address is saved as NULL.
      * store.store_timezone is one of listSupportedTimezones() of the business's country; left out, the country's first.
-     * "translations" is optional; each key must be a language of listLanguages(), and an empty name is left out.
+     * "translations" is optional; each key must be a language of listLanguages(). A language whose texts are all empty
+     * is left out; one with an address needs its store_name too. An online store's translated address is saved as NULL.
      * Refused with 409 once the business has as many stores as its plan allows (Config\PlanLimits::STORES).
      * @return ResponseInterface
      */
@@ -93,10 +102,10 @@ class Stores extends BaseController
     }
 
     /**
-     * POST /client/store/edit { public_id, store: {...}, translations: {language_code: store_name} }
+     * POST /client/store/edit { public_id, store: {...}, translations: {language_code: {store_name, ...}} }
      * Updates the store with that public_id. A field left out of "store" keeps its value; changing it to an online
-     * store clears its address. "translations", when given, replaces the names: a language left out or empty loses
-     * its name; left out altogether, the names stay as they are.
+     * store clears its address, the translated one too. "translations", when given, replaces them all: a language left
+     * out or empty loses its translation; left out altogether, the translations stay as they are.
      * @return ResponseInterface
      */
     public function edit(): ResponseInterface
@@ -119,7 +128,7 @@ class Stores extends BaseController
         $storeIn = $input['store'] ?? [];
         // left out of an edit, the names stay as they are
         $translationsIn = $input['translations'] ?? ($edit ? null : []);
-        if (! is_array($storeIn) || ($translationsIn !== null && ! $this->isObject($translationsIn))) {
+        if (! is_array($storeIn)) {
             return ApiResponse::error(lang('Store.invalidRequest'), 422);
         }
 
@@ -157,8 +166,10 @@ class Stores extends BaseController
         $errors = [];
         $names  = null;
         if ($translationsIn !== null) {
-            helper('list');
-            [$names, $errors] = $this->translations($translationsIn, listLanguages());
+            [$names, $errors] = $this->translationsIn($translationsIn, self::TRANSLATION_FIELDS);
+            if ($names === null) {
+                return ApiResponse::error(lang('Store.invalidRequest'), 422);
+            }
         }
 
         $rules = [];
@@ -201,49 +212,6 @@ class Stores extends BaseController
         }
 
         return ApiResponse::success(['public_id' => $publicId], 200, lang($edit ? 'Store.updated' : 'Store.created'));
-    }
-
-    /**
-     * The names of "translations", keyed by language: only the languages of $languages are accepted
-     * @param array $translations
-     * @param array $languages    language_code => language name, from list_helper
-     * @return array{array<string, string>, array<string, string>} [language_code => name, field => error]
-     */
-    private function translations(array $translations, array $languages): array
-    {
-        $names  = [];
-        $errors = [];
-        foreach ($translations as $language => $name) {
-            $field = 'translations.' . $language;
-            if (! isset($languages[$language])) {
-                $errors[$field] = lang('Store.unknownLanguage');
-
-                continue;
-            }
-            if ($name !== null && ! is_string($name)) {
-                $errors[$field] = lang('Store.invalidTranslation');
-
-                continue;
-            }
-            $name = trim((string) $name);
-            if (mb_strlen($name) > self::TRANSLATION_MAX_LENGTH) {
-                $errors[$field] = lang('Store.translationTooLong', [self::TRANSLATION_MAX_LENGTH]);
-            } elseif ($name !== '') {
-                $names[$language] = $name;
-            }
-        }
-
-        return [$names, $errors];
-    }
-
-    /**
-     * Whether a value from the body is a JSON object ({} included), as "translations" must be
-     * @param mixed $value
-     * @return bool
-     */
-    private function isObject(mixed $value): bool
-    {
-        return is_array($value) && ($value === [] || ! array_is_list($value));
     }
 
     /**
