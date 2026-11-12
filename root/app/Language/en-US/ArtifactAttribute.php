@@ -10,6 +10,7 @@ return [
     'valueNotFound'       => 'This choice is not one of this option, or is listed twice.',
     'valueRequired'       => 'Please enter the choice, such as Blue or XL.',
     'valueTaken'          => 'This option already has this choice.',
+    'invalidColor'        => 'Please choose a colour as #rrggbb, or none.',
     'invalidSortOrder'    => 'The order must be a whole number from 0 to 65535.',
     'loadFailed'          => 'Could not load the options. Please try again.',
     'saveFailed'          => 'Could not save the option. Please try again.',

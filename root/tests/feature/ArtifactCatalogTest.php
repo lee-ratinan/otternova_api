@@ -90,7 +90,7 @@ final class ArtifactCatalogTest extends CIUnitTestCase
             'attribute'     => ['attribute_name' => 'Color'],
             'translations'  => ['th' => 'สี'],
             'values'        => [
-                ['attribute_value' => 'Blue', 'translations' => ['th' => 'น้ำเงิน']],
+                ['attribute_value' => 'Blue', 'color_code' => '#1E40AF', 'translations' => ['th' => 'น้ำเงิน']],
                 ['attribute_value' => 'Red'],
             ],
         ]);
@@ -100,6 +100,7 @@ final class ArtifactCatalogTest extends CIUnitTestCase
         $this->assertSame(['th' => 'สี'], $color['translations']);
         $this->assertSame(['Blue', 'Red'], array_column($color['values'], 'attribute_value'));
         $this->assertSame([0, 1], array_column($color['values'], 'sort_order'));
+        $this->assertSame(['#1e40af', null], array_column($color['values'], 'color_code')); // lower case; none by default
         $this->assertSame(['th' => 'น้ำเงิน'], $color['values'][0]['translations']);
         [$blue, $red] = array_column($color['values'], 'public_id');
 
@@ -107,7 +108,7 @@ final class ArtifactCatalogTest extends CIUnitTestCase
         $response = $this->send('v1/client/artifact-attribute/edit', [
             'public_id' => $color['public_id'],
             'values'    => [
-                ['public_id' => $red, 'attribute_value' => 'Crimson', 'sort_order' => 5],
+                ['public_id' => $red, 'attribute_value' => 'Crimson', 'color_code' => '#dc143c', 'sort_order' => 5],
                 ['attribute_value' => 'Green', 'sort_order' => 1],
             ],
         ]);
@@ -116,6 +117,12 @@ final class ArtifactCatalogTest extends CIUnitTestCase
         $this->assertSame(['Blue', 'Green', 'Crimson'], array_column($values, 'attribute_value'));
         $this->assertSame($red, $values[2]['public_id']);
         $this->assertSame(['th' => 'น้ำเงิน'], $values[0]['translations']); // untouched
+        $this->assertSame(['#1e40af', null, '#dc143c'], array_column($values, 'color_code')); // Blue's kept
+
+        // null clears a colour
+        $response = $this->send('v1/client/artifact-attribute/edit', ['public_id' => $color['public_id'], 'values' => [['public_id' => $blue, 'color_code' => null]]]);
+        $response->assertStatus(200);
+        $this->assertNull($this->body($response)['data']['attribute']['values'][0]['color_code']);
         $this->assertSame(['th' => 'สี'], $this->body($response)['data']['attribute']['translations']);
 
         $list = $this->body($this->send('v1/client/artifact-attributes', ['business_slug' => 'otter-shop']))['data']['attributes'];
@@ -128,6 +135,9 @@ final class ArtifactCatalogTest extends CIUnitTestCase
             [['public_id' => 'nope', 'attribute_value' => 'Pink'], 'values.0.public_id'],
             [['attribute_value' => ''], 'values.0.attribute_value'],
             [['attribute_value' => 'Pink', 'sort_order' => 70000], 'values.0.sort_order'],
+            [['attribute_value' => 'Pink', 'color_code' => 'pink'], 'values.0.color_code'],
+            [['attribute_value' => 'Pink', 'color_code' => '#fff'], 'values.0.color_code'],
+            [['attribute_value' => 'Pink', 'color_code' => 123456], 'values.0.color_code'],
         ] as [$value, $field]) {
             $response = $this->send('v1/client/artifact-attribute/edit', ['public_id' => $color['public_id'], 'values' => [$value]]);
             $response->assertStatus(422);

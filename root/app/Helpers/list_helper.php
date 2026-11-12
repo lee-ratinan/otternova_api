@@ -889,10 +889,14 @@ if (!function_exists('listSupportedTypefaces')) {
             ],
             'ja'    => [
                 'BIZ UDGothic'      => 'family=BIZ+UDGothic:wght@400;700',
+                'Delta Gothic One'  => 'family=Dela+Gothic+One',
+                'Kaisei Opti'       => 'family=Kaisei+Opti:wght@400;700',
                 'M PLUS 1'          => 'family=M+PLUS+1:wght@400;700',
                 'M PLUS Rounded 1c' => 'family=M+PLUS+Rounded+1c:wght@400;700',
                 'Noto Sans JP'      => 'family=Noto+Sans+JP:wght@400;700',
                 'Noto Serif JP'     => 'family=Noto+Serif+JP:wght@400;700',
+                'Rampart One'       => 'family=Rampart+One',
+                'RocknRoll One'     => 'family=RocknRoll+One',
                 'Shippori Mincho'   => 'family=Shippori+Mincho:wght@400;700'
             ],
             'th'    => [
@@ -912,11 +916,12 @@ if (!function_exists('listSupportedTypefaces')) {
                 'Sriracha'              => 'family=Sriracha',
             ],
             'zh-TW' => [
-                'Huninn'         => 'family=Huninn',
-                'LXGW WenKai TC' => 'family=LXGW+WenKai+TC:wght@400;700',
-                'Noto Sans TC'   => 'family=Noto+Sans+TC:wght@400;700',
-                'Noto Serif TC'  => 'family=Noto+Serif+TC:wght@400;700',
-                'Zen Old Mincho' => 'family=Zen+Old+Mincho:wght@400;700'
+                'Chiron GoRound TC' => 'family=Chiron+GoRound+TC:wght@400;700',
+                'Huninn'            => 'family=Huninn',
+                'LXGW WenKai TC'    => 'family=LXGW+WenKai+TC:wght@400;700',
+                'Noto Sans TC'      => 'family=Noto+Sans+TC:wght@400;700',
+                'Noto Serif TC'     => 'family=Noto+Serif+TC:wght@400;700',
+                'Zen Old Mincho'    => 'family=Zen+Old+Mincho:wght@400;700'
             ],
         ];
         $typefaces['id']    = $typefaces['en-US'];

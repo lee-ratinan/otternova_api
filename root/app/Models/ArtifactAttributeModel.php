@@ -58,7 +58,7 @@ class ArtifactAttributeModel extends Model
         $ids    = array_map('intval', array_column($attributes, 'id'));
         $names  = $this->translationsOf(self::TRANSLATIONS, 'attribute_id', $ids, ['attribute_name']);
         $values = $this->db->table(self::VALUES)
-            ->select('id, attribute_id, public_id, attribute_value, sort_order')
+            ->select('id, attribute_id, public_id, attribute_value, color_code, sort_order')
             ->whereIn('attribute_id', $ids)
             ->orderBy('sort_order')
             ->orderBy('attribute_value')
@@ -70,6 +70,7 @@ class ArtifactAttributeModel extends Model
             $byAttribute[(int) $value['attribute_id']][] = [
                 'public_id'       => $value['public_id'],
                 'attribute_value' => $value['attribute_value'],
+                'color_code'      => $value['color_code'],
                 'sort_order'      => (int) $value['sort_order'],
                 'translations'    => self::flatTranslations($valueNames[(int) $value['id']] ?? [], 'attribute_value'),
             ];
@@ -144,7 +145,7 @@ class ArtifactAttributeModel extends Model
      * @param array|null $stored    The artifact_attribute row; null to create one
      * @param array      $attribute Checked columns: business_id and attribute_name
      * @param array|null $names     language_code => [attribute_name => text]; null leaves them as they are
-     * @param list<array{stored: array|null, row: array{attribute_value: string, sort_order: int}, names: array|null}> $values
+     * @param list<array{stored: array|null, row: array{attribute_value: string, color_code: string|null, sort_order: int}, names: array|null}> $values
      *                              Checked values: a stored one to update, or a new one
      * @param int        $actorId
      * @return string The attribute's public_id

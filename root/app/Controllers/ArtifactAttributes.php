@@ -24,7 +24,8 @@ class ArtifactAttributes extends BaseController
     /**
      * POST /client/artifact-attributes { business_slug }
      * The attributes of that business by name: for each, public_id, attribute_name, translations and its values in
-     * their order, each { public_id, attribute_value, sort_order, translations }
+     * their order, each { public_id, attribute_value, color_code, sort_order, translations }
+     * (color_code: #rrggbb, or null when the choice has no colour)
      * @return ResponseInterface
      */
     public function list(): ResponseInterface
@@ -49,8 +50,9 @@ class ArtifactAttributes extends BaseController
 
     /**
      * POST /client/artifact-attribute/create { business_slug, attribute: { attribute_name },
-     * translations: { language_code: name }, values: [{ attribute_value, sort_order, translations }] }
-     * "translations" and "values" are optional; a value's sort_order is its place in the list when left out.
+     * translations: { language_code: name }, values: [{ attribute_value, color_code, sort_order, translations }] }
+     * "translations" and "values" are optional; a value's sort_order is its place in the list when left out, and its
+     * color_code (#rrggbb) null.
      * @return ResponseInterface The attribute, as list() gives it
      */
     public function create(): ResponseInterface
@@ -60,10 +62,11 @@ class ArtifactAttributes extends BaseController
 
     /**
      * POST /client/artifact-attribute/edit { public_id, attribute: {...}, translations: {...},
-     * values: [{ public_id, attribute_value, sort_order, translations }] }
-     * A value with a public_id updates that value of the attribute (a field left out keeps its value; its
-     * translations, when given, replace its names); one without is added. A value left out of "values" stays as it
-     * is. The attribute's "translations", when given, replace its names; left out, they stay.
+     * values: [{ public_id, attribute_value, color_code, sort_order, translations }] }
+     * A value with a public_id updates that value of the attribute (a field left out keeps its value, a color_code of
+     * null or "" clears its colour; its translations, when given, replace its names); one without is added. A value
+     * left out of "values" stays as it is. The attribute's "translations", when given, replace its names; left out,
+     * they stay.
      * @return ResponseInterface The attribute, as list() gives it
      */
     public function edit(): ResponseInterface
@@ -192,12 +195,19 @@ class ArtifactAttributes extends BaseController
             if ($sort === false) {
                 $errors[$key . '.sort_order'] = lang('ArtifactAttribute.invalidSortOrder');
             }
+            $color = array_key_exists('color_code', $in) ? $in['color_code'] : ($stored['color_code'] ?? null);
+            $color = is_string($color) ? strtolower(trim($color)) : $color;
+            if ($color === '' || $color === null) {
+                $color = null;
+            } elseif (! is_string($color) || preg_match('/^#[0-9a-f]{6}$/', $color) !== 1) {
+                $errors[$key . '.color_code'] = lang('ArtifactAttribute.invalidColor');
+            }
             $names = null;
             if (array_key_exists('translations', $in) || $stored === null) {
                 [$names, $translationErrors] = $this->translationsIn($in['translations'] ?? [], ['attribute_value' => 128], $key . '.translations');
                 $errors += $translationErrors;
             }
-            $values[$i] = ['stored' => $stored, 'row' => ['attribute_value' => $text, 'sort_order' => (int) $sort], 'names' => $names];
+            $values[$i] = ['stored' => $stored, 'row' => ['attribute_value' => $text, 'color_code' => $color, 'sort_order' => (int) $sort], 'names' => $names];
         }
 
         // no two values of the attribute with the same text, once these are saved

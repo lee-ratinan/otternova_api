@@ -455,14 +455,15 @@ class MartCatalogModel extends Model
             $attributes = $this->db->table('artifact_attribute')->select('id, public_id, attribute_name')
                 ->whereIn('id', array_keys($attributeIds))->orderBy('attribute_name')->get()->getResultArray();
             $attributeNames = $this->namesIn('artifact_attribute_translation', 'attribute_id', 'attribute_name', array_keys($attributeIds), $language);
-            $values = $this->db->table('artifact_attribute_value')->select('id, attribute_id, public_id, attribute_value')
+            $values = $this->db->table('artifact_attribute_value')->select('id, attribute_id, public_id, attribute_value, color_code')
                 ->whereIn('id', array_keys($valueIds))->orderBy('sort_order')->orderBy('attribute_value')->get()->getResultArray();
             $valueNames = $this->namesIn('artifact_attribute_value_translation', 'attribute_value_id', 'attribute_value', array_keys($valueIds), $language);
             $byAttribute = [];
             foreach ($values as $value) {
                 $byAttribute[(int) $value['attribute_id']][] = [
-                    'public_id' => $value['public_id'],
-                    'value'     => $valueNames[(int) $value['id']] ?? $value['attribute_value'],
+                    'public_id'  => $value['public_id'],
+                    'value'      => $valueNames[(int) $value['id']] ?? $value['attribute_value'],
+                    'color_code' => $value['color_code'], // #rrggbb, or null
                 ];
             }
             foreach ($attributes as $attribute) {

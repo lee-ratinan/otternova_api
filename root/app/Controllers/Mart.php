@@ -102,7 +102,8 @@ class Mart extends BaseController
     /**
      * GET /mart/artifact?business_slug=&lang=&public_id=
      * { language, artifact: {card, with rating.breakdown, description, tax: {calculation, percentage}},
-     *   options: [{public_id, name, values: [{public_id, value}]}] (the attributes a variant is chosen by),
+     *   options: [{public_id, name, values: [{public_id, value, color_code}]}] (the attributes a variant is chosen by;
+     *   color_code: #rrggbb or null),
      *   variants: [{public_id, sku, price: {active, compare}, attribute_values: [{attribute_public_id,
      *   value_public_id}], weight_grams, duration_minutes, booking_type, capacity, stock}],
      *   images: [{public_id, url, variant_public_id}] (the cover first), reviews: [{public_id, rating, title, message,
