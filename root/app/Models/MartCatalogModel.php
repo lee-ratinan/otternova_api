@@ -120,6 +120,19 @@ class MartCatalogModel extends Model
                     'naturist'       => $business['naturist_audience'],
                     'age_restricted' => $business['age_restricted'] === BusinessMasterModel::AGE_ADULTS_ONLY,
                 ],
+                // what the customer pays besides the prices; value as "10.00", in percent (unit P) or currency_code (F)
+                'charges'       => [
+                    'tip'            => [
+                        'policy' => $business['tip_policy'], // D disabled, OFF off-system, O optional, M mandatory
+                        'value'  => number_format((float) $business['tip_value'], 2, '.', ''),
+                        'unit'   => $business['tip_unit'],
+                        'kind'   => $business['tip_value_kind'], // S suggested, M minimum
+                    ],
+                    'service_charge' => [
+                        'value' => number_format((float) $business['service_charge_value'], 2, '.', ''),
+                        'unit'  => $business['service_charge_unit'],
+                    ],
+                ],
                 'rating'        => [
                     'average'   => number_format((float) $business['rating_average'], 2, '.', ''),
                     'count'     => (int) $business['rating_count'],

@@ -52,6 +52,8 @@ final class MartTest extends CIUnitTestCase
         $this->assertSame('th', $data['language']); // any language of listLanguages() until the business picks some
         $this->assertSame('otter-cafe', $data['business']['name']);
         $this->assertSame('THB', $data['business']['currency_code']);
+        $this->assertSame(['policy' => 'D', 'value' => '0.00', 'unit' => 'P', 'kind' => 'S'], $data['business']['charges']['tip']);
+        $this->assertSame(['value' => '0.00', 'unit' => 'P'], $data['business']['charges']['service_charge']);
         $this->assertSame('#ff7533', $data['theme']['colors']['accent_color']);
         $this->assertNull($data['theme']['logo']);
         $this->assertNull($data['theme']['google_fonts_url']);
