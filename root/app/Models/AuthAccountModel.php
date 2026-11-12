@@ -139,8 +139,11 @@ class AuthAccountModel extends AuthMasterModel
     /** auth_master form columns that may be NULL */
     public const FORM_ACCOUNT_NULLABLE = ['telephone_number', 'password_expiry', 'admin_notes'];
 
-    /** auth_master columns the account form shows but never writes; the avatar upload sets avatar_path */
-    public const FORM_ACCOUNT_READONLY = ['avatar_path'];
+    /**
+     * auth_master columns the account form shows but never writes: the avatar upload sets avatar_path; public_id is
+     * set on create, and the Client app names the profile picture after it
+     */
+    public const FORM_ACCOUNT_READONLY = ['avatar_path', 'public_id'];
 
     /** /staff/account/update modes: an admin editing any account, or the signed-in staff member editing their own */
     public const MODE_ADMIN_EDIT = 'admin-edit';

@@ -91,6 +91,8 @@ final class AccountFormTest extends CIUnitTestCase
 
         $data = $this->data($this->fetch('eikinotternovacom'));
 
+        $this->assertMatchesRegularExpression('/^[0-9A-Za-z_-]{12}$/', $data['account']['public_id'] ?? '');
+        unset($data['account']['public_id']);
         $this->assertSame([
             'uid'              => 'eikinotternovacom',
             'email_address'    => 'eikin@otternova.com',
