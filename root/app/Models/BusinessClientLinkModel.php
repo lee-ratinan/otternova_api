@@ -192,7 +192,9 @@ class BusinessClientLinkModel extends Model
         $businessFields = [
             'business_name', 'business_slug', 'business_description', 'business_mood_and_tone', 'lgbt_audience',
             'naturist_audience', 'age_restricted', 'tip_policy', 'tip_value', 'tip_unit', 'tip_value_kind',
-            'service_charge_value', 'service_charge_unit', 'contact_person_name',
+            'service_charge_value', 'service_charge_unit', 'booking_horizon_days', 'booking_notice_unit',
+            'booking_notice_value', 'booking_notice_time', 'cancel_notice_unit', 'cancel_notice_value', 'cancel_notice_time', 'late_cancel_allowed', 'late_cancel_fee_value', 'late_cancel_fee_unit', 'no_show_fee_value', 'no_show_fee_unit',
+            'contact_person_name',
             'contact_email_address', 'contact_phone_number', 'contact_website', 'contact_address_line_1',
             'contact_address_line_2', 'contact_city', 'contact_subdivision_code', 'contact_postal_code', 'country_code',
             'currency_code',

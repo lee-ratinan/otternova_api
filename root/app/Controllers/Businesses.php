@@ -3,6 +3,8 @@
 namespace App\Controllers;
 
 use App\Libraries\ApiResponse;
+use App\Libraries\BookingWindow;
+use App\Libraries\CancelPolicy;
 use App\Libraries\Money;
 use App\Models\BusinessClientLinkModel;
 use App\Models\BusinessMasterModel;
@@ -36,6 +38,18 @@ class Businesses extends BaseController
         'tip_value_kind',
         'service_charge_value',
         'service_charge_unit',
+        'booking_horizon_days',
+        'booking_notice_unit',
+        'booking_notice_value',
+        'booking_notice_time',
+        'cancel_notice_unit',
+        'cancel_notice_value',
+        'cancel_notice_time',
+        'late_cancel_allowed',
+        'late_cancel_fee_value',
+        'late_cancel_fee_unit',
+        'no_show_fee_value',
+        'no_show_fee_unit',
         'contact_person_name',
         'contact_email_address',
         'contact_phone_number',
@@ -54,6 +68,8 @@ class Businesses extends BaseController
     private const FORM_NULLABLE = [
         'business_description',
         'business_mood_and_tone',
+        'booking_notice_time',
+        'cancel_notice_time',
         'contact_person_name',
         'contact_phone_number',
         'contact_website',
@@ -67,7 +83,8 @@ class Businesses extends BaseController
 
     /** Fields saved in capitals, so "sg" is accepted as SG */
     private const UPPERCASE_FIELDS = ['country_code', 'currency_code', 'contact_subdivision_code', 'type_status',
-        'lgbt_audience', 'naturist_audience', 'age_restricted', 'tip_policy', 'tip_unit', 'tip_value_kind', 'service_charge_unit'];
+        'lgbt_audience', 'naturist_audience', 'age_restricted', 'tip_policy', 'tip_unit', 'tip_value_kind', 'service_charge_unit', 'booking_notice_unit',
+        'cancel_notice_unit', 'late_cancel_allowed', 'late_cancel_fee_unit', 'no_show_fee_unit'];
 
     /** business_master_translation.business_name and business_type_translation.type_name */
     private const TRANSLATION_MAX_LENGTH = 255;
@@ -83,6 +100,13 @@ class Businesses extends BaseController
      * are a percentage or an amount in currency_code, as a string or a number of up to 2 decimal places. The
      * service charge applies to services only (artifact_type S), once per service line: a percentage of the line, or
      * the fixed amount added to each service line. See BusinessMasterModel::chargeErrors().
+     * booking_horizon_days (1-365), booking_notice_unit (M, D), booking_notice_value and booking_notice_time (HH:MM,
+     * for D only) are when customers may book an appointment on the mart; left out or empty, 3 days ahead with an
+     * hour's notice (3, M, 60, null). See App\Libraries\BookingWindow.
+     * The cancellation policy: cancel_notice_unit (M, D), cancel_notice_value and cancel_notice_time (HH:MM, for D
+     * only), the free-cancellation deadline; late_cancel_allowed (Y, N); late_cancel_fee_value and _unit (P, F), and
+     * no_show_fee_value and _unit, a percentage of the booked service line or an amount in currency_code. Left out or
+     * empty, free until 24 hours before and no fee (M, 1440, null, Y, 0, P, 0, P). See App\Libraries\CancelPolicy.
      * @return ResponseInterface
      */
     public function create(): ResponseInterface
@@ -323,7 +347,7 @@ class Businesses extends BaseController
                 : $this->normalize($field, $businessIn[$field] ?? null);
         }
         // left out of a create (or empty), a business is for the general public, and takes no tips or service charge
-        foreach ($stored === null ? BusinessMasterModel::AUDIENCE_DEFAULTS + BusinessMasterModel::CHARGE_DEFAULTS : [] as $field => $default) {
+        foreach ($stored === null ? BusinessMasterModel::AUDIENCE_DEFAULTS + BusinessMasterModel::CHARGE_DEFAULTS + BookingWindow::DEFAULTS + CancelPolicy::DEFAULTS : [] as $field => $default) {
             $business[$field] = $business[$field] === '' || $business[$field] === null ? $default : $business[$field];
         }
         foreach ($stored === null ? [] : BusinessMasterModel::FIXED_FIELDS as $field) {
@@ -353,7 +377,7 @@ class Businesses extends BaseController
             $errors += $ruleErrors;
         }
         if ($errors === []) {
-            $errors = BusinessMasterModel::chargeErrors($business);
+            $errors = BusinessMasterModel::chargeErrors($business) + BookingWindow::errors($business) + CancelPolicy::errors($business);
         }
         if ($errors !== []) {
             return ApiResponse::error(lang('Business.invalidFields'), 422, $errors);
@@ -532,6 +556,9 @@ class Businesses extends BaseController
         // "10", 10 and 10.5 as "10.00" and "10.50"; anything else as it came, for the rules to refuse
         if (in_array($field, BusinessMasterModel::DECIMAL_FIELDS, true)) {
             return Money::normalize($value) ?? (is_scalar($value) ? trim((string) $value) : '');
+        }
+        if ($field === 'booking_notice_time' || $field === 'cancel_notice_time') {
+            return BookingWindow::normalizeTime($value);
         }
         // a number counts too: the phone number may arrive as a JSON number, and business_type_id is the id found here
         $value = is_string($value) || is_int($value) ? trim((string) $value) : '';

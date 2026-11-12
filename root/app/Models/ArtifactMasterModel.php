@@ -39,11 +39,13 @@ class ArtifactMasterModel extends Model
     public const FORM_FIELDS = ['category_id', 'artifact_name', 'artifact_description', 'artifact_status', 'artifact_label', 'tax_calculation', 'tax_percentage'];
 
     /** The artifact_variant columns a client sets */
-    public const VARIANT_FIELDS = ['sku', 'barcode', 'price_active', 'price_compare', 'variant_status', 'weight_grams', 'duration_minutes', 'booking_type', 'staff_required', 'capacity', 'sort_order'];
+    public const VARIANT_FIELDS = ['sku', 'barcode', 'price_active', 'price_compare', 'variant_status', 'weight_grams', 'duration_minutes', 'booking_type', 'staff_required', 'capacity',
+        'booking_horizon_days', 'booking_notice_unit', 'booking_notice_value', 'booking_notice_time', 'sort_order'];
 
     /** The variant columns of products only, and of services only */
     public const PRODUCT_ONLY_FIELDS = ['barcode', 'weight_grams'];
-    public const SERVICE_ONLY_FIELDS = ['duration_minutes', 'booking_type', 'staff_required', 'capacity'];
+    public const SERVICE_ONLY_FIELDS = ['duration_minutes', 'booking_type', 'staff_required', 'capacity',
+        'booking_horizon_days', 'booking_notice_unit', 'booking_notice_value', 'booking_notice_time'];
 
     // artifact_variant.booking_type
     public const BOOKING_APPOINTMENT = 'A';
@@ -184,6 +186,11 @@ class ArtifactMasterModel extends Model
             'booking_type'     => $variant['booking_type'],
             'staff_required'   => $variant['staff_required'] === null ? null : (int) $variant['staff_required'],
             'capacity'         => $variant['capacity'] === null ? null : (int) $variant['capacity'],
+            // its own booking window (see BookingWindow); all null for the business's
+            'booking_horizon_days' => $variant['booking_horizon_days'] === null ? null : (int) $variant['booking_horizon_days'],
+            'booking_notice_unit'  => $variant['booking_notice_unit'],
+            'booking_notice_value' => $variant['booking_notice_value'] === null ? null : (int) $variant['booking_notice_value'],
+            'booking_notice_time'  => $variant['booking_notice_time'] === null ? null : substr($variant['booking_notice_time'], 0, 5),
             'sort_order'       => (int) $variant['sort_order'],
             'attribute_values' => $variant['attribute_values'],
             'inventory'        => $variant['inventory_out'],

@@ -3,8 +3,10 @@
 namespace App\Controllers;
 
 use App\Libraries\ApiResponse;
+use App\Libraries\BookingWindow;
 use App\Models\ArtifactMasterModel;
 use App\Models\ArtifactVariantModel;
+use App\Models\BusinessMasterModel;
 use App\Models\BusinessServiceResourceLinkModel;
 use App\Models\BusinessStoreModel;
 use App\Models\ServiceSessionModel;
@@ -173,6 +175,8 @@ class ServiceSessions extends BaseController
      * - variant: a group variant (booking_type G) of a service of the business that is not discontinued, on sale;
      *   store: a physical store of it. Both are fixed once created.
      * - capacity 1-65535, the variant's when left out; session_status D (the default), O, C or X
+     * - booking_closes_at left out: the notice of the variant's booking window (or the business's) before its first
+     *   slot (see App\Libraries\BookingWindow); null, until it starts
      * - slots: 0-200, numbered in the order they meet; each ends after it starts and within 24 hours, and the slots
      *   of a session do not overlap. An open or closed session needs at least one.
      * @return ResponseInterface The session, as show() gives it
@@ -269,6 +273,9 @@ class ServiceSessions extends BaseController
             if ($errors !== []) {
                 return ApiResponse::error(lang('ServiceSession.invalidFields'), 422, $errors);
             }
+            if ($stored === null && ! array_key_exists('booking_closes_at', $in)) {
+                $session['booking_closes_at'] = $this->noticeCloses($businessId, $variant, $slots ?? [], $zone);
+            }
 
             if ($stored === null) {
                 $publicId = $sessions->createSession(['business_id' => $businessId, 'store_id' => (int) $store['id'], 'artifact_id' => $artifactId,
@@ -286,6 +293,26 @@ class ServiceSessions extends BaseController
         }
 
         return ApiResponse::success($detail, 200, lang($edit ? 'ServiceSession.sessionUpdated' : 'ServiceSession.sessionCreated'));
+    }
+
+    /**
+     * When booking a new session closes by its booking window: the notice before its first scheduled slot
+     * @param int          $businessId
+     * @param array        $variant
+     * @param list<array>  $slots Checked, with starts_at in UTC
+     * @param DateTimeZone $zone  The store's
+     * @return string|null UTC; null with no scheduled slot
+     */
+    private function noticeCloses(int $businessId, array $variant, array $slots, DateTimeZone $zone): ?string
+    {
+        $starts = array_column(array_filter($slots, static fn (array $slot): bool => $slot['slot_status'] === ServiceSessionModel::SLOT_SCHEDULED), 'starts_at');
+        if ($starts === []) {
+            return null;
+        }
+        $business = model(BusinessMasterModel::class)->select(BookingWindow::FIELDS)->find($businessId) ?? [];
+        $first    = new DateTimeImmutable(min($starts), new DateTimeZone('UTC'));
+
+        return BookingWindow::closesAt(BookingWindow::effective($business, $variant), $first, $zone)->format('Y-m-d H:i:s');
     }
 
     /**

@@ -166,6 +166,86 @@ final class BusinessesTest extends CIUnitTestCase
         $this->assertSame($logs, $this->db->table('log_activity')->countAllResults());
     }
 
+    public function testBookingWindowDefaultsAndIsChecked(): void
+    {
+        $window = fn (string $slug): array => array_map('strval', array_values(array_intersect_key(
+            $this->db->table('business_master')->where('business_slug', $slug)->get()->getRowArray(),
+            array_flip(['booking_horizon_days', 'booking_notice_unit', 'booking_notice_value', 'booking_notice_time'])
+        )));
+
+        // left out: 3 days ahead, an hour's notice
+        $this->send(['business' => $this->business()])->assertStatus(200);
+        $this->assertSame(['3', 'M', '60', ''], $window('otter-cafe-sg'));
+
+        // no same-day booking; the time is kept to the minute
+        $this->send(['business' => $this->business(['business_name' => 'Badger Spa', 'business_slug' => 'badger-spa-sg',
+            'booking_horizon_days' => 30, 'booking_notice_unit' => 'd', 'booking_notice_value' => 1, 'booking_notice_time' => '23:59:30'])])->assertStatus(200);
+        $this->assertSame(['30', 'D', '1', '23:59:00'], $window('badger-spa-sg'));
+
+        $refused = function (array $fields, array $expected): void {
+            $response = $this->send(['business' => $this->business(['business_slug' => 'otter-x', 'business_name' => 'X'] + $fields)]);
+            $response->assertStatus(422);
+            $this->assertSame($expected, array_keys($this->body($response)['errors']));
+        };
+        $refused(['booking_horizon_days' => 0], ['booking_horizon_days']);
+        $refused(['booking_horizon_days' => 366], ['booking_horizon_days']);
+        $refused(['booking_notice_unit' => 'H'], ['booking_notice_unit']);
+        $refused(['booking_notice_value' => -5], ['booking_notice_value']);
+        $refused(['booking_notice_unit' => 'D', 'booking_notice_value' => 1], ['booking_notice_time']); // D needs a time
+        $refused(['booking_notice_time' => '18:00'], ['booking_notice_time']); // M takes none
+        $refused(['booking_notice_unit' => 'D', 'booking_notice_value' => 1, 'booking_notice_time' => '24:00'], ['booking_notice_time']);
+        $refused(['booking_notice_value' => 3 * 1440 + 1], ['booking_notice_value']); // longer than the 3 days ahead
+        $refused(['booking_notice_unit' => 'D', 'booking_notice_value' => 4, 'booking_notice_time' => '12:00'], ['booking_notice_value']);
+
+        // edited, and out with the session business; an edit that changes nothing logs nothing
+        $edit = fn (array $fields) => $this->send(['business_slug' => 'otter-cafe-sg', 'business' => $fields], null, 'v1/client/business/edit');
+        $edit(['booking_notice_unit' => 'D', 'booking_notice_value' => 1, 'booking_notice_time' => '18:00'])->assertStatus(200);
+        $edit(['booking_notice_unit' => 'M'])->assertStatus(422); // the time stays, so it must go too
+        $logs = $this->db->table('log_activity')->countAllResults();
+        $edit(['booking_horizon_days' => '3', 'booking_notice_time' => '18:00'])->assertStatus(200);
+        $this->assertSame($logs, $this->db->table('log_activity')->countAllResults());
+        $business = $this->body($this->send(['business_slug' => 'otter-cafe-sg'], null, 'v1/client/business/switch'))['data']['business']['business'];
+        $this->assertSame(['3', 'D', '1', '18:00:00'], array_map('strval', [$business['booking_horizon_days'], $business['booking_notice_unit'],
+            $business['booking_notice_value'], $business['booking_notice_time']]));
+    }
+
+    public function testCancellationPolicyDefaultsAndIsChecked(): void
+    {
+        $columns = ['cancel_notice_unit', 'cancel_notice_value', 'cancel_notice_time', 'late_cancel_allowed', 'late_cancel_fee_value',
+            'late_cancel_fee_unit', 'no_show_fee_value', 'no_show_fee_unit'];
+        $policy  = fn (string $slug): array => array_map('strval', array_values(BusinessMasterModel::withDecimals(array_intersect_key(
+            $this->db->table('business_master')->where('business_slug', $slug)->get()->getRowArray(), array_flip($columns)))));
+
+        // left out: free until 24 hours before, no fee
+        $this->send(['business' => $this->business()])->assertStatus(200);
+        $this->assertSame(['M', '1440', '', 'Y', '0.00', 'P', '0.00', 'P'], $policy('otter-cafe-sg'));
+
+        // by 6pm the day before; half after, non-refundable for a no-show; codes in any case
+        $this->send(['business' => $this->business(['business_name' => 'Badger Spa', 'business_slug' => 'badger-spa-sg',
+            'cancel_notice_unit' => 'd', 'cancel_notice_value' => 1, 'cancel_notice_time' => '18:00', 'late_cancel_allowed' => 'n',
+            'late_cancel_fee_value' => 50, 'no_show_fee_value' => '100', 'no_show_fee_unit' => 'p'])])->assertStatus(200);
+        $this->assertSame(['D', '1', '18:00:00', 'N', '50.00', 'P', '100.00', 'P'], $policy('badger-spa-sg'));
+
+        $refused = function (array $fields, array $expected): void {
+            $response = $this->send(['business' => $this->business(['business_slug' => 'otter-x', 'business_name' => 'X'] + $fields)]);
+            $response->assertStatus(422);
+            $this->assertSame($expected, array_keys($this->body($response)['errors']));
+        };
+        $refused(['cancel_notice_unit' => 'H', 'late_cancel_allowed' => 'maybe', 'late_cancel_fee_unit' => 'X', 'no_show_fee_value' => '-1'],
+            ['cancel_notice_unit', 'late_cancel_allowed', 'late_cancel_fee_unit', 'no_show_fee_value']);
+        $refused(['cancel_notice_unit' => 'D', 'cancel_notice_time' => '12:00'], ['cancel_notice_value']); // 1440 days is past the most days
+        $refused(['cancel_notice_unit' => 'D', 'cancel_notice_value' => 1], ['cancel_notice_time']);
+        $refused(['cancel_notice_time' => '18:00'], ['cancel_notice_time']); // minutes take no time
+        $refused(['late_cancel_fee_value' => '100.01', 'no_show_fee_value' => '1.234'], ['no_show_fee_value']); // the rules first
+        $refused(['late_cancel_fee_value' => '100.01'], ['late_cancel_fee_value']);
+
+        // a fixed fee is not capped at 100; out with the session business, its fees as "0.00"
+        $this->send(['business_slug' => 'otter-cafe-sg', 'business' => ['no_show_fee_value' => 500, 'no_show_fee_unit' => 'F']], null, 'v1/client/business/edit')->assertStatus(200);
+        $business = $this->body($this->send(['business_slug' => 'otter-cafe-sg'], null, 'v1/client/business/switch'))['data']['business']['business'];
+        $this->assertSame(['1440', '0.00', '500.00', 'F'], array_map('strval', [$business['cancel_notice_value'], $business['late_cancel_fee_value'],
+            $business['no_show_fee_value'], $business['no_show_fee_unit']]));
+    }
+
     public function testLanguagesOutsideListLanguagesAreRefused(): void
     {
         $response = $this->send(['business' => $this->business(), 'translations' => ['fr' => 'Café Loutre', 'th' => ['x']]]);

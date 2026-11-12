@@ -164,6 +164,44 @@ final class ArtifactsTest extends CIUnitTestCase
         $this->assertSame([null, null, null], [$variant['booking_type'], $variant['staff_required'], $variant['capacity']]);
     }
 
+    public function testAServiceVariantMayHaveItsOwnBookingWindow(): void
+    {
+        $service = ['artifact_name' => 'Facial', 'artifact_type' => 'S', 'tax_calculation' => 'X'];
+        $window  = static fn (array $v): array => [$v['booking_horizon_days'], $v['booking_notice_unit'], $v['booking_notice_value'], $v['booking_notice_time']];
+        $response = $this->create(['artifact' => $service, 'variants' => [
+            ['price_active' => 1500, 'duration_minutes' => 60, 'attribute_values' => [$this->color['Blue']]], // the business's
+            ['price_active' => 2500, 'duration_minutes' => 60, 'attribute_values' => [$this->color['Red']],
+                'booking_horizon_days' => 14, 'booking_notice_unit' => 'd', 'booking_notice_value' => '1', 'booking_notice_time' => '18:00'],
+        ]]);
+        $response->assertStatus(200);
+        $data = $this->body($response)['data'];
+        $this->assertSame([[null, null, null, null], [14, 'D', 1, '18:00']], array_map($window, $data['variants']));
+
+        // left out keeps it; all null goes back to the business's
+        $own = $data['variants'][1]['public_id'];
+        $this->edit(['public_id' => $data['artifact']['public_id'], 'variants' => [['public_id' => $data['variants'][0]['public_id']], ['public_id' => $own]]])->assertStatus(200);
+        $this->seeInDatabase('artifact_variant', ['public_id' => $own, 'booking_horizon_days' => 14, 'booking_notice_time' => '18:00:00']);
+        $this->edit(['public_id' => $data['artifact']['public_id'], 'variants' => [['public_id' => $data['variants'][0]['public_id']],
+            ['public_id' => $own, 'booking_horizon_days' => null, 'booking_notice_unit' => null, 'booking_notice_value' => null, 'booking_notice_time' => null]]])->assertStatus(200);
+        $this->seeInDatabase('artifact_variant', ['public_id' => $own, 'booking_horizon_days' => null, 'booking_notice_unit' => null]);
+
+        // all of it or none
+        foreach ([
+            [['booking_horizon_days' => 14], 'variants.0.booking_notice_unit'],
+            [['booking_horizon_days' => 14, 'booking_notice_unit' => 'D', 'booking_notice_value' => 1], 'variants.0.booking_notice_time'],
+            [['booking_horizon_days' => 2, 'booking_notice_unit' => 'M', 'booking_notice_value' => 3000], 'variants.0.booking_notice_value'],
+        ] as $n => [$fields, $field]) {
+            $response = $this->create(['artifact' => $service, 'variants' => [['price_active' => 1, 'duration_minutes' => 60] + $fields]]);
+            $response->assertStatus(422);
+            $this->assertArrayHasKey($field, $this->body($response)['errors'] ?? [], $n . ': ' . $field);
+        }
+
+        // a product has none
+        $response = $this->create(['artifact' => ['artifact_type' => 'P'] + $service, 'variants' => [['price_active' => 1, 'booking_horizon_days' => 0]]]);
+        $response->assertStatus(200);
+        $this->assertSame([null, null, null, null], $window($this->body($response)['data']['variants'][0]));
+    }
+
     public function testTheFieldsAreChecked(): void
     {
         $product = ['artifact_name' => 'T-Shirt', 'artifact_type' => 'P', 'tax_calculation' => 'X'];

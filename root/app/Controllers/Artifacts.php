@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Libraries\ApiResponse;
+use App\Libraries\BookingWindow;
 use App\Models\ArtifactAttributeModel;
 use App\Models\ArtifactCategoryModel;
 use App\Models\ArtifactMasterModel;
@@ -153,6 +154,9 @@ class Artifacts extends BaseController
      *   picked. Every variant uses the same attributes. A product's variants differ by the combination of their
      *   values; a service's by that combination together with duration_minutes (required for a service) and
      *   booking_type, so a service can have, say, a 60- and a 90-minute variant, each as a group or a private session.
+     *   A service variant may have its own booking window, booking_horizon_days, booking_notice_unit,
+     *   booking_notice_value and booking_notice_time, as the business has (see App\Libraries\BookingWindow): all of
+     *   them, or all null for the business's.
      * Refused with 409 once the business has as many artifacts of the type as its plan allows
      * (Config\PlanLimits::PRODUCTS or SERVICES, discontinued ones not counted), or when there are more variants than
      * its plan allows per artifact (Config\PlanLimits::VARIANTS).
@@ -573,6 +577,21 @@ class Artifacts extends BaseController
             $row['capacity'] = null;
             unset($errors[$key . '.capacity']);
         }
+
+        // its own booking window, all of it, or none for the business's
+        $window = [];
+        foreach (BookingWindow::FIELDS as $field) {
+            $raw            = $value($field);
+            $window[$field] = is_int($raw) ? $raw : $text($raw);
+        }
+        $window['booking_notice_unit'] = $window['booking_notice_unit'] === null ? null : strtoupper((string) $window['booking_notice_unit']);
+        $window['booking_notice_time'] = BookingWindow::normalizeTime($window['booking_notice_time']);
+        if (array_filter($window, static fn (mixed $v): bool => $v !== null) !== []) {
+            foreach (BookingWindow::errors($window) as $field => $error) {
+                $errors[$key . '.' . $field] = $error;
+            }
+        }
+        $row += $window;
 
         // what the other type has no use for is not kept
         foreach ($type === ArtifactMasterModel::TYPE_PRODUCT ? ArtifactMasterModel::SERVICE_ONLY_FIELDS : ArtifactMasterModel::PRODUCT_ONLY_FIELDS as $field) {

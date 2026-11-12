@@ -54,6 +54,27 @@ final class ServiceSessionsTest extends CIUnitTestCase
         $this->canTeach($this->teacher);
     }
 
+    public function testBookingClosesByTheBookingWindowUnlessGiven(): void
+    {
+        $closes = function (array $session, array $slots = [['starts_at' => '2026-11-17T11:00', 'ends_at' => '2026-11-17T13:00'], ['starts_at' => '2026-11-10T11:00', 'ends_at' => '2026-11-10T13:00']]): ?string {
+            $response = $this->send('v1/client/session/create', ['business_slug' => 'otter-school', 'session' => ['variant_public_id' => $this->groupVariant,
+                'store_public_id' => $this->storePublicId, 'session_name' => 'Course'] + $session, 'slots' => $slots]);
+            $response->assertStatus(200);
+
+            return $this->body($response)['data']['session']['booking_closes_at'];
+        };
+
+        // the business's: an hour before the first slot
+        $this->assertSame('2026-11-10T03:00:00Z', $closes([]));
+        // the variant's own: by 6pm the day before
+        $this->db->table('artifact_variant')->where('public_id', $this->groupVariant)->update(['booking_horizon_days' => 30,
+            'booking_notice_unit' => 'D', 'booking_notice_value' => 1, 'booking_notice_time' => '18:00:00']);
+        $this->assertSame('2026-11-09T11:00:00Z', $closes([]));
+        // given, even as null, or with no slot yet: as it is
+        $this->assertNull($closes(['booking_closes_at' => null]));
+        $this->assertNull($closes([], []));
+    }
+
     public function testAGroupSessionIsCreatedWithItsSlotsAndWhatTheyHold(): void
     {
         $options = $this->body($this->send('v1/client/session/options', ['business_slug' => 'otter-school']))['data'];
