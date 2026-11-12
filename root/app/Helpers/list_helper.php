@@ -882,6 +882,7 @@ if (!function_exists('listSupportedTypefaces')) {
                 'Open Sans'          => 'family=Open+Sans:ital,wght@0,400;0,700;1,400;1,700',
                 'Oswald'             => 'family=Oswald:wght@400;700',
                 'Playfair Display'   => 'family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700',
+                'Raleway'            => 'family=Raleway:ital,wght@0,400;0,700;1,400;1,700',
                 'Roboto'             => 'family=Roboto:ital,wght@0,400;0,700;1,400;1,700',
                 'Schoolbell'         => 'family=Schoolbell',
                 'Ubuntu'             => 'family=Ubuntu:ital,wght@0,400;0,700;1,400;1,700'
@@ -968,6 +969,7 @@ if (!function_exists('listSupportedTypefacesNameOnly')) {
 
 if (!function_exists('listDefaultThemeVariables')) {
     /**
+     * Note: need to fix website.php startingFonts() in Views/scripts when update the typefaces here
      * @param string|null $locale
      * @return array
      */
