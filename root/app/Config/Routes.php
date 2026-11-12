@@ -226,6 +226,16 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('staff/hours/save', 'Staff::saveHours');
         $routes->post('staff/hours-exception/save', 'Staff::saveHoursException');
         $routes->post('staff/hours-exception/delete', 'Staff::deleteHoursException');
+        // what a business records about its people: the attributes it defines, their values, the languages its people
+        // speak and the customers they do not serve; its active owners and managers only; see App\Controllers\StaffProfiles
+        $routes->post('staff-attributes', 'StaffProfiles::attributes');
+        $routes->post('staff-attribute/create', 'StaffProfiles::createAttribute');
+        $routes->post('staff-attribute/edit', 'StaffProfiles::editAttribute');
+        $routes->post('staff-attribute/delete', 'StaffProfiles::deleteAttribute');
+        $routes->post('staff/profile', 'StaffProfiles::profile');
+        $routes->post('staff/languages/save', 'StaffProfiles::saveLanguages');
+        $routes->post('staff/attributes/save', 'StaffProfiles::saveAttributes');
+        $routes->post('staff/restrictions/save', 'StaffProfiles::saveRestrictions');
         $routes->post('commission-policy', 'Staff::policy');
         $routes->post('commission-policy/save', 'Staff::savePolicy');
         // the traffic of a business's marketplace pages, from the tracker: its active owners and managers only;
