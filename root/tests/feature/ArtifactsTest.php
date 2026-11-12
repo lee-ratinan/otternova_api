@@ -129,7 +129,7 @@ final class ArtifactsTest extends CIUnitTestCase
         $service = ['artifact_name' => 'Muay Thai', 'artifact_type' => 'S', 'tax_calculation' => 'X'];
         $response = $this->create(['artifact' => $service, 'variants' => [
             ['price_active' => 1500, 'duration_minutes' => 60, 'capacity' => 5, 'attribute_values' => [$this->color['Blue']]], // an appointment by default; capacity not kept
-            ['price_active' => 800, 'booking_type' => 'g', 'staff_required' => 2, 'capacity' => 12, 'attribute_values' => [$this->color['Red']]],
+            ['price_active' => 800, 'duration_minutes' => 60, 'booking_type' => 'g', 'staff_required' => 2, 'capacity' => 12, 'attribute_values' => [$this->color['Red']]],
         ]]);
         $response->assertStatus(200);
         $data     = $this->body($response)['data'];
@@ -145,11 +145,12 @@ final class ArtifactsTest extends CIUnitTestCase
         $this->seeInDatabase('artifact_variant', ['public_id' => $group, 'booking_type' => 'A', 'staff_required' => 2, 'capacity' => null]);
 
         foreach ([
-            [['price_active' => 1, 'booking_type' => 'X'], 'variants.0.booking_type'],
-            [['price_active' => 1, 'booking_type' => 'G'], 'variants.0.capacity'],
-            [['price_active' => 1, 'booking_type' => 'G', 'capacity' => 0], 'variants.0.capacity'],
-            [['price_active' => 1, 'staff_required' => 0], 'variants.0.staff_required'],
-            [['price_active' => 1, 'staff_required' => 256], 'variants.0.staff_required'],
+            [['price_active' => 1, 'duration_minutes' => 60, 'booking_type' => 'X'], 'variants.0.booking_type'],
+            [['price_active' => 1, 'duration_minutes' => 60, 'booking_type' => 'G'], 'variants.0.capacity'],
+            [['price_active' => 1, 'duration_minutes' => 60, 'booking_type' => 'G', 'capacity' => 0], 'variants.0.capacity'],
+            [['price_active' => 1, 'duration_minutes' => 60, 'staff_required' => 0], 'variants.0.staff_required'],
+            [['price_active' => 1, 'duration_minutes' => 60, 'staff_required' => 256], 'variants.0.staff_required'],
+            [['price_active' => 1], 'variants.0.duration_minutes'], // a service's length is required
         ] as $n => [$variant, $field]) {
             $response = $this->create(['artifact' => $service, 'variants' => [$variant]]);
             $response->assertStatus(422);
@@ -288,10 +289,44 @@ final class ArtifactsTest extends CIUnitTestCase
         $this->seeInDatabase('artifact_master', ['public_id' => $publicId, 'category_id' => null, 'artifact_status' => 'D']);
     }
 
+    public function testAServiceVariantDiffersByLengthAndBookingType(): void
+    {
+        $service = ['artifact_name' => 'Japanese Course', 'artifact_type' => 'S', 'tax_calculation' => 'X'];
+        // no options needed: 60 and 90 minutes, each as an appointment and as a group
+        $response = $this->create(['artifact' => $service, 'variants' => [
+            ['price_active' => 900, 'duration_minutes' => 60],
+            ['price_active' => 400, 'duration_minutes' => 60, 'booking_type' => 'G', 'capacity' => 8],
+            ['price_active' => 1300, 'duration_minutes' => 90],
+            ['price_active' => 600, 'duration_minutes' => 90, 'booking_type' => 'G', 'capacity' => 8],
+        ]]);
+        $response->assertStatus(200);
+        $data = $this->body($response)['data'];
+        $this->assertCount(4, $data['variants']);
+
+        // the same length and booking type twice is refused, on the variant sent
+        $response = $this->create(['artifact' => $service, 'variants' => [
+            ['price_active' => 900, 'duration_minutes' => 60],
+            ['price_active' => 950, 'duration_minutes' => 60],
+        ]]);
+        $response->assertStatus(422);
+        $this->assertSame(lang('Artifact.serviceCombinationTaken'), $this->body($response)['errors']['variants.1.duration_minutes'] ?? null);
+
+        // also against a stored variant left out of the edit
+        $response = $this->edit(['public_id' => $data['artifact']['public_id'], 'variants' => [['price_active' => 1000, 'duration_minutes' => 90]]]);
+        $response->assertStatus(422);
+        $this->assertArrayHasKey('variants.0.duration_minutes', $this->body($response)['errors']);
+
+        // with options, the same length and booking type is fine for different choices
+        $this->create(['artifact' => $service, 'variants' => [
+            ['price_active' => 900, 'duration_minutes' => 60, 'attribute_values' => [$this->color['Blue']]],
+            ['price_active' => 900, 'duration_minutes' => 60, 'attribute_values' => [$this->color['Red']]],
+        ]])->assertStatus(200);
+    }
+
     public function testListFilters(): void
     {
         $this->create(['artifact' => ['artifact_name' => 'B Tee', 'artifact_type' => 'P', 'artifact_status' => 'A', 'tax_calculation' => 'X'], 'variants' => [['price_active' => 1]]])->assertStatus(200);
-        $this->create(['artifact' => ['artifact_name' => 'A Massage', 'artifact_type' => 'S', 'tax_calculation' => 'X'], 'variants' => [['price_active' => 1]]])->assertStatus(200);
+        $this->create(['artifact' => ['artifact_name' => 'A Massage', 'artifact_type' => 'S', 'tax_calculation' => 'X'], 'variants' => [['price_active' => 1, 'duration_minutes' => 60]]])->assertStatus(200);
 
         $names = fn (array $filters) => array_column($this->body($this->send('v1/client/artifacts', ['business_slug' => 'otter-shop', 'filters' => $filters]))['data']['artifacts'], 'artifact_name');
         $this->assertSame(['A Massage', 'B Tee'], $names([]));
@@ -314,7 +349,7 @@ final class ArtifactsTest extends CIUnitTestCase
         $response->assertStatus(409);
         $this->assertSame(lang('Artifact.limitReached', [1, 'Free', 'products']), $this->body($response)['message']);
         // services are counted apart
-        $this->create(['artifact' => ['artifact_name' => 'Massage', 'artifact_type' => 'S', 'tax_calculation' => 'X'], 'variants' => [['price_active' => 1]]])->assertStatus(200);
+        $this->create(['artifact' => ['artifact_name' => 'Massage', 'artifact_type' => 'S', 'tax_calculation' => 'X'], 'variants' => [['price_active' => 1, 'duration_minutes' => 60]]])->assertStatus(200);
 
         // a discontinued one makes room
         $this->edit(['public_id' => $first, 'artifact' => ['artifact_status' => 'D']])->assertStatus(200);

@@ -26,6 +26,8 @@ return [
     'attributeValueNotFound'  => 'One of these choices is not an option of this business.',
     'oneValuePerAttribute'    => 'A variant can have only one choice of each option.',
     'combinationTaken'        => 'Another variant already has these choices.',
+    'serviceCombinationTaken' => 'Another variant already has this length and booking type with the same choices.',
+    'durationRequired'        => 'Please enter how many minutes this service takes.',
     'attributesDiffer'        => 'Every variant must use the same options.',
     'skuTaken'                => 'Another variant of this business already has this SKU.',
     'inventoryProductsOnly'   => 'Only products have stock.',

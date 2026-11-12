@@ -150,7 +150,9 @@ class Artifacts extends BaseController
      *   duration_minutes, booking_type, staff_required and capacity for services only: booking_type A (appointment, the
      *   default) or G (group), staff_required 1-255 (1 by default), and capacity 1-65535, the most customers in one
      *   session, required for G and not kept for A; inventory, for products only, creates the variant's stock at the stores
-     *   picked. Every variant uses the same attributes, with a different combination of their values.
+     *   picked. Every variant uses the same attributes. A product's variants differ by the combination of their
+     *   values; a service's by that combination together with duration_minutes (required for a service) and
+     *   booking_type, so a service can have, say, a 60- and a 90-minute variant, each as a group or a private session.
      * Refused with 409 once the business has as many artifacts of the type as its plan allows
      * (Config\PlanLimits::PRODUCTS or SERVICES, discontinued ones not counted), or when there are more variants than
      * its plan allows per artifact (Config\PlanLimits::VARIANTS).
@@ -449,11 +451,13 @@ class Artifacts extends BaseController
         $final = [];
         foreach ($storedVariants as $publicId => $variant) {
             if (! isset($listed[$publicId])) {
-                $final[] = ['index' => null, 'values' => $variant['values'], 'sku' => $variant['sku']];
+                $final[] = ['index' => null, 'values' => $variant['values'], 'sku' => $variant['sku'],
+                    'duration' => $variant['duration_minutes'] === null ? null : (int) $variant['duration_minutes'], 'booking' => $variant['booking_type']];
             }
         }
         foreach ($variants as $i => $variant) {
-            $final[] = ['index' => $i, 'values' => $variant['values'] ?? $variant['stored']['values'], 'sku' => $variant['row']['sku']];
+            $final[] = ['index' => $i, 'values' => $variant['values'] ?? $variant['stored']['values'], 'sku' => $variant['row']['sku'],
+                'duration' => $variant['row']['duration_minutes'], 'booking' => $variant['row']['booking_type']];
         }
         if (count($final) > self::MAX_VARIANTS) {
             return [[], ['variants' => lang('Artifact.tooManyVariants', [self::MAX_VARIANTS])]];
@@ -466,10 +470,12 @@ class Artifacts extends BaseController
         foreach ($final as $variant) {
             ksort($variant['values']);
             $attributeSets[implode(',', array_keys($variant['values']))] = true;
-            $combination = json_encode($variant['values']);
+            // a service's variants also differ by their length and booking type
+            $service     = $type === ArtifactMasterModel::TYPE_SERVICE;
+            $combination = json_encode($service ? [$variant['values'], $variant['duration'], $variant['booking']] : $variant['values']);
             $key         = $variant['index'] === null ? null : 'variants.' . $variant['index'];
             if ($key !== null && isset($combinations[$combination])) {
-                $errors[$key . '.attribute_values'] = lang('Artifact.combinationTaken');
+                $errors[$key . ($service ? '.duration_minutes' : '.attribute_values')] = lang($service ? 'Artifact.serviceCombinationTaken' : 'Artifact.combinationTaken');
             }
             $combinations[$combination] = true;
             if ($variant['sku'] !== null) {
@@ -553,6 +559,10 @@ class Artifacts extends BaseController
         }
         $row['sort_order'] ??= $index;
         $row['staff_required'] ??= 1;
+        // a service's length is one of what tells its variants apart
+        if ($type === ArtifactMasterModel::TYPE_SERVICE && $row['duration_minutes'] === null && ! isset($errors[$key . '.duration_minutes'])) {
+            $errors[$key . '.duration_minutes'] = lang('Artifact.durationRequired');
+        }
 
         // a group session takes up to capacity customers; an appointment is one customer's
         if ($row['booking_type'] === ArtifactMasterModel::BOOKING_GROUP) {
