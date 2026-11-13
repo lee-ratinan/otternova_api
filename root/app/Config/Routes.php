@@ -194,6 +194,11 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('stores', 'Stores::list');
         $routes->post('store/create', 'Stores::create');
         $routes->post('store/edit', 'Stores::edit');
+        // how the customers of a business can pay it, at every store or at one: its active owners and managers only;
+        // see App\Controllers\PaymentMethods
+        $routes->post('payment-methods', 'PaymentMethods::list');
+        $routes->post('payment-method/create', 'PaymentMethods::create');
+        $routes->post('payment-method/edit', 'PaymentMethods::edit');
         // the opening hours of a store: the active owners and managers of its business only; see App\Controllers\StoreHours
         $routes->post('store/hours', 'StoreHours::show');
         $routes->post('store/hours/save', 'StoreHours::save');

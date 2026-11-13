@@ -20,6 +20,8 @@ class FieldEncryption
         'business_master'  => ['tax_id'],
         // a frozen invoice or receipt prints the business's tax_id
         'billing_document' => ['content_json', 'html'],
+        // a payment gateway's secret key
+        'business_payment_method' => ['secret_json'],
     ];
 
     public const PREFIX = 'enc:v1:';
