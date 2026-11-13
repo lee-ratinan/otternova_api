@@ -208,6 +208,11 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('shipping-methods', 'ShippingMethods::list');
         $routes->post('shipping-method/create', 'ShippingMethods::create');
         $routes->post('shipping-method/edit', 'ShippingMethods::edit');
+        // the discount codes a business gives its customers on the mart: its active owners and managers only;
+        // see App\Controllers\Discounts
+        $routes->post('discounts', 'Discounts::list');
+        $routes->post('discount/create', 'Discounts::create');
+        $routes->post('discount/edit', 'Discounts::edit');
         // the opening hours of a store: the active owners and managers of its business only; see App\Controllers\StoreHours
         $routes->post('store/hours', 'StoreHours::show');
         $routes->post('store/hours/save', 'StoreHours::save');
