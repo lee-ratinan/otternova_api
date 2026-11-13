@@ -239,7 +239,7 @@ class MartSlotModel extends Model
      * @param list<int> $clientIds
      * @return array<int, array{excluded_genders: list<string>, age_min: int|null, age_max: int|null}>
      */
-    private function restrictionsOf(int $businessId, array $clientIds): array
+    public function restrictionsOf(int $businessId, array $clientIds): array
     {
         $out = [];
         foreach ($this->db->table('business_client_restriction')->select('client_id, restriction_type, excluded_gender, age_min, age_max')
@@ -400,7 +400,7 @@ class MartSlotModel extends Model
     }
 
     /** The name a customer sees: the person's display_name, else their first name */
-    private static function publicName(array $row): string
+    public static function publicName(array $row): string
     {
         foreach (['display_name', 'legal_first_name'] as $column) {
             if (trim((string) $row[$column]) !== '') {

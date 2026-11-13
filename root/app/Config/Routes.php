@@ -45,6 +45,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('artifacts', 'Mart::artifacts');
         $routes->get('artifact', 'Mart::artifact');
         $routes->get('slots', 'Mart::slots');
+        $routes->get('sessions', 'Mart::sessions');
     });
 
     // Admin app: staff accounts only (a valid token with typ S)
@@ -199,6 +200,11 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('payment-methods', 'PaymentMethods::list');
         $routes->post('payment-method/create', 'PaymentMethods::create');
         $routes->post('payment-method/edit', 'PaymentMethods::edit');
+        // how the customers of a business can get its products and what that costs, at every store or at one: its
+        // active owners and managers only; see App\Controllers\ShippingMethods
+        $routes->post('shipping-methods', 'ShippingMethods::list');
+        $routes->post('shipping-method/create', 'ShippingMethods::create');
+        $routes->post('shipping-method/edit', 'ShippingMethods::edit');
         // the opening hours of a store: the active owners and managers of its business only; see App\Controllers\StoreHours
         $routes->post('store/hours', 'StoreHours::show');
         $routes->post('store/hours/save', 'StoreHours::save');

@@ -8,6 +8,7 @@ use App\Libraries\MartCache;
 use App\Models\ArtifactMasterModel;
 use App\Models\BusinessMasterModel;
 use App\Models\MartCatalogModel;
+use App\Models\MartSessionModel;
 use App\Models\MartSlotModel;
 use CodeIgniter\I18n\Time;
 use CodeIgniter\HTTP\ResponseInterface;
@@ -26,6 +27,7 @@ use Throwable;
  * - /mart/artifacts: product cards, by public_ids, category or type
  * - /mart/artifact:  one product or service with its variants, options, images and reviews
  * - /mart/slots:     the times an appointment may be booked at, on one day (never cached)
+ * - /mart/sessions:  the sessions of a group service that may be booked (never cached)
  */
 class Mart extends BaseController
 {
@@ -229,29 +231,9 @@ class Mart extends BaseController
                 }
             }
 
-            $card   = $artifact['artifact'];
-            $values = [];
-            foreach ($artifact['options'] as $option) {
-                foreach ($option['values'] as $value) {
-                    $values[$value['public_id']] = $value['value'];
-                }
-            }
-            $row = current(array_filter($artifact['variants'], static fn (array $v): bool => $v['public_id'] === $variant['public_id'])) ?: null;
-
             return ApiResponse::success([
                 'language' => $artifact['language'],
-                'service'  => [
-                    'public_id' => $card['public_id'],
-                    'name'      => $card['name'],
-                    'cover_url' => $card['cover_url'],
-                    'variant'   => [
-                        'public_id'        => $variant['public_id'],
-                        'label'            => implode(' / ', array_filter(array_map(static fn (array $v): ?string => $values[$v['value_public_id']] ?? null, $row['attribute_values'] ?? []))),
-                        'duration_minutes' => $variant['duration_minutes'],
-                        'staff_required'   => $variant['staff_required'],
-                        'price'            => $row['price'] ?? null,
-                    ],
-                ],
+                'service'  => self::service($artifact, $variant['public_id'], ['duration_minutes' => $variant['duration_minutes'], 'staff_required' => $variant['staff_required']]),
                 'rule'   => ['horizon_days' => $rule['booking_horizon_days'], 'notice_unit' => $rule['booking_notice_unit'],
                     'notice_value' => $rule['booking_notice_value'], 'notice_time' => $rule['booking_notice_time'] === null ? null : substr($rule['booking_notice_time'], 0, 5)],
                 'store'  => $store['public_id'] ?? null,
@@ -264,6 +246,149 @@ class Mart extends BaseController
                 'slots'  => $slots,
             ]);
         });
+    }
+
+    /**
+     * GET /mart/sessions?business_slug=&lang=&variant=&store=&staff=&date_from=&date_to=
+     * The sessions of a group service (a variant with booking_type G) a customer may book now: open, at a physical
+     * store, with a scheduled slot, a seat left, and their booking not closed (booking_closes_at, else their start, is
+     * after now); never cached. A customer books a whole session, every slot of it.
+     * - variant:   public_id of the variant (404 when it is not an active group variant of an active service)
+     * - store:     public_id of one of the stores; every store when not given
+     * - staff:     public_id of one of the people the sessions (at the store, when given) hold; anyone when not given
+     * - date_from, date_to: Y-m-d, either or both; the sessions starting on those days, on the store's clock (a
+     *              session lasting days is found by its first)
+     * { language, service: {public_id, name, cover_url, variant: {public_id, label, duration_minutes, capacity,
+     *   price: {active, compare}}},
+     *   stores: [{public_id, name, address: {line_1, line_2, city, subdivision_code, postal_code}, phone_number,
+     *   timezone}] (those with a session to book, by name; the name and address in the answer's language where it has
+     *   them),
+     *   staff: [{public_id, name, restrictions: {excluded_genders: [M|F|NB], age_min, age_max} or null}] (whom the
+     *   sessions of the store, or of every store, hold; by name),
+     *   sessions: [{public_id, name, description, store_public_id, starts_at, ends_at, booking_closes_at, capacity,
+     *   seats_booked, seats_available, staff: [public_id], slots: [{slot_number, starts_at, ends_at, staff: [public_id]}]}] }
+     * The datetimes are in ISO 8601 with the store's offset; sessions by start, slots by start. The filters leave out
+     * sessions, never stores or people, so the lists can still be chosen from.
+     * @return ResponseInterface
+     */
+    public function sessions(): ResponseInterface
+    {
+        return $this->answer('v1/mart/sessions', function (int $businessId, string $lang): ResponseInterface {
+            $publicId = $this->request->getGet('variant');
+            $model    = model(MartSessionModel::class);
+            $variant  = is_string($publicId) && preg_match(self::PUBLIC_ID_PATTERN, $publicId) ? $model->groupVariant($businessId, $publicId) : null;
+            $artifact = $variant === null ? null : $this->artifactData($businessId, $lang, $variant['artifact_public_id']);
+            if ($artifact === null) {
+                return ApiResponse::error(lang('Mart.variantNotGroup'), 404);
+            }
+
+            $get   = fn (string $name): string => is_string($value = $this->request->getGet($name)) ? trim($value) : '';
+            $now   = DateTimeImmutable::createFromInterface(Time::now('UTC'));
+            $found = $model->bookable($businessId, $variant['id'], $artifact['language'], $now);
+
+            $errors  = [];
+            $storeId = null;
+            if (($storePublicId = $get('store')) !== '') {
+                $storeId = self::idOf($found['stores'], $storePublicId);
+                if ($storeId === null) {
+                    $errors['store'] = lang('Mart.storeNotFound');
+                }
+            }
+            // the people of the store's sessions, or of every store's
+            $inStore = $storeId === null ? $found['sessions'] : array_filter($found['sessions'], static fn (array $s): bool => $s['store_id'] === $storeId);
+            $held    = array_unique(array_merge([], ...array_column($inStore, 'staff')));
+            $staff   = array_filter($found['staff'], static fn (int $clientId): bool => in_array($clientId, $held, true), ARRAY_FILTER_USE_KEY);
+            $staffId = null;
+            if (($staffPublicId = $get('staff')) !== '') {
+                $staffId = self::idOf($staff, $staffPublicId);
+                if ($staffId === null) {
+                    $errors['staff'] = lang('Mart.staffNotFound');
+                }
+            }
+            $dates = [];
+            foreach (['date_from', 'date_to'] as $name) {
+                $date = $get($name);
+                if ($date === '') {
+                    continue;
+                }
+                if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || ! checkdate((int) substr($date, 5, 2), (int) substr($date, 8, 2), (int) substr($date, 0, 4))) {
+                    $errors[$name] = lang('Mart.invalidDate');
+                } else {
+                    $dates[$name] = $date;
+                }
+            }
+            if (isset($dates['date_from'], $dates['date_to']) && $dates['date_to'] < $dates['date_from']) {
+                $errors['date_to'] = lang('Mart.dateToBeforeFrom');
+            }
+            if ($errors !== []) {
+                return ApiResponse::error(lang('Mart.invalidQuery'), 422, $errors);
+            }
+
+            $sessions = array_filter($inStore, static fn (array $s): bool => ($staffId === null || in_array($staffId, $s['staff'], true))
+                && (! isset($dates['date_from']) || $s['local_start_date'] >= $dates['date_from'])
+                && (! isset($dates['date_to']) || $s['local_start_date'] <= $dates['date_to']));
+            $ref = static fn (array $clientIds): array => array_values(array_map(static fn (int $id): string => $found['staff'][$id]['public_id'], $clientIds));
+
+            return ApiResponse::success([
+                'language' => $artifact['language'],
+                'service'  => self::service($artifact, $variant['public_id'], ['duration_minutes' => $variant['duration_minutes'], 'capacity' => $variant['capacity']]),
+                'stores'   => array_values($found['stores']),
+                'staff'    => array_values($staff),
+                'sessions' => array_values(array_map(static fn (array $s): array => [
+                    'public_id'         => $s['public_id'],
+                    'name'              => $s['name'],
+                    'description'       => $s['description'],
+                    'store_public_id'   => $found['stores'][$s['store_id']]['public_id'],
+                    'starts_at'         => $s['starts_at'],
+                    'ends_at'           => $s['ends_at'],
+                    'booking_closes_at' => $s['booking_closes_at'],
+                    'capacity'          => $s['capacity'],
+                    'seats_booked'      => $s['seats_booked'],
+                    'seats_available'   => $s['seats_available'],
+                    'staff'             => $ref($s['staff']),
+                    'slots'             => array_map(static fn (array $slot): array => array_merge($slot, ['staff' => $ref($slot['staff'])]), $s['slots']),
+                ], $sessions)),
+            ]);
+        });
+    }
+
+    /**
+     * The key of the row with the public_id
+     * @param array<int, array{public_id: string}> $rows id => row
+     * @return int|null
+     */
+    private static function idOf(array $rows, string $publicId): ?int
+    {
+        return array_key_first(array_filter($rows, static fn (array $row): bool => $row['public_id'] === $publicId));
+    }
+
+    /**
+     * The service and the variant being booked, as /mart/slots and /mart/sessions send them
+     * @param array  $artifact        artifactData()
+     * @param string $variantPublicId
+     * @param array  $extra           More of the variant
+     * @return array { public_id, name, cover_url, variant: {public_id, label, ...$extra, price: {active, compare} or null} }
+     */
+    private static function service(array $artifact, string $variantPublicId, array $extra): array
+    {
+        $card   = $artifact['artifact'];
+        $values = [];
+        foreach ($artifact['options'] as $option) {
+            foreach ($option['values'] as $value) {
+                $values[$value['public_id']] = $value['value'];
+            }
+        }
+        $row = current(array_filter($artifact['variants'], static fn (array $v): bool => $v['public_id'] === $variantPublicId)) ?: null;
+
+        return [
+            'public_id' => $card['public_id'],
+            'name'      => $card['name'],
+            'cover_url' => $card['cover_url'],
+            'variant'   => [
+                'public_id' => $variantPublicId,
+                'label'     => implode(' / ', array_filter(array_map(static fn (array $v): ?string => $values[$v['value_public_id']] ?? null, $row['attribute_values'] ?? []))),
+            ] + $extra + ['price' => $row['price'] ?? null],
+        ];
     }
 
     /**

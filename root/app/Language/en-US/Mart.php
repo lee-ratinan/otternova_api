@@ -19,4 +19,6 @@ return [
     'dateOutsideWindow'  => 'Bookings are taken from {0} to {1}.',
     'storeNotFound'      => 'There is no such store for this service.',
     'staffNotFound'      => 'There is no such person for this service.',
+    'variantNotGroup'    => 'This service has no sessions to book.',
+    'dateToBeforeFrom'   => 'The last start date must be on or after the first.',
 ];
