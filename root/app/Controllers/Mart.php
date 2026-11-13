@@ -382,7 +382,8 @@ class Mart extends BaseController
      * POST /mart/order, JSON: /mart/quote's, with each appointment and session line's participants (one name per
      * seat), and customer: {first_name, last_name, email, telephone}, delivery: {line_1, line_2, city,
      * subdivision_code, postal_code} for a home delivery, pickup_point for a locker or pickup point.
-     * 201 { order: {public_id, key, ...GET /mart/order's} }: key is what shows the order, given only here.
+     * 201 { order: {key, ...GET /mart/order's} }: key is what shows the order, given only here; order_number is the
+     * business's number of it, what the customer is shown (App\Libraries\OrderNumber).
      * 409 when it cannot be placed as it is: errors by field (lines.<key>, shipping, discount, payment, address.<field>,
      * pickup_point, lines.<key>.participants) and data: {reason, quote}. 422 when the request is not well formed.
      * @return ResponseInterface
@@ -409,22 +410,23 @@ class Mart extends BaseController
             }
             service('martCache')->forget((int) $business['id']);
 
-            return ApiResponse::success(['order' => ['key' => $placed['key']] + $orders->order((int) $business['id'], $placed['public_id'], $placed['key'], $language)], 201);
+            return ApiResponse::success(['order' => ['key' => $placed['key']] + $orders->order((int) $business['id'], $placed['order_number'], $placed['key'], $language)], 201);
         });
     }
 
     /**
-     * GET /mart/order?business_slug=&lang=&public_id=&key=
-     * An order, for whoever has its key: MartOrderModel::order(). 404 for a wrong key, as for no order.
+     * GET /mart/order?business_slug=&lang=&number=&key= (or public_id= in place of number)
+     * An order, by the business's order number, for whoever has its key: MartOrderModel::order(). 404 for a wrong
+     * key, as for no order.
      * @return ResponseInterface
      */
     public function order(): ResponseInterface
     {
         return $this->answer('v1/mart/order', function (int $businessId, string $lang): ResponseInterface {
-            $publicId = $this->request->getGet('public_id');
-            $key      = $this->request->getGet('key');
-            $language = model(MartCatalogModel::class)->languageOf($businessId, $lang)[0];
-            $order    = is_string($publicId) && is_string($key) ? model(MartOrderModel::class)->order($businessId, $publicId, $key, $language) : null;
+            $reference = $this->request->getGet('number') ?? $this->request->getGet('public_id');
+            $key       = $this->request->getGet('key');
+            $language  = model(MartCatalogModel::class)->languageOf($businessId, $lang)[0];
+            $order     = is_string($reference) && is_string($key) ? model(MartOrderModel::class)->order($businessId, $reference, $key, $language) : null;
 
             return $order === null ? ApiResponse::error(lang('Mart.orderNotFound'), 404) : ApiResponse::success(['order' => $order]);
         });

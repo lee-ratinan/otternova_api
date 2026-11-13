@@ -566,4 +566,26 @@ class BusinessMasterModel extends Model
             $log->updated($actorId, 'Changed the commission settings of business ' . $stored['id'], $this->table, (int) $stored['id'], $stored, $changes);
         });
     }
+
+    /**
+     * Save how the order numbers of a business look and when they start again (App\Libraries\OrderNumber), logged
+     * to log_activity. Only the columns whose value changes are written; the orders numbered already keep theirs.
+     * @param array $stored   The business_master row, with id and OrderNumber::FIELDS
+     * @param array $settings Checked OrderNumber::FIELDS
+     * @param int   $actorId  auth_master.id of whoever makes the change
+     * @return void
+     * @throws Throwable When a write fails; nothing is written then
+     */
+    public function saveOrderNumbering(array $stored, array $settings, int $actorId): void
+    {
+        $changes = ActivityLog::changes($stored, $settings);
+        if ($changes === []) {
+            return;
+        }
+        $log = new ActivityLog();
+        $this->inTransaction(function () use ($stored, $changes, $actorId, $log) {
+            $this->db->table($this->table)->where('id', $stored['id'])->update($changes);
+            $log->updated($actorId, 'Changed the order numbers of business ' . $stored['id'], $this->table, (int) $stored['id'], $stored, $changes);
+        });
+    }
 }

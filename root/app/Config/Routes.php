@@ -253,6 +253,9 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('staff/restrictions/save', 'StaffProfiles::saveRestrictions');
         $routes->post('commission-policy', 'Staff::policy');
         $routes->post('commission-policy/save', 'Staff::savePolicy');
+        // how the order numbers of a business look: its active owners and managers only; see App\Controllers\OrderNumbers
+        $routes->post('order-numbers', 'OrderNumbers::show');
+        $routes->post('order-numbers/save', 'OrderNumbers::save');
         // the traffic of a business's marketplace pages, from the tracker: its active owners and managers only;
         // see App\Controllers\Traffic
         $routes->post('traffic/overview', 'Traffic::clientOverview');

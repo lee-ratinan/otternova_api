@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Libraries\ActivityLog;
 use App\Libraries\Money;
+use App\Libraries\OrderNumber;
 use App\Libraries\PromptPay;
 use CodeIgniter\Model;
 use DateTimeImmutable;
@@ -88,7 +89,8 @@ class MartOrderModel extends Model
      * the discount counted, in one transaction
      * @param array $customer { first_name, last_name, email, telephone }, checked
      * @param array $delivery { line_1, line_2, city, subdivision_code, postal_code, pickup_point }, trimmed
-     * @return array{id: int, public_id: string, key: string} key: what shows the order (order()), given only now
+     * @return array{id: int, public_id: string, order_number: string, key: string} key: what shows the order (order()),
+     *         given only now; order_number: the business's number of it (App\Libraries\OrderNumber), what the customer sees
      * @throws OrderRefusedException When it cannot be placed as it is; nothing is written
      * @throws Throwable When a write fails; nothing is written
      */
@@ -181,11 +183,14 @@ class MartOrderModel extends Model
             $customerId = $this->customerId($customer, $name, $now);
             $key        = bin2hex(random_bytes(24));
             $publicId   = $this->newPublicId();
+            // the business's running number, taken last so a refused order takes none
+            $orderNumber = OrderNumber::next($this->db, $business, $now);
             $shipping   = $priced['shipping'];
             $home       = ($shipping['type'] ?? null) === 'H';
             $totals     = $priced['totals'];
             $row        = [
                 'public_id'            => $publicId,
+                'order_number'         => $orderNumber,
                 'access_key'           => hash('sha256', $key),
                 'business_id'          => $businessId,
                 'customer_id'          => $customerId,
@@ -254,22 +259,27 @@ class MartOrderModel extends Model
                 }
             }
 
-            return ['id' => $orderId, 'public_id' => $publicId, 'key' => $key];
+            return ['id' => $orderId, 'public_id' => $publicId, 'order_number' => $orderNumber, 'key' => $key];
         });
     }
 
     /**
-     * An order as its customer sees it, when $key is the one place() gave
-     * @return array|null { public_id, status, created_at (UTC ISO 8601), currency, customer: {first_name, last_name,
+     * An order as its customer sees it, found by its order number (or its public_id), when $key is the one place()
+     * gave
+     * @param string $reference order_number, else public_id
+     * @return array|null { public_id, order_number, status, created_at (UTC ISO 8601), currency, customer: {first_name, last_name,
      *   email, telephone}, lines: [{kind, artifact_public_id, name, label, quantity, unit_price, compare_price,
      *   discount, tax: {calculation, percentage, amount}, total, store: {public_id, name, timezone}, starts_at, ends_at,
      *   participants}], shipping: {type, name, address: {...} or null, pickup_point, pickup_store: {...} or null} or
      *   null, payment: {method_code, handler_code, name, instruction, promptpay_payload}, discount_code,
      *   totals: {subtotal, discount, shipping, tax_included, tax_added, total} }
      */
-    public function order(int $businessId, string $publicId, string $key, string $language): ?array
+    public function order(int $businessId, string $reference, string $key, string $language): ?array
     {
-        $row = $this->findByPublicId($publicId);
+        $row = strlen($reference) <= 24 && preg_match('/^[A-Z]{0,4}\d{0,6}-\d+$/', $reference)
+            ? $this->db->table($this->table)->where('business_id', $businessId)->where('order_number', $reference)->get()->getRowArray()
+            : null;
+        $row ??= $this->findByPublicId($reference);
         if ($row === null || (int) $row['business_id'] !== $businessId || $key === '' || ! hash_equals($row['access_key'], hash('sha256', $key))) {
             return null;
         }
@@ -300,7 +310,8 @@ class MartOrderModel extends Model
         }
 
         return [
-            'public_id'  => $row['public_id'],
+            'public_id'    => $row['public_id'],
+            'order_number' => $row['order_number'],
             'status'     => $row['order_status'],
             'created_at' => (new DateTimeImmutable($row['created_at'], new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z'),
             'currency'   => $row['currency_code'],

@@ -204,7 +204,13 @@ final class MartOrderTest extends CIUnitTestCase
         $this->assertSame(1, (int) $this->db->table('business_discount')->where('discount_code', 'TAKE50')->get()->getRow()->redemption_count);
         $this->assertSame('Otter Customer', $this->db->table('customer_master')->where('email_address', 'otter@example.com')->get()->getRow()->customer_name);
 
-        $path = 'v1/mart/order?business_slug=otter-shop&public_id=' . $order['public_id'] . '&key=';
+        // the business's number, the first of November in Bangkok
+        $this->assertSame('IN2611-0001', $order['order_number']);
+        $second = $this->body($this->order([$this->product('mug', 1)], ['shipping' => $this->delivery]))['data']['order'];
+        $this->assertSame('IN2611-0002', $second['order_number']);
+
+        $path = 'v1/mart/order?business_slug=otter-shop&number=' . $order['order_number'] . '&key=';
+        $this->get('v1/mart/order?business_slug=otter-shop&public_id=' . $order['public_id'] . '&key=' . $order['key'])->assertStatus(200);
         $this->get($path . $order['key'])->assertStatus(200);
         $this->get($path . 'wrong')->assertStatus(404);
     }
@@ -217,6 +223,8 @@ final class MartOrderTest extends CIUnitTestCase
         $this->assertSame('problems', $body['data']['reason']);
         $this->assertSame(['code' => 'only_left', 'available' => 10], $body['data']['quote']['lines'][1]['problem']);
         $this->assertSame(0, $this->db->table('order_master')->countAllResults());
+        // a refused order takes no number
+        $this->assertSame(0, $this->db->table('business_order_sequence')->countAllResults());
         $this->assertSame(5, (int) $this->db->table('artifact_variant_inventory')->where('variant_id', $this->variants['book'][0])
             ->where('store_id', $this->stores['Silom'][0])->get()->getRow()->quantity);
 
