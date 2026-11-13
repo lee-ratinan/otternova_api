@@ -328,23 +328,40 @@ class ServiceSessionModel extends Model
      */
     public function createSession(array $session, array $names, array $slots, int $actorId): string
     {
-        $log = new ActivityLog();
-
-        return $this->withPublicId(fn (string $publicId) => $this->inTransaction(function () use ($session, $names, $slots, $actorId, $log, $publicId) {
-            $businessId = (int) $session['business_id'];
-            $this->lockHeld($businessId, $slots);
-            $row = ['public_id' => $publicId] + $session;
-            $this->db->table($this->table)->insert($row);
-            $id = (int) $this->db->insertID();
-            $log->inserted($actorId, 'Created session ' . $publicId . ' of business ' . $businessId, $this->table, $id, $row);
-            $this->writeTranslations(self::TRANSLATIONS, 'session_id', $id, 'session ' . $publicId, [], $names, $actorId, $log);
-
-            $slotIndex = $this->writeSlots(['id' => $id, 'public_id' => $publicId, 'business_id' => $businessId], [], $slots, $actorId, $log);
-            $this->updateSpan($id, $actorId, $log);
-            $this->checkConflicts($id, $slotIndex);
+        return $this->withPublicId(fn (string $publicId) => $this->inTransaction(function () use ($session, $names, $slots, $actorId, $publicId) {
+            $this->writeNewSession($publicId, $session, $names, $slots, $actorId);
 
             return $publicId;
         }));
+    }
+
+    /**
+     * createSession()'s writes, in the caller's transaction: for an order of the mart (MartOrderModel), which books an
+     * appointment as a session of its own along with the rest of the order
+     * @param string   $publicId A free public_id (newPublicId())
+     * @param array    $session  As createSession() takes it
+     * @param array    $names
+     * @param list<array> $slots
+     * @param int|null $actorId  null for a customer of the mart
+     * @return int The new session's id
+     * @throws SlotConflictException When a person or a resource is held by another session then
+     */
+    public function writeNewSession(string $publicId, array $session, array $names, array $slots, ?int $actorId): int
+    {
+        $log        = new ActivityLog();
+        $businessId = (int) $session['business_id'];
+        $this->lockHeld($businessId, $slots);
+        $row = ['public_id' => $publicId] + $session;
+        $this->db->table($this->table)->insert($row);
+        $id = (int) $this->db->insertID();
+        $log->inserted($actorId, 'Created session ' . $publicId . ' of business ' . $businessId, $this->table, $id, $row);
+        $this->writeTranslations(self::TRANSLATIONS, 'session_id', $id, 'session ' . $publicId, [], $names, $actorId, $log);
+
+        $slotIndex = $this->writeSlots(['id' => $id, 'public_id' => $publicId, 'business_id' => $businessId], [], $slots, $actorId, $log);
+        $this->updateSpan($id, $actorId, $log);
+        $this->checkConflicts($id, $slotIndex);
+
+        return $id;
     }
 
     /**
@@ -423,7 +440,7 @@ class ServiceSessionModel extends Model
      * @param ActivityLog         $log
      * @return array<int, int> slot id => its index in $slots, for the errors of a conflict
      */
-    private function writeSlots(array $session, array $stored, array $slots, int $actorId, ActivityLog $log): array
+    private function writeSlots(array $session, array $stored, array $slots, ?int $actorId, ActivityLog $log): array
     {
         $sessionId  = (int) $session['id'];
         $businessId = (int) $session['business_id'];
@@ -483,7 +500,7 @@ class ServiceSessionModel extends Model
      * @param ActivityLog $log
      * @return void
      */
-    private function writeHolds(int $businessId, int $slotId, string $what, array $old, array $slot, int $actorId, ActivityLog $log): void
+    private function writeHolds(int $businessId, int $slotId, string $what, array $old, array $slot, ?int $actorId, ActivityLog $log): void
     {
         $tables = [
             self::STAFF     => ['client_id', $slot['staff'], static fn (int $id): array => ['starts_at' => $slot['starts_at'], 'ends_at' => $slot['ends_at']], $old['staff']],
@@ -533,7 +550,7 @@ class ServiceSessionModel extends Model
      * @param ActivityLog $log
      * @return void
      */
-    private function releaseHolds(int $sessionId, ?int $slotId, string $what, int $actorId, ActivityLog $log): void
+    private function releaseHolds(int $sessionId, ?int $slotId, string $what, ?int $actorId, ActivityLog $log): void
     {
         $slotIds = $slotId !== null ? [$slotId]
             : array_map('intval', array_column($this->db->table(self::SLOTS)->select('id')->where('session_id', $sessionId)->get()->getResultArray(), 'id'));
@@ -555,7 +572,7 @@ class ServiceSessionModel extends Model
      * @param ActivityLog $log
      * @return void
      */
-    private function updateSpan(int $sessionId, int $actorId, ActivityLog $log): void
+    private function updateSpan(int $sessionId, ?int $actorId, ActivityLog $log): void
     {
         $span    = $this->db->table(self::SLOTS)->select('MIN(starts_at) AS starts_at, MAX(ends_at) AS ends_at')
             ->where('session_id', $sessionId)->where('slot_status', self::SLOT_SCHEDULED)->get()->getRowArray();

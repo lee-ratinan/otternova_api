@@ -8,6 +8,8 @@ use App\Libraries\MartCache;
 use App\Models\ArtifactMasterModel;
 use App\Models\BusinessMasterModel;
 use App\Models\MartCatalogModel;
+use App\Models\MartOrderModel;
+use App\Models\OrderRefusedException;
 use App\Models\MartSessionModel;
 use App\Models\MartSlotModel;
 use CodeIgniter\I18n\Time;
@@ -28,6 +30,10 @@ use Throwable;
  * - /mart/artifact:  one product or service with its variants, options, images and reviews
  * - /mart/slots:     the times an appointment may be booked at, on one day (never cached)
  * - /mart/sessions:  the sessions of a group service that may be booked (never cached)
+ * The checkout, never cached (App\Models\MartOrderModel):
+ * - POST /mart/quote: what a cart costs now, and the shipping and payment methods it may have
+ * - POST /mart/order: place an order
+ * - GET  /mart/order: an order, for its customer
  */
 class Mart extends BaseController
 {
@@ -350,6 +356,243 @@ class Mart extends BaseController
                 ], $sessions)),
             ]);
         });
+    }
+
+    /**
+     * POST /mart/quote, JSON { business_slug, lang, lines: [cart line], shipping, pickup_store, discount, payment }
+     * What the cart costs now and what may be chosen for it: MartOrderModel::quote(). A line that cannot be had as the
+     * cart has it any more comes with its problem, {code: not_found | out_of_stock | only_left | slot_taken |
+     * session_gone | seats_left, available}; the mart checks the whole cart with this as the checkout starts.
+     * 422 when the request is not well formed, errors by field.
+     * @return ResponseInterface
+     */
+    public function quote(): ResponseInterface
+    {
+        return $this->answerJson('v1/mart/quote', function (array $business, string $language, array $input): ResponseInterface {
+            [$cart, $choice, $errors] = $this->checkoutInput($input);
+            if ($errors !== []) {
+                return ApiResponse::error(lang('Mart.invalidCheckout'), 422, $errors);
+            }
+
+            return ApiResponse::success(model(MartOrderModel::class)->quote($business, $language, $cart, $choice, self::now()));
+        });
+    }
+
+    /**
+     * POST /mart/order, JSON: /mart/quote's, with each appointment and session line's participants (one name per
+     * seat), and customer: {first_name, last_name, email, telephone}, delivery: {line_1, line_2, city,
+     * subdivision_code, postal_code} for a home delivery, pickup_point for a locker or pickup point.
+     * 201 { order: {public_id, key, ...GET /mart/order's} }: key is what shows the order, given only here.
+     * 409 when it cannot be placed as it is: errors by field (lines.<key>, shipping, discount, payment, address.<field>,
+     * pickup_point, lines.<key>.participants) and data: {reason, quote}. 422 when the request is not well formed.
+     * @return ResponseInterface
+     */
+    public function placeOrder(): ResponseInterface
+    {
+        return $this->answerJson('v1/mart/order', function (array $business, string $language, array $input): ResponseInterface {
+            [$cart, $choice, $errors] = $this->checkoutInput($input, true);
+            [$customer, $delivery, $more] = $this->customerInput($input);
+            $errors += $more;
+            if ($cart === [] && ! isset($errors['lines'])) {
+                $errors['lines'] = 'required';
+            }
+            if ($errors !== []) {
+                return ApiResponse::error(lang('Mart.invalidCheckout'), 422, $errors);
+            }
+
+            $orders = model(MartOrderModel::class);
+            try {
+                $placed = $orders->place($business, $language, $cart, $choice, $customer, $delivery, self::now());
+            } catch (OrderRefusedException $e) {
+                return service('response')->setStatusCode(409)->setJSON(['status' => 'error', 'message' => lang('Mart.orderRefused'),
+                    'errors' => $e->errors, 'data' => ['reason' => $e->reason, 'quote' => $e->quote]]);
+            }
+            service('martCache')->forget((int) $business['id']);
+
+            return ApiResponse::success(['order' => ['key' => $placed['key']] + $orders->order((int) $business['id'], $placed['public_id'], $placed['key'], $language)], 201);
+        });
+    }
+
+    /**
+     * GET /mart/order?business_slug=&lang=&public_id=&key=
+     * An order, for whoever has its key: MartOrderModel::order(). 404 for a wrong key, as for no order.
+     * @return ResponseInterface
+     */
+    public function order(): ResponseInterface
+    {
+        return $this->answer('v1/mart/order', function (int $businessId, string $lang): ResponseInterface {
+            $publicId = $this->request->getGet('public_id');
+            $key      = $this->request->getGet('key');
+            $language = model(MartCatalogModel::class)->languageOf($businessId, $lang)[0];
+            $order    = is_string($publicId) && is_string($key) ? model(MartOrderModel::class)->order($businessId, $publicId, $key, $language) : null;
+
+            return $order === null ? ApiResponse::error(lang('Mart.orderNotFound'), 404) : ApiResponse::success(['order' => $order]);
+        });
+    }
+
+    /**
+     * The cart and the choices of a checkout request, checked for their shape only
+     * @return array{0: list<array>, 1: array, 2: array<string, string>} [cart, choice, errors by field]
+     */
+    private function checkoutInput(array $input, bool $withPeople = false): array
+    {
+        $errors = [];
+        $id     = static fn (mixed $value): bool => is_string($value) && preg_match(self::PUBLIC_ID_PATTERN, $value) === 1;
+        $lines  = $input['lines'] ?? null;
+        $cart   = [];
+        if (! is_array($lines) || ! array_is_list($lines) || count($lines) > config(MartConfig::class)->maxCartLines) {
+            $errors['lines'] = 'invalid';
+            $lines           = [];
+        }
+        $keys = [];
+        foreach ($lines as $n => $line) {
+            $key = is_array($line) ? ($line['key'] ?? null) : null;
+            if (! is_array($line) || ! is_string($key) || ! preg_match('/^[A-Za-z0-9_-]{1,32}$/', $key) || isset($keys[$key])
+                || ! in_array($line['kind'] ?? null, ['P', 'A', 'G'], true) || ! $id($line['variant'] ?? null)
+                || ! is_int($line['quantity'] ?? null) || $line['quantity'] < 1 || $line['quantity'] > 99) {
+                $errors['lines.' . $n] = 'invalid';
+
+                continue;
+            }
+            $keys[$key] = true;
+            $item       = ['key' => $key, 'kind' => $line['kind'], 'variant' => $line['variant'], 'quantity' => $line['quantity'], 'participants' => []];
+            if ($line['kind'] === 'A') {
+                $staff = $line['staff'] ?? null;
+                if (! $id($line['store'] ?? null) || ! is_string($line['starts_at'] ?? null) || strlen($line['starts_at']) > 40
+                    || ! is_array($staff) || ! array_is_list($staff) || count($staff) > 10 || array_filter($staff, static fn ($s): bool => ! $id($s)) !== []) {
+                    $errors['lines.' . $n] = 'invalid';
+
+                    continue;
+                }
+                $item += ['store' => $line['store'], 'starts_at' => $line['starts_at'], 'staff' => $staff];
+            } elseif ($line['kind'] === 'G') {
+                if (! $id($line['session'] ?? null)) {
+                    $errors['lines.' . $n] = 'invalid';
+
+                    continue;
+                }
+                $item['session'] = $line['session'];
+            }
+            if ($withPeople && $line['kind'] !== 'P') {
+                $people = $line['participants'] ?? [];
+                if (! is_array($people) || ! array_is_list($people) || count($people) > 99
+                    || array_filter($people, static fn ($p): bool => ! is_string($p) || mb_strlen($p) > 100) !== []) {
+                    $errors['lines.' . $n . '.participants'] = 'invalid';
+
+                    continue;
+                }
+                $item['participants'] = array_map(static fn (string $p): string => trim(preg_replace('/\s+/u', ' ', $p)), $people);
+            }
+            $cart[] = $item;
+        }
+
+        $choice = [];
+        foreach (['shipping', 'pickup_store', 'payment'] as $name) {
+            $value = $input[$name] ?? '';
+            if ($value !== '' && $value !== null && ! $id($value)) {
+                $errors[$name] = 'invalid';
+            }
+            $choice[$name] = is_string($value) ? $value : '';
+        }
+        $discount = $input['discount'] ?? '';
+        if (! is_string($discount) || mb_strlen($discount) > 30) {
+            $errors['discount'] = 'invalid';
+            $discount           = '';
+        }
+        $choice['discount'] = $discount;
+
+        return [$cart, $choice, $errors];
+    }
+
+    /**
+     * The customer and the delivery of an order, trimmed and checked
+     * @return array{0: array, 1: array, 2: array<string, string>} [customer, delivery, errors by field]
+     */
+    private function customerInput(array $input): array
+    {
+        $errors = [];
+        $text   = static function (array $from, string $name, int $max, bool $required, string $field) use (&$errors): string {
+            $value = $from[$name] ?? '';
+            $value = is_string($value) ? trim(preg_replace('/\s+/u', ' ', $value)) : null;
+            if ($value === null || mb_strlen($value) > $max) {
+                $errors[$field] = 'invalid';
+
+                return '';
+            }
+            if ($required && $value === '') {
+                $errors[$field] = 'required';
+            }
+
+            return $value;
+        };
+        $who      = is_array($input['customer'] ?? null) ? $input['customer'] : [];
+        $customer = [
+            'first_name' => $text($who, 'first_name', 100, true, 'customer.first_name'),
+            'last_name'  => $text($who, 'last_name', 100, true, 'customer.last_name'),
+            'email'      => strtolower($text($who, 'email', 64, true, 'customer.email')),
+            'telephone'  => $text($who, 'telephone', 24, true, 'customer.telephone'),
+        ];
+        if ($customer['email'] !== '' && filter_var($customer['email'], FILTER_VALIDATE_EMAIL) === false) {
+            $errors['customer.email'] = 'invalid';
+        }
+        if ($customer['telephone'] !== '' && ! preg_match('/^\+?[0-9 ()-]{6,24}$/', $customer['telephone'])) {
+            $errors['customer.telephone'] = 'invalid';
+        }
+        $address  = is_array($input['delivery'] ?? null) ? $input['delivery'] : [];
+        $delivery = [
+            'line_1'           => $text($address, 'line_1', 255, false, 'address.line_1'),
+            'line_2'           => $text($address, 'line_2', 255, false, 'address.line_2'),
+            'city'             => $text($address, 'city', 128, false, 'address.city'),
+            'subdivision_code' => $text($address, 'subdivision_code', 8, false, 'address.subdivision_code'),
+            'postal_code'      => $text($address, 'postal_code', 16, false, 'address.postal_code'),
+            'pickup_point'     => $text($input, 'pickup_point', 500, false, 'pickup_point'),
+        ];
+
+        return [$customer, $delivery, $errors];
+    }
+
+    /** Now, which a test can set (Time::setTestNow()) */
+    private static function now(): DateTimeImmutable
+    {
+        return DateTimeImmutable::createFromInterface(Time::now('UTC'));
+    }
+
+    /**
+     * answer() for a POST with a JSON body: the business_slug and lang come in it
+     * @param callable(array, string, array): ResponseInterface $answer given business_master, the language answered
+     *                                                                   in, and the body
+     */
+    private function answerJson(string $endpoint, callable $answer): ResponseInterface
+    {
+        try {
+            $input = $this->request->getJSON(true);
+        } catch (Throwable) {
+            $input = null;
+        }
+        if (! is_array($input)) {
+            return ApiResponse::error(lang('Mart.invalidCheckout'), 400);
+        }
+        $slug = $input['business_slug'] ?? null;
+        if (! is_string($slug) || trim($slug) === '') {
+            return ApiResponse::error(lang('Mart.slugRequired'), 400);
+        }
+        $lang = $input['lang'] ?? '';
+        $lang = is_string($lang) && array_key_exists($lang, listLanguages()) ? $lang : '';
+
+        try {
+            $businessId = service('martCache')->businessIdOf(trim($slug));
+            if ($businessId === null) {
+                return ApiResponse::error(lang('Mart.businessNotFound'), 404);
+            }
+            $business   = model(BusinessMasterModel::class)->find($businessId);
+            [$language] = model(MartCatalogModel::class)->languageOf($businessId, $lang);
+
+            return $answer($business, $language, $input);
+        } catch (Throwable $e) {
+            log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Mart.loadFailed'), 500);
+        }
     }
 
     /**

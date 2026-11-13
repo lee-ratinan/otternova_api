@@ -46,6 +46,9 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('artifact', 'Mart::artifact');
         $routes->get('slots', 'Mart::slots');
         $routes->get('sessions', 'Mart::sessions');
+        $routes->post('quote', 'Mart::quote');
+        $routes->post('order', 'Mart::placeOrder');
+        $routes->get('order', 'Mart::order');
     });
 
     // Admin app: staff accounts only (a valid token with typ S)

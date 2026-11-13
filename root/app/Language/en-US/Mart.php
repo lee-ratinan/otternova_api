@@ -21,4 +21,7 @@ return [
     'staffNotFound'      => 'There is no such person for this service.',
     'variantNotGroup'    => 'This service has no sessions to book.',
     'dateToBeforeFrom'   => 'The last start date must be on or after the first.',
+    'invalidCheckout'    => 'The checkout request is not valid.',
+    'orderRefused'       => 'The order could not be placed as it is.',
+    'orderNotFound'      => 'There is no such order.',
 ];

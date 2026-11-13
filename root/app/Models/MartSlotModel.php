@@ -375,6 +375,38 @@ class MartSlotModel extends Model
         return true;
     }
 
+    /**
+     * The resources an appointment from $start to $end would hold at the store: for each type the service needs, its
+     * quantity of the free ones, the first by name; for an order of the mart (MartOrderModel)
+     * @param int               $businessId
+     * @param int               $artifactId
+     * @param int               $storeId
+     * @param DateTimeImmutable $start
+     * @param DateTimeImmutable $end
+     * @return list<array{id: int, buffer_minutes: int}>|null null when too few are free
+     */
+    public function freeResources(int $businessId, int $artifactId, int $storeId, DateTimeImmutable $start, DateTimeImmutable $end): ?array
+    {
+        $needs = $this->resourceNeeds($businessId, $artifactId, $storeId, $start, $end);
+        if ($needs === null) {
+            return null;
+        }
+        $held = [];
+        foreach ($needs as $need) {
+            $until = $end->modify('+' . $need['buffer'] . ' minutes');
+            $free  = array_keys(array_filter($need['resources'], static fn (array $holds): bool => ! self::overlaps($holds, $start, $until)));
+            $free  = array_values(array_diff($free, array_column($held, 'id')));
+            if (count($free) < $need['quantity']) {
+                return null;
+            }
+            foreach (array_slice($free, 0, $need['quantity']) as $id) {
+                $held[] = ['id' => (int) $id, 'buffer_minutes' => (int) $need['buffer']];
+            }
+        }
+
+        return $held;
+    }
+
     /** Whether one of $intervals holds all of $start to $end */
     private static function covers(array $intervals, DateTimeImmutable $start, DateTimeImmutable $end): bool
     {

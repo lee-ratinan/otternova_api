@@ -62,7 +62,7 @@ trait TranslationWriteTrait
      * @param bool        $replace  Delete the stored languages that $new leaves out
      * @return void
      */
-    protected function writeTranslations(string $table, string $parentColumn, int $parentId, string $what, array $stored, array $new, int $actorId, ActivityLog $log, bool $replace = false): void
+    protected function writeTranslations(string $table, string $parentColumn, int $parentId, string $what, array $stored, array $new, ?int $actorId, ActivityLog $log, bool $replace = false): void
     {
         foreach ($new as $language => $texts) {
             $key = [$parentColumn => $parentId, 'language_code' => $language];

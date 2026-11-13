@@ -40,4 +40,7 @@ class Mart extends BaseConfig
 
     /** Days /mart/slots looks through for the first with a free time, when no date is asked for */
     public int $firstDateSearchDays = 14;
+
+    /** Lines a cart may send to /mart/quote and /mart/order, as many as the mart's cart may hold */
+    public int $maxCartLines = 50;
 }
