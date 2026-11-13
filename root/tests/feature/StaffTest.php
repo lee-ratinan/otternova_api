@@ -142,6 +142,50 @@ final class StaffTest extends CIUnitTestCase
         $this->assertSame(lang('Staff.discontinuedService'), $errors['services.' . $retired . '.public_id']);
     }
 
+    public function testAServiceIsNotTakenFromSomeoneStillInItsUpcomingSessions(): void
+    {
+        [$storeId]       = $this->store($this->businessId, 'Bangkok');
+        [$yogaId, $yoga]         = $this->artifactRow($this->businessId, 'S');
+        [, $piano]               = $this->artifactRow($this->businessId, 'S');
+        $save            = fn (array $services) => $this->send('v1/client/staff/services/save', ['business_slug' => 'otter-music', 'uid' => 'teacherexamplecom',
+            'services' => array_map(static fn (string $id): array => ['public_id' => $id], $services)]);
+        $save([$yoga, $piano])->assertStatus(200);
+        $clientId = (int) $this->db->table('business_service_client_link')->get()->getRow()->client_id;
+
+        $this->db->table('artifact_variant')->insert(['public_id' => $this->fixturePublicId(), 'business_id' => $this->businessId, 'artifact_id' => $yogaId,
+            'price_active' => '800.00', 'booking_type' => 'G', 'staff_required' => 1, 'capacity' => 10]);
+        $variantId = (int) $this->db->insertID();
+        $hold      = function (string $name, string $startsAt, string $endsAt, string $status = 'O') use ($storeId, $yogaId, $variantId, $clientId): void {
+            $this->db->table('service_session')->insert(['public_id' => $this->fixturePublicId(), 'business_id' => $this->businessId, 'store_id' => $storeId,
+                'artifact_id' => $yogaId, 'variant_id' => $variantId, 'session_name' => $name, 'capacity' => 10, 'starts_at' => $startsAt, 'ends_at' => $endsAt,
+                'session_status' => $status]);
+            $this->db->table('service_session_slot')->insert(['business_id' => $this->businessId, 'session_id' => (int) $this->db->insertID(), 'slot_number' => 1,
+                'starts_at' => $startsAt, 'ends_at' => $endsAt]);
+            $this->db->table('service_slot_staff')->insert(['business_id' => $this->businessId, 'slot_id' => (int) $this->db->insertID(), 'client_id' => $clientId,
+                'starts_at' => $startsAt, 'ends_at' => $endsAt]);
+        };
+        $hold('Past Yoga', '2000-01-01 09:00:00', '2000-01-01 10:00:00');          // history: does not count
+        $hold('Called-off Yoga', '2999-01-01 09:00:00', '2999-01-01 10:00:00', 'X'); // cancelled: does not count
+        $hold('Morning Yoga', '2999-01-02 09:00:00', '2999-01-02 10:00:00');
+
+        $this->assertSame([['Morning Yoga'], []], array_column($this->show()['services'], 'upcoming_sessions'));
+
+        // taking yoga away is refused, and says why; taking piano away is not held up by it
+        $response = $save([$piano]);
+        $response->assertStatus(422);
+        $body = $this->body($response);
+        $yogaName = $this->db->table('artifact_master')->where('id', $yogaId)->get()->getRow()->artifact_name;
+        $this->assertSame(lang('Staff.stillInSessions', [$yogaName, 'Morning Yoga']), $body['message']);
+        $this->assertSame(['services.' . $yoga . '.public_id'], array_keys($body['errors']));
+        $save([$yoga])->assertStatus(200);
+        $this->assertSame([true, false], array_column($this->show()['services'], 'assigned'));
+
+        // off the session, the service can go
+        $this->db->table('service_slot_staff')->where('client_id', $clientId)->delete();
+        $save([])->assertStatus(200);
+        $this->assertSame([false, false], array_column($this->show()['services'], 'assigned'));
+    }
+
     public function testSalariesNeverOverlapAndANewOneEndsTheCurrent(): void
     {
         $add  = fn (array $salary) => $this->send('v1/client/staff/salary/add', ['business_slug' => 'otter-music', 'uid' => 'teacherexamplecom', 'salary' => $salary]);

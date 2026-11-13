@@ -18,6 +18,7 @@ return [
     'unknownStore'          => 'This store is not one of the business\'s.',
     'unknownService'        => 'This is not one of the business\'s services.',
     'discontinuedService'   => 'This service is discontinued, so it cannot be given to anyone new.',
+    'stillInSessions'       => 'This person is still assigned to upcoming sessions of {0} ({1}). Remove them from those sessions first, then remove the service.',
     'invalidAmount'         => 'Please enter an amount of at most two decimals, not below zero.',
     'invalidPercentage'     => 'Please enter a percentage from 0 to 100, with at most two decimals.',
     'invalidUnit'           => 'Please choose a percentage or a fixed amount.',

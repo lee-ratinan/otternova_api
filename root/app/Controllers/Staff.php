@@ -12,8 +12,10 @@ use App\Models\BusinessServiceClientLinkModel;
 use App\Models\BusinessStoreClientLinkModel;
 use App\Models\BusinessStoreHoursModel;
 use App\Models\BusinessStoreModel;
+use App\Models\ServiceSessionModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
+use CodeIgniter\I18n\Time;
 use DateTimeImmutable;
 use Throwable;
 
@@ -70,7 +72,8 @@ class Staff extends BaseController
      * termination_date, commission_threshold), "stores" (every store of the business: public_id, store_name,
      * store_type, translations, assigned), "services" (every service of the business but the discontinued ones they
      * do not have: public_id, artifact_name, artifact_status, translations, assigned, commission_value,
-     * commission_unit), "salaries" (the latest first: salary_amount, salary_period, effective_date, end_date); with
+     * commission_unit, upcoming_sessions: the names of the sessions of it they are still held for, which have to be
+     * given to someone else before the service can be taken from them), "salaries" (the latest first: salary_amount, salary_period, effective_date, end_date); with
      * the business's "commission" settings and its currency_code
      * @return ResponseInterface
      */
@@ -90,6 +93,7 @@ class Staff extends BaseController
             $services   = model(ArtifactMasterModel::class)->servicesOf($businessId);
             $salaries   = model(BusinessClientSalaryModel::class)->historyOf($businessId, $clientId);
             $policy     = $this->policyOf($businessId);
+            $sessions   = model(ServiceSessionModel::class)->upcomingSessionsOfStaff($businessId, $clientId, Time::now('UTC')->toDateTimeString());
         } catch (Throwable $e) {
             log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
 
@@ -116,7 +120,8 @@ class Staff extends BaseController
                 'translations'     => $service['translations'],
                 'assigned'         => $has !== null,
                 'commission_value' => $has['commission_value'] ?? '0.00',
-                'commission_unit'  => $has['commission_unit'] ?? BusinessServiceClientLinkModel::UNIT_PERCENTAGE,
+                'commission_unit'   => $has['commission_unit'] ?? BusinessServiceClientLinkModel::UNIT_PERCENTAGE,
+                'upcoming_sessions' => $sessions[(int) $service['id']] ?? [],
             ];
         }
 
@@ -171,7 +176,9 @@ class Staff extends BaseController
      * Makes the person perform exactly those services of the business, at those commissions: commission_unit P (a
      * percentage, 0 to 100) or F (a fixed amount per service), commission_value 0 for none. A discontinued service can
      * be kept, but not given to someone new. commission_threshold is their own (an amount, 0 for none); null or ""
-     * to use the business's; left out, it stays as it is.
+     * to use the business's; left out, it stays as it is. A service cannot be taken from someone while they are still
+     * held for an upcoming session of it (422, with the sessions named in the message): they are taken off those
+     * sessions first.
      * @return ResponseInterface
      */
     public function saveServices(): ResponseInterface
@@ -200,6 +207,7 @@ class Staff extends BaseController
         $businessId = (int) $link['business_id'];
         try {
             $current  = model(BusinessServiceClientLinkModel::class)->servicesOf($businessId, (int) $link['client_id']);
+            $sessions = model(ServiceSessionModel::class)->upcomingSessionsOfStaff($businessId, (int) $link['client_id'], Time::now('UTC')->toDateTimeString());
             $byPublic = [];
             foreach (model(ArtifactMasterModel::class)->servicesOf($businessId) as $service) {
                 $byPublic[$service['public_id']] = $service;
@@ -235,8 +243,21 @@ class Staff extends BaseController
             }
             $services[$service['id']] = ['commission_value' => $value, 'commission_unit' => $unit];
         }
+        // a service is not taken from someone still held for its upcoming sessions; they come off those first
+        $sent       = array_flip(array_map(static fn ($item): string => is_array($item) && is_string($item['public_id'] ?? null) ? $item['public_id'] : '', $wanted));
+        $inSessions = [];
+        foreach ($byPublic as $publicId => $service) {
+            $names = $sessions[(int) $service['id']] ?? [];
+            if ($names === [] || ! isset($current[$service['id']]) || isset($sent[$publicId])) {
+                continue;
+            }
+            $message      = lang('Staff.stillInSessions', [$service['artifact_name'], implode(', ', $names)]);
+            $inSessions[] = $message;
+
+            $errors['services.' . $publicId . '.public_id'] = $message;
+        }
         if ($errors !== []) {
-            return ApiResponse::error(lang('Staff.invalidFields'), 422, $errors);
+            return ApiResponse::error($inSessions === [] ? lang('Staff.invalidFields') : implode(' ', $inSessions), 422, $errors);
         }
 
         try {

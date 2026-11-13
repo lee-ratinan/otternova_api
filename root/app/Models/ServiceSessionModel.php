@@ -235,6 +235,33 @@ class ServiceSessionModel extends Model
     }
 
     /**
+     * The sessions a person is still held for, by service: those with a scheduled slot of theirs not over by $now,
+     * in a session not cancelled. Past slots are history and do not count.
+     * @param int    $businessId
+     * @param int    $clientId
+     * @param string $now UTC 'Y-m-d H:i:s'
+     * @return array<int, list<string>> artifact_id => the session_names, by the first such slot
+     */
+    public function upcomingSessionsOfStaff(int $businessId, int $clientId, string $now): array
+    {
+        $out = [];
+        foreach ($this->db->table(self::STAFF . ' h')
+            ->select('s.id, s.artifact_id, s.session_name, MIN(h.starts_at) AS first_at')
+            ->join(self::SLOTS . ' sl', 'sl.id = h.slot_id')
+            ->join($this->table . ' s', 's.id = sl.session_id')
+            ->where('h.business_id', $businessId)->where('h.client_id', $clientId)
+            ->where('h.ends_at >=', $now)
+            ->where('sl.slot_status', self::SLOT_SCHEDULED)
+            ->where('s.session_status !=', self::STATUS_CANCELLED)
+            ->groupBy('s.id, s.artifact_id, s.session_name')
+            ->orderBy('first_at')->orderBy('s.id')->get()->getResultArray() as $row) {
+            $out[(int) $row['artifact_id']][] = $row['session_name'];
+        }
+
+        return $out;
+    }
+
+    /**
      * The people a session of the service at the store may hold: active in the business, allowed to perform the
      * service, and working at the store
      * @param int $businessId
