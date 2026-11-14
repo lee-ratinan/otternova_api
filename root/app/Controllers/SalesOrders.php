@@ -530,6 +530,58 @@ class SalesOrders extends BaseController
     }
 
     /**
+     * POST /client/order/receipt { public_id, store_public_id, language_code }
+     * What a receipt of the order prints (SalesOrderModel::receipt()), for anyone working in the business; nothing is
+     * kept of it, so it may be printed again. It may be printed only on the day the order was paid in full, before
+     * anything of it is refunded, and not once it is cancelled or a no-show (409 with the reason otherwise), at a store
+     * of the order with a printer: store_public_id is one of the order's receipt.stores, and may be left out when
+     * there is only one. language_code is a language of listLanguages(), the request's when left out.
+     * @return ResponseInterface { receipt, business, store, order }
+     */
+    public function receipt(): ResponseInterface
+    {
+        $endpoint = 'v1/client/order/receipt';
+        [$order, , $error, $input] = $this->managedOrder($endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        helper('list');
+        $language = $input['language_code'] ?? $this->request->getLocale();
+        if (! is_string($language) || ! isset(listLanguages()[$language])) {
+            return ApiResponse::error(lang('SalesOrder.invalidFields'), 422, ['language_code' => lang('Translation.unknownLanguage')]);
+        }
+        $orders = model(SalesOrderModel::class);
+        try {
+            $printing = $orders->receiptStores($order, self::now());
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'SalesOrder.loadFailed');
+        }
+        if ($printing['blocker'] !== null) {
+            return ApiResponse::error(lang('SalesOrder.cannotPrint.' . $printing['blocker']), 409);
+        }
+        $storeId = $input['store_public_id'] ?? null;
+        $stores  = $printing['stores'];
+        if ($storeId === null || $storeId === '') {
+            if (count($stores) > 1) {
+                return ApiResponse::error(lang('SalesOrder.invalidFields'), 422, ['store_public_id' => lang('SalesOrder.chooseStore')]);
+            }
+            $store = $stores[0];
+        } else {
+            $store = array_values(array_filter($stores, static fn (array $s): bool => $s['public_id'] === $storeId))[0] ?? null;
+            if ($store === null) {
+                return ApiResponse::error(lang('SalesOrder.invalidFields'), 422, ['store_public_id' => lang('SalesOrder.chooseStore')]);
+            }
+        }
+        try {
+            $receipt = $orders->receipt($order, $store, $language, $this->actorId());
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'SalesOrder.loadFailed');
+        }
+
+        return ApiResponse::success($receipt);
+    }
+
+    /**
      * A reason from the body, its spaces tidied
      * @return array{0: string, 1: string|null} [reason, error when it is missing, too short or too long]
      */

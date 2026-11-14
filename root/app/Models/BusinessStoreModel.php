@@ -34,14 +34,20 @@ class BusinessStoreModel extends Model
         'store_postal_code',
     ];
 
+    /** The receipt_format of a store that prints receipts; NULL is a store with no printer (AddStoreReceipts) */
+    public const RECEIPT_FORMATS = ['58mm', '80mm', 'A4'];
+
+    /** Columns about the receipts, which only a physical store prints */
+    public const RECEIPT_FIELDS = ['receipt_format', 'receipt_footer'];
+
     /** The table of the store's texts in other languages */
     public const TRANSLATION_TABLE = 'business_store_translation';
 
     /** Columns of TRANSLATION_TABLE, the name (which a language cannot do without) first */
-    public const TRANSLATED_FIELDS = ['store_name', 'store_address_line_1', 'store_address_line_2', 'store_city'];
+    public const TRANSLATED_FIELDS = ['store_name', 'store_address_line_1', 'store_address_line_2', 'store_city', 'receipt_footer'];
 
-    /** Columns of TRANSLATED_FIELDS that only a physical store has */
-    public const TRANSLATED_ADDRESS_FIELDS = ['store_address_line_1', 'store_address_line_2', 'store_city'];
+    /** Columns of TRANSLATED_FIELDS that only a physical store has: its address and its receipt footer */
+    public const TRANSLATED_ADDRESS_FIELDS = ['store_address_line_1', 'store_address_line_2', 'store_city', 'receipt_footer'];
 
     /** Columns fixed once the store is created */
     public const FIXED_FIELDS = ['business_id'];
@@ -64,6 +70,8 @@ class BusinessStoreModel extends Model
         'store_city',
         'store_subdivision_code',
         'store_postal_code',
+        'receipt_format',
+        'receipt_footer',
     ];
 
     /** public_id: CHAR(12), see PublicIdTrait */
@@ -89,6 +97,8 @@ class BusinessStoreModel extends Model
         'store_city'             => 'permit_empty|max_length[128]',
         'store_subdivision_code' => 'permit_empty|max_length[8]',
         'store_postal_code'      => 'permit_empty|max_length[16]',
+        'receipt_format'         => 'permit_empty|in_list[58mm,80mm,A4]',
+        'receipt_footer'         => 'permit_empty|max_length[255]',
     ];
     protected $validationMessages   = [];
     protected $skipValidation       = false;
@@ -111,9 +121,12 @@ class BusinessStoreModel extends Model
             'store_city'             => ['type' => 'text'],
             'store_subdivision_code' => ['type' => 'text', 'searchable' => false], // depends on the business's country
             'store_postal_code'      => ['type' => 'text'],
+            'receipt_format'         => ['type' => 'select'],
+            'receipt_footer'         => ['type' => 'textarea'],
         ];
         $enums  = [
-            'store_type' => [self::TYPE_PHYSICAL => 'primary', self::TYPE_ONLINE => 'info'],
+            'store_type'     => [self::TYPE_PHYSICAL => 'primary', self::TYPE_ONLINE => 'info'],
+            'receipt_format' => ['58mm' => 'secondary', '80mm' => 'secondary', 'A4' => 'secondary'],
         ];
 
         return $this->buildConfiguration('BusinessStore', $fields, $enums);
@@ -181,7 +194,7 @@ class BusinessStoreModel extends Model
     public function listOfBusiness(int $businessId, bool $withIds = false): array
     {
         $stores = $this->db->table($this->table)
-            ->select('id, public_id, store_name, store_type, store_timezone, store_phone_number, ' . implode(', ', self::ADDRESS_FIELDS))
+            ->select('id, public_id, store_name, store_type, store_timezone, store_phone_number, ' . implode(', ', [...self::ADDRESS_FIELDS, ...self::RECEIPT_FIELDS]))
             ->where('business_id', $businessId)
             ->orderBy('store_name', 'ASC')
             ->orderBy('id', 'ASC')
@@ -215,14 +228,14 @@ class BusinessStoreModel extends Model
     }
 
     /**
-     * $store with the address columns NULL when it is an online store
+     * $store with the address and receipt columns NULL when it is an online store, which has no counter to print at
      * @param array $store
      * @return array
      */
     public static function withoutOnlineAddress(array $store): array
     {
         if (($store['store_type'] ?? null) === self::TYPE_ONLINE) {
-            foreach (self::ADDRESS_FIELDS as $field) {
+            foreach ([...self::ADDRESS_FIELDS, ...self::RECEIPT_FIELDS] as $field) {
                 $store[$field] = null;
             }
         }
@@ -231,7 +244,7 @@ class BusinessStoreModel extends Model
     }
 
     /**
-     * $translations with the translated address columns NULL when $store is an online store
+     * $translations with the translated address columns and receipt footer NULL when $store is an online store
      * @param array $store
      * @param array $translations language_code => [column of TRANSLATED_FIELDS => text]
      * @return array

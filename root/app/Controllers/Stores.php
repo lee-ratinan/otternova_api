@@ -32,10 +32,12 @@ class Stores extends BaseController
         'store_city',
         'store_subdivision_code',
         'store_postal_code',
+        'receipt_format',
+        'receipt_footer',
     ];
 
     /** Fields saved as NULL when left empty; an empty store_timezone becomes the country's default instead */
-    private const FORM_NULLABLE = ['store_timezone', 'store_phone_number', ...BusinessStoreModel::ADDRESS_FIELDS];
+    private const FORM_NULLABLE = ['store_timezone', 'store_phone_number', ...BusinessStoreModel::ADDRESS_FIELDS, ...BusinessStoreModel::RECEIPT_FIELDS];
 
     /** Fields saved in capitals, so "th-10" is accepted as TH-10 */
     private const UPPERCASE_FIELDS = ['store_type', 'store_subdivision_code'];
@@ -46,13 +48,15 @@ class Stores extends BaseController
         'store_address_line_1' => 255,
         'store_address_line_2' => 255,
         'store_city'           => 128,
+        'receipt_footer'       => 255,
     ];
 
     /**
      * POST /client/stores { business_slug }
      * The stores of that business, by name: for each, public_id, store_name, store_type, store_timezone, store_phone_number, the address columns (NULL
-     * for an online store) and its names and addresses in other languages as translations (language_code =>
-     * {store_name, store_address_line_1, store_address_line_2, store_city}); with the business's plan_code, max_stores
+     * for an online store), receipt_format (58mm, 80mm or A4; NULL for a store with no printer) and receipt_footer, and
+     * its names, addresses and receipt footers in other languages as translations (language_code => {store_name,
+     * store_address_line_1, store_address_line_2, store_city, receipt_footer}); with the business's plan_code, max_stores
      * (its cap, Config\PlanLimits::STORES) and can_add (false once it has max_stores stores, so create would be refused)
      * @return ResponseInterface
      */
@@ -87,10 +91,13 @@ class Stores extends BaseController
 
     /**
      * POST /client/store/create { business_slug, store: {...}, translations: {language_code: {store_name,
-     * store_address_line_1, store_address_line_2, store_city}} }
+     * store_address_line_1, store_address_line_2, store_city, receipt_footer}} }
      * Creates a store of that business, with its names and addresses in other languages (business_store_translation).
      * store.store_type is P (physical) or O (online); an online store's address is saved as NULL.
      * store.store_timezone is one of listSupportedTimezones() of the business's country; left out, the country's first.
+     * store.receipt_format is 58mm, 80mm or A4, the paper of the store's receipt printer; empty for none, so the store
+     * prints no receipts. store.receipt_footer (up to 255 characters, lines kept) is printed at the bottom of them.
+     * Both are saved as NULL for an online store.
      * "translations" is optional; each key must be a language of listLanguages(). A language whose texts are all empty
      * is left out; one with an address needs its store_name too. An online store's translated address is saved as NULL.
      * Refused with 409 once the business has as many stores as its plan allows (Config\PlanLimits::STORES).
@@ -226,6 +233,14 @@ class Stores extends BaseController
         $value = is_string($value) || is_int($value) ? trim((string) $value) : '';
         if (in_array($field, self::UPPERCASE_FIELDS, true)) {
             $value = strtoupper($value);
+        }
+        if ($field === 'receipt_format') {
+            // "a4" or "80MM" is taken as A4 or 80mm; anything else is left for the validation to refuse
+            $formats = array_combine(array_map('strtolower', BusinessStoreModel::RECEIPT_FORMATS), BusinessStoreModel::RECEIPT_FORMATS);
+            $value   = $formats[strtolower($value)] ?? $value;
+        }
+        if ($field === 'receipt_footer') {
+            $value = trim(str_replace(["\r\n", "\r"], "\n", $value));
         }
 
         return $value === '' && in_array($field, self::FORM_NULLABLE, true) ? null : $value;

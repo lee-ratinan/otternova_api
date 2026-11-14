@@ -188,6 +188,59 @@ final class SalesOrdersTest extends CIUnitTestCase
         $this->assertEqualsCanonicalizing(['amount', 'transaction_type', 'payment_method_public_id'], array_keys($this->body($response)['errors']));
     }
 
+    public function testAReceiptIsPrintedOnTheDayTheOrderIsPaidAtAStoreWithAPrinter(): void
+    {
+        $publicId = $this->publicIdOf('Ben'); // 2 books, 600.00, picked up at Silom
+        $receipt  = fn (array $body = [], ?string $token = null) => $this->send('v1/client/order/receipt', ['public_id' => $publicId] + $body, $token ?? $this->employeeToken);
+        $show     = fn (): array => $this->body($this->send('v1/client/order', ['public_id' => $publicId], $this->employeeToken))['data']['order']['receipt'];
+
+        $this->assertSame(['can_print' => false, 'blocker' => 'notPaid', 'stores' => []], $show());
+        $response = $receipt();
+        $response->assertStatus(409);
+        $this->assertSame(lang('SalesOrder.cannotPrint.notPaid'), $this->body($response)['message']);
+
+        // paid at 10:00 in Bangkok; Silom has no printer yet
+        $this->pay($publicId, ['amount' => '600.00', 'payment_method_public_id' => $this->transfer, 'reference' => 'TX-9']);
+        $this->db->table('order_master')->where('public_id', $publicId)->update(['paid_at' => '2026-11-16 03:00:00']);
+        Time::setTestNow('2026-11-16 10:00:00', 'UTC'); // 17:00 in Bangkok
+        $this->assertSame('noPrinter', $show()['blocker']);
+
+        $store = $this->db->table('business_store')->where('business_id', $this->businessId)->get()->getRowArray();
+        $this->db->table('business_store')->where('id', $store['id'])->update(['receipt_format' => '80mm', 'receipt_footer' => 'Thank you']);
+        $this->db->table('business_store_translation')->insert(['store_id' => $store['id'], 'language_code' => 'th', 'store_name' => 'สีลม', 'receipt_footer' => 'ขอบคุณค่ะ']);
+        $artifact = $this->db->table('artifact_master')->where('business_id', $this->businessId)->get()->getRow()->id;
+        $this->db->table('artifact_master_translation')->insert(['artifact_id' => $artifact, 'language_code' => 'th', 'artifact_name' => 'เสื้อยืด']);
+        $this->assertSame(['can_print' => true, 'blocker' => null, 'stores' => [['public_id' => $store['public_id'], 'store_name' => 'Silom', 'receipt_format' => '80mm']]], $show());
+
+        // anyone working in the business prints it, in the language they choose
+        $response = $receipt(['language_code' => 'en-US']);
+        $response->assertStatus(200);
+        $data = $this->body($response)['data'];
+        $this->assertSame(['80mm', 'en-US', 'Asia/Bangkok', 'Thank you'], [$data['receipt']['format'], $data['receipt']['language_code'], $data['receipt']['timezone'], $data['receipt']['footer']]);
+        $this->assertSame(['Silom', 'T-Shirt', 2, '600.00'], [$data['store']['store_name'], $data['order']['lines'][0]['artifact_name'], $data['order']['lines'][0]['quantity'], $data['order']['totals']['total']]);
+        // only what was paid: the placed payment, still pending, is left out
+        $this->assertSame([['transaction_type' => 'payment', 'amount' => '600.00', 'payment_method_name' => 'Bank transfer', 'reference' => 'TX-9']],
+            array_map(static fn (array $p): array => array_diff_key($p, ['processed_at' => 0]), $data['order']['payments']));
+        $this->assertSame('otter-shop', $data['business']['business_name']);
+
+        $data = $this->body($receipt(['language_code' => 'th', 'store_public_id' => $store['public_id']]))['data'];
+        $this->assertSame(['สีลม', 'ขอบคุณค่ะ', 'เสื้อยืด'], [$data['store']['store_name'], $data['receipt']['footer'], $data['order']['lines'][0]['artifact_name']]);
+
+        $this->assertSame(['language_code'], array_keys($this->body($receipt(['language_code' => 'fr']))['errors']));
+        $this->assertSame(['store_public_id'], array_keys($this->body($receipt(['store_public_id' => 'nope']))['errors']));
+
+        // the next day in Bangkok, it is too late
+        Time::setTestNow('2026-11-16 17:00:00', 'UTC'); // 00:00 on the 17th in Bangkok
+        $this->assertSame('dayEnded', $show()['blocker']);
+        $receipt()->assertStatus(409);
+
+        // nor once anything of it is refunded
+        Time::setTestNow('2026-11-16 10:00:00', 'UTC');
+        $this->pay($publicId, ['transaction_type' => 'refund', 'amount' => '100']);
+        $this->assertSame('refunded', $show()['blocker']);
+        $this->assertSame(lang('SalesOrder.cannotPrint.refunded'), $this->body($receipt())['message']);
+    }
+
     // --- helpers ------------------------------------------------------------------------------------------------
 
     private function place(string $at, string $first, string $last, int $books, string $pickup): void

@@ -54,4 +54,13 @@ return [
     ],
     'nothingDue'         => 'Nothing is due on this order.',
     'noSlip'             => 'This payment has no slip.',
+    'cannotPrint'        => [
+        'cancelled' => 'This order was cancelled, so its receipt can no longer be printed.',
+        'noShow'    => 'This order was marked a no-show, so its receipt can no longer be printed.',
+        'refunded'  => 'Some of this order has been refunded, so its receipt can no longer be printed.',
+        'notPaid'   => 'A receipt can be printed once the order is paid in full.',
+        'noPrinter' => 'No store of this order has a receipt printer set up.',
+        'dayEnded'  => 'A receipt can only be printed on the day the order was paid.',
+    ],
+    'chooseStore'        => 'Please choose a store of this order that has a receipt printer.',
 ];

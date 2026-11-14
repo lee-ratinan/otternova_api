@@ -227,6 +227,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('order/payment-slip/(:segment)', 'SalesOrders::paymentSlip/$1');
         $routes->post('order/no-show', 'SalesOrders::noShow');
         $routes->post('order/refund-close', 'SalesOrders::closeRefund');
+        $routes->post('order/receipt', 'SalesOrders::receipt');
         // orders taken at the counter of a store (walk-ins, call-ins): any of the business's active clients; see
         // App\Controllers\CounterOrders
         $routes->post('counter/stores', 'CounterOrders::stores');

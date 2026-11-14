@@ -182,7 +182,8 @@ class SalesOrderModel extends Model
      *   totals: {subtotal, discount, shipping, tax_included, tax_added, total},
      *   money: {paid, refunded, net_paid, balance_due, refundable},
      *   payments: [{public_id, transaction_type, transaction_status, amount, payment_method_name, reference, note,
-     *   failure_reason, recorded_by_name, processed_at, created_at}] oldest first }
+     *   failure_reason, recorded_by_name, processed_at, created_at}] oldest first,
+     *   receipt: {can_print, blocker, stores: [{public_id, store_name, receipt_format}]} as receiptStores() }
      */
     public function detail(array $row, ?string $now = null): array
     {
@@ -208,7 +209,8 @@ class SalesOrderModel extends Model
             ->where('customer_id', $row['customer_id'])->where('flag_type', self::FLAG_NO_SHOW)->countAllResults();
         $actors = $this->db->table('auth_master a')->select('a.id, a.full_name')
             ->whereIn('a.id', array_values(array_filter([$row['cancelled_by'], $row['no_show_by'], $row['created_by']]) ?: [0]))->get()->getResultArray();
-        $names = array_column($actors, 'full_name', 'id');
+        $names    = array_column($actors, 'full_name', 'id');
+        $printing = $this->receiptStores($row, $now);
 
         return [
             'public_id'          => $row['public_id'],
@@ -281,6 +283,153 @@ class SalesOrderModel extends Model
             ],
             'money'              => array_map([Money::class, 'fromCents'], $money),
             'payments'           => $this->paymentsOf((int) $row['id']),
+            'receipt'            => [
+                'can_print' => $printing['blocker'] === null,
+                'blocker'   => $printing['blocker'],
+                'stores'    => array_map(static fn (array $store): array => array_intersect_key($store, array_flip(['public_id', 'store_name', 'receipt_format'])), $printing['stores']),
+            ],
+        ];
+    }
+
+    /**
+     * Where a receipt of the order may be printed now: once it is paid in full, not refunded, cancelled or a no-show,
+     * on the day it was paid (the store's clock), at a store of the order that has a printer (receipt_format set). The
+     * stores of an order are the one it was taken at (counter), or else the one it is picked up at, or else those of
+     * its lines.
+     * @param array  $row order_master
+     * @param string $now UTC "Y-m-d H:i:s"
+     * @return array{blocker: string|null, stores: list<array>} blocker: cancelled, noShow, refunded, notPaid,
+     *   noPrinter or dayEnded (null when it may be printed); stores: the business_store rows (id, public_id,
+     *   store_name, store_timezone, receipt_format) it may be printed at, by name, empty when blocked
+     */
+    public function receiptStores(array $row, string $now): array
+    {
+        $blocker = match (true) {
+            $row['cancelled_at'] !== null => 'cancelled',
+            $row['no_show_at'] !== null   => 'noShow',
+            in_array($row['financial_status'], [self::FINANCIAL_PARTIALLY_REFUNDED, self::FINANCIAL_FULL_REFUNDED], true) => 'refunded',
+            $row['financial_status'] !== self::FINANCIAL_PAID || $row['paid_at'] === null => 'notPaid',
+            default => null,
+        };
+        if ($blocker !== null) {
+            return ['blocker' => $blocker, 'stores' => []];
+        }
+        $storeIds = match (true) {
+            $row['counter_store_id'] !== null => [(int) $row['counter_store_id']],
+            $row['pickup_store_id'] !== null  => [(int) $row['pickup_store_id']],
+            default => array_map('intval', array_column($this->db->table('order_line')->distinct()->select('store_id')->where('order_id', $row['id'])->get()->getResultArray(), 'store_id')),
+        };
+        $stores = $storeIds === [] ? [] : $this->db->table('business_store')
+            ->select('id, public_id, store_name, store_timezone, receipt_format')
+            ->where('business_id', $row['business_id'])->whereIn('id', $storeIds)
+            ->where('store_type', BusinessStoreModel::TYPE_PHYSICAL)->where('receipt_format IS NOT NULL', null, false)
+            ->orderBy('store_name')->orderBy('id')->get()->getResultArray();
+        if ($stores === []) {
+            return ['blocker' => 'noPrinter', 'stores' => []];
+        }
+        $utc     = new DateTimeZone('UTC');
+        $paidAt  = new DateTimeImmutable($row['paid_at'], $utc);
+        $nowAt   = new DateTimeImmutable($now, $utc);
+        $sameDay = static function (array $store) use ($paidAt, $nowAt): bool {
+            $timezone = new DateTimeZone($store['store_timezone']);
+
+            return $paidAt->setTimezone($timezone)->format('Y-m-d') === $nowAt->setTimezone($timezone)->format('Y-m-d');
+        };
+        $stores = array_values(array_filter($stores, $sameDay));
+
+        return $stores === [] ? ['blocker' => 'dayEnded', 'stores' => []] : ['blocker' => null, 'stores' => $stores];
+    }
+
+    /**
+     * What a receipt of the order prints, in $language: the business's and the store's texts in it where they have
+     * them, else their own; the lines' names likewise (else as they were ordered). Only the succeeded payments and
+     * refunds are on it. Whether it may be printed is receiptStores()'s.
+     * @param array  $row      order_master
+     * @param array  $store    a store of receiptStores()
+     * @param string $language a language of listLanguages()
+     * @param int    $actorId  auth_master.id of whoever prints it
+     * @return array { receipt: {format, language_code, timezone, footer, printed_by_name},
+     *   business: {business_name, legal_name, tax_id, tax_branch_code, country_code},
+     *   store: {store_name, phone_number, address_line_1, address_line_2, city, subdivision_code, postal_code},
+     *   order: {order_number, order_source, created_at, paid_at (UTC), currency_code, customer_name, lines: [{
+     *   line_number, kind, artifact_name, variant_label, sku, quantity, unit_price, discount_amount, tax: {calculation,
+     *   percentage, amount}, line_total, starts_at, ends_at}], discount_code, shipping_method_name, totals: {subtotal,
+     *   discount, shipping, tax_included, tax_added, total}, money: {paid, refunded, net_paid, balance_due, refundable},
+     *   payments: [{transaction_type, payment_method_name, amount, reference, processed_at}] oldest first} }
+     */
+    public function receipt(array $row, array $store, string $language, int $actorId): array
+    {
+        $business  = model(BusinessMasterModel::class)->findDecrypted((int) $row['business_id']);
+        $storeRow  = $this->db->table('business_store')->where('id', $store['id'])->get()->getRowArray();
+        $storeText = $this->db->table(BusinessStoreModel::TRANSLATION_TABLE)->where('store_id', $store['id'])->where('language_code', $language)->get()->getRowArray() ?? [];
+        $text      = static fn (string $field): ?string => ($storeText[$field] ?? null) !== null && $storeText[$field] !== '' ? $storeText[$field] : $storeRow[$field];
+        $lines     = $this->db->table('order_line')->where('order_id', $row['id'])->orderBy('line_number')->get()->getResultArray();
+        $names     = $lines === [] ? [] : array_column($this->db->table('artifact_master_translation')->select('artifact_id, artifact_name')
+            ->whereIn('artifact_id', array_unique(array_map('intval', array_column($lines, 'artifact_id'))))->where('language_code', $language)
+            ->get()->getResultArray(), 'artifact_name', 'artifact_id');
+        $printer   = $this->db->table('client_master')->select('display_name, legal_first_name, legal_last_name')->where('auth_id', $actorId)->get()->getRowArray() ?? [];
+        $printedBy = trim((string) ($printer['display_name'] ?? ''));
+        $printedBy = $printedBy !== '' ? $printedBy : trim(($printer['legal_first_name'] ?? '') . ' ' . ($printer['legal_last_name'] ?? ''));
+        $payments  = array_values(array_filter($this->paymentsOf((int) $row['id']), static fn (array $p): bool => $p['transaction_status'] === self::TXN_SUCCEEDED));
+
+        return [
+            'receipt'  => [
+                'format'          => $storeRow['receipt_format'],
+                'language_code'   => $language,
+                'timezone'        => $storeRow['store_timezone'],
+                'footer'          => $text('receipt_footer'),
+                'printed_by_name' => $printedBy === '' ? null : $printedBy,
+            ],
+            'business' => [
+                'business_name'   => model(BusinessMasterModel::class)->namesOf((int) $business['id'])[$language] ?? $business['business_name'],
+                'legal_name'      => $business['legal_name'],
+                'tax_id'          => $business['tax_id'],
+                'tax_branch_code' => $business['tax_branch_code'],
+                'country_code'    => $business['country_code'],
+            ],
+            'store'    => [
+                'store_name'       => $text('store_name'),
+                'phone_number'     => $storeRow['store_phone_number'],
+                'address_line_1'   => $text('store_address_line_1'),
+                'address_line_2'   => $text('store_address_line_2'),
+                'city'             => $text('store_city'),
+                'subdivision_code' => $storeRow['store_subdivision_code'],
+                'postal_code'      => $storeRow['store_postal_code'],
+            ],
+            'order'    => [
+                'order_number'         => $row['order_number'],
+                'order_source'         => $row['order_source'],
+                'created_at'           => $row['created_at'],
+                'paid_at'              => $row['paid_at'],
+                'currency_code'        => $row['currency_code'],
+                'customer_name'        => trim($row['first_name'] . ' ' . $row['last_name']),
+                'lines'                => array_map(static fn (array $line): array => [
+                    'line_number'     => (int) $line['line_number'],
+                    'kind'            => $line['line_kind'],
+                    'artifact_name'   => $names[(int) $line['artifact_id']] ?? $line['artifact_name'],
+                    'variant_label'   => $line['variant_label'],
+                    'sku'             => $line['sku'],
+                    'quantity'        => (int) $line['quantity'],
+                    'unit_price'      => Money::format($line['unit_price']),
+                    'discount_amount' => Money::format($line['discount_amount']),
+                    'tax'             => ['calculation' => $line['tax_calculation'], 'percentage' => Money::format($line['tax_percentage']), 'amount' => Money::format($line['tax_amount'])],
+                    'line_total'      => Money::format($line['line_total']),
+                    'starts_at'       => $line['starts_at'],
+                    'ends_at'         => $line['ends_at'],
+                ], $lines),
+                'discount_code'        => $row['discount_code'],
+                'shipping_method_name' => $row['shipping_method_name'],
+                'totals'               => [
+                    'subtotal'     => Money::format($row['subtotal']),
+                    'discount'     => Money::format($row['discount_amount']),
+                    'shipping'     => Money::format($row['shipping_fee']),
+                    'tax_included' => Money::format($row['tax_included']),
+                    'tax_added'    => Money::format($row['tax_added']),
+                    'total'        => Money::format($row['total_amount']),
+                ],
+                'money'                => array_map([Money::class, 'fromCents'], $this->moneyOf($row)),
+                'payments'             => array_map(static fn (array $p): array => array_intersect_key($p, array_flip(['transaction_type', 'payment_method_name', 'amount', 'reference', 'processed_at'])), $payments),
+            ],
         ];
     }
 

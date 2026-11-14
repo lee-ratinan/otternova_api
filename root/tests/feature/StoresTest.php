@@ -73,7 +73,7 @@ final class StoresTest extends CIUnitTestCase
         $stores = $this->body($response)['data']['stores'];
         $this->assertSame(['Bangkok', 'Online Store'], array_column($stores, 'store_name'));
         $this->assertSame(['+6621234567', '021234567'], array_column($stores, 'store_phone_number')); // kept for an online store too
-        $this->assertSame([$publicId, 'P', '1 Sukhumvit Rd', 'TH-10', ['th' => ['store_name' => 'กรุงเทพฯ', 'store_address_line_1' => '1 ถนนสุขุมวิท', 'store_address_line_2' => null, 'store_city' => 'กรุงเทพมหานคร']]],
+        $this->assertSame([$publicId, 'P', '1 Sukhumvit Rd', 'TH-10', ['th' => ['store_name' => 'กรุงเทพฯ', 'store_address_line_1' => '1 ถนนสุขุมวิท', 'store_address_line_2' => null, 'store_city' => 'กรุงเทพมหานคร', 'receipt_footer' => null]]],
             [$stores[0]['public_id'], $stores[0]['store_type'], $stores[0]['store_address_line_1'], $stores[0]['store_subdivision_code'], $stores[0]['translations']]);
         $this->assertSame(['O', null, null, []], [$stores[1]['store_type'], $stores[1]['store_address_line_1'], $stores[1]['store_subdivision_code'], $stores[1]['translations']]);
         $this->assertArrayNotHasKey('id', $stores[0]);
@@ -152,6 +152,40 @@ final class StoresTest extends CIUnitTestCase
 
         $this->send(['public_id' => 'nope', 'store' => []], null, 'v1/client/store/edit')->assertStatus(404);
         $this->send(['store' => []], null, 'v1/client/store/edit')->assertStatus(400);
+    }
+
+    public function testAStorePicksItsReceiptPrinterAndFooters(): void
+    {
+        // no printer until one is picked
+        $publicId = $this->body($this->send(['business_slug' => 'otter-cafe-th', 'store' => ['store_name' => 'Silom', 'store_type' => 'P']]))['data']['public_id'];
+        $stores   = $this->body($this->send(['business_slug' => 'otter-cafe-th'], null, 'v1/client/stores'))['data']['stores'];
+        $this->assertSame([null, null], [$stores[0]['receipt_format'], $stores[0]['receipt_footer']]);
+
+        $this->send(['public_id' => $publicId, 'store' => ['receipt_format' => 'a4', 'receipt_footer' => " Thank you\r\nTel 02-123-4567 "],
+            'translations' => ['th' => ['store_name' => 'สีลม', 'receipt_footer' => 'ขอบคุณค่ะ']]], null, 'v1/client/store/edit')->assertStatus(200);
+        $stores = $this->body($this->send(['business_slug' => 'otter-cafe-th'], null, 'v1/client/stores'))['data']['stores'];
+        $this->assertSame(['A4', "Thank you\nTel 02-123-4567", 'ขอบคุณค่ะ'], [$stores[0]['receipt_format'], $stores[0]['receipt_footer'], $stores[0]['translations']['th']['receipt_footer']]);
+
+        // left out of an edit, they stay; emptied, the store prints no receipts
+        $this->send(['public_id' => $publicId, 'store' => ['store_name' => 'Silom 2'], 'translations' => ['th' => ['store_name' => 'สีลม', 'receipt_footer' => 'ขอบคุณค่ะ']]], null, 'v1/client/store/edit')->assertStatus(200);
+        $this->seeInDatabase('business_store', ['public_id' => $publicId, 'receipt_format' => 'A4']);
+        $this->send(['public_id' => $publicId, 'store' => ['receipt_format' => '80MM']], null, 'v1/client/store/edit')->assertStatus(200);
+        $this->seeInDatabase('business_store', ['public_id' => $publicId, 'receipt_format' => '80mm']);
+        $this->send(['public_id' => $publicId, 'store' => ['receipt_format' => '']], null, 'v1/client/store/edit')->assertStatus(200);
+        $this->seeInDatabase('business_store', ['public_id' => $publicId, 'receipt_format' => null]);
+
+        // a paper that is not offered, and a footer too long
+        $response = $this->send(['public_id' => $publicId, 'store' => ['receipt_format' => '76mm', 'receipt_footer' => str_repeat('a', 256)],
+            'translations' => ['th' => ['store_name' => 'สีลม', 'receipt_footer' => str_repeat('ก', 256)]]], null, 'v1/client/store/edit');
+        $response->assertStatus(422);
+        $this->assertSame(['receipt_format', 'receipt_footer', 'translations.th.receipt_footer'], array_keys($this->body($response)['errors']));
+
+        // an online store prints nothing
+        $this->send(['public_id' => $publicId, 'store' => ['receipt_format' => '58mm', 'receipt_footer' => 'Hi']], null, 'v1/client/store/edit')->assertStatus(200);
+        $this->send(['public_id' => $publicId, 'store' => ['store_type' => 'O']], null, 'v1/client/store/edit')->assertStatus(200);
+        $row = $this->db->table('business_store')->where('public_id', $publicId)->get()->getRowArray();
+        $this->assertSame([null, null], [$row['receipt_format'], $row['receipt_footer']]);
+        $this->assertNull($this->db->table('business_store_translation')->where('store_id', $row['id'])->get()->getRow()->receipt_footer);
     }
 
     public function testOnlyActiveOwnersAndManagersGetIn(): void
