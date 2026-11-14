@@ -134,7 +134,7 @@ class AddOrderStatusesAndPayments extends Migration
         $mysql  = $this->db->DBDriver === 'MySQLi';
         $orders = $this->db->prefixTable('order_master');
 
-        $this->db->query('DROP INDEX ' . ($mysql ? 'idx_order_master_business_created ON ' . $orders : 'idx_order_master_business_created'));
+        $this->db->query($mysql ? 'DROP INDEX idx_order_master_business_created ON ' . $orders : 'DROP INDEX IF EXISTS idx_order_master_business_created');
         $this->orderStatus(['P', 'C', 'X', 'open', 'in_progress', 'closed'], 'P');
         $this->db->table('order_master')->where('cancelled_at IS NOT NULL', null, false)->update(['order_status' => 'X']);
         $this->db->table('order_master')->where('cancelled_at', null)->whereIn('financial_status', ['paid', 'partially_refunded'])->update(['order_status' => 'C']);
@@ -142,7 +142,14 @@ class AddOrderStatusesAndPayments extends Migration
         $this->orderStatus(['P', 'C', 'X'], 'P');
 
         $this->forge->dropTable('order_payment', true);
-        $this->forge->dropColumn('order_master', ['financial_status', 'fulfillment_status']);
+        if ($mysql) {
+            $this->forge->dropColumn('order_master', ['financial_status', 'fulfillment_status']);
+        } else {
+            // in place: the forge's rebuild would lose order_status's CHECK and DEFAULT CURRENT_TIMESTAMP (see orderStatus())
+            foreach (['financial_status', 'fulfillment_status'] as $column) {
+                $this->db->query('ALTER TABLE "' . $orders . '" DROP COLUMN "' . $column . '"');
+            }
+        }
     }
 
     /**

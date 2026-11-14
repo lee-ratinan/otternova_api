@@ -24,4 +24,7 @@ return [
     'invalidCheckout'    => 'คำขอชำระเงินไม่ถูกต้อง',
     'orderRefused'       => 'ไม่สามารถสั่งซื้อตามรายการนี้ได้',
     'orderNotFound'      => 'ไม่พบคำสั่งซื้อนี้',
+    'paymentReportInvalid' => 'กรุณาระบุเลขอ้างอิงการโอน หรือแนบสลิป (JPEG, PNG, WebP หรือ PDF)',
+    'nothingDue'           => 'คำสั่งซื้อนี้ไม่มียอดค้างชำระ',
+    'paymentReported'      => 'ขอบคุณ ร้านจะตรวจสอบการชำระเงินของคุณ',
 ];

@@ -3,6 +3,8 @@
 namespace App\Controllers;
 
 use App\Libraries\ApiResponse;
+use App\Models\SalesOrderModel;
+use App\Libraries\OrderMailer;
 use App\Libraries\BookingWindow;
 use App\Libraries\MartCache;
 use App\Models\ArtifactMasterModel;
@@ -18,6 +20,8 @@ use Config\Mart as MartConfig;
 use DateTimeImmutable;
 use DateTimeZone;
 use Throwable;
+use RuntimeException;
+use DomainException;
 
 /**
  * The public pages of a business on the marketplace (otternova_mart): no sign-in needed, as the visitors are anyone.
@@ -37,6 +41,11 @@ use Throwable;
  */
 class Mart extends BaseController
 {
+    use OrderInputTrait;
+
+    /** The slip types accepted, by the type detected from the content, and the extension they are saved with */
+    private const SLIP_TYPES = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'application/pdf' => 'pdf'];
+
     /** listLanguages() */
     protected $helpers = ['list'];
 
@@ -150,7 +159,7 @@ class Mart extends BaseController
      *            given, the first day of the window with a free time (looking Config\Mart::$firstDateSearchDays days
      *            ahead), else the window's first day
      * - staff:   public_id of one of the store's people (auth_master's); anyone when not given
-     * { language, service: {public_id, name, cover_url, variant: {public_id, label, duration_minutes, staff_required,
+     * { language, service: {public_id, name, cover_url, variant: {public_id, label, duration_minutes, staff_required, people (the customers one booking is for: one name each at checkout),
      *   price: {active, compare}}}, rule: {horizon_days, notice_unit, notice_value, notice_time},
      *   store (the public_id answered for, null when no store can take a booking), window: {first_date, last_date} of
      *   that store or null, date (null with no window),
@@ -239,7 +248,8 @@ class Mart extends BaseController
 
             return ApiResponse::success([
                 'language' => $artifact['language'],
-                'service'  => self::service($artifact, $variant['public_id'], ['duration_minutes' => $variant['duration_minutes'], 'staff_required' => $variant['staff_required']]),
+                'service'  => self::service($artifact, $variant['public_id'], ['duration_minutes' => $variant['duration_minutes'], 'staff_required' => $variant['staff_required'],
+                    'people' => $variant['people']]),
                 'rule'   => ['horizon_days' => $rule['booking_horizon_days'], 'notice_unit' => $rule['booking_notice_unit'],
                     'notice_value' => $rule['booking_notice_value'], 'notice_time' => $rule['booking_notice_time'] === null ? null : substr($rule['booking_notice_time'], 0, 5)],
                 'store'  => $store['public_id'] ?? null,
@@ -409,9 +419,102 @@ class Mart extends BaseController
                     'errors' => $e->errors, 'data' => ['reason' => $e->reason, 'quote' => $e->quote]]);
             }
             service('martCache')->forget((int) $business['id']);
+            OrderMailer::placed($placed['id'], $placed['key']);
 
             return ApiResponse::success(['order' => ['key' => $placed['key']] + $orders->order((int) $business['id'], $placed['order_number'], $placed['key'], $language)], 201);
         });
+    }
+
+    /**
+     * POST /mart/order/report-payment, multipart (or JSON without a slip): business_slug, number (or public_id), key,
+     * reference, slip (JPEG, PNG, WebP or PDF, at most Config\Mart::$maxSlipFileSize)
+     * The customer, with the order's key, says they paid it: a reference, a slip, or both. The people of its store are
+     * told to check it; it stays unpaid until they mark it received. 200 { order: GET /mart/order's }, its
+     * payment.reported_at set; 404 for a wrong key; 409 when nothing is due; 422 for neither, or a bad file.
+     * @return ResponseInterface
+     */
+    public function reportPayment(): ResponseInterface
+    {
+        $endpoint = 'v1/mart/order/report-payment';
+        $input    = $this->request->getPost();
+        if ($input === [] || $input === null) {
+            try {
+                $input = $this->request->getJSON(true);
+            } catch (Throwable) {
+                $input = null;
+            }
+        }
+        if (! is_array($input)) {
+            return ApiResponse::error(lang('Mart.invalidCheckout'), 400);
+        }
+        $text      = static fn (string $name): string => is_string($input[$name] ?? null) ? trim($input[$name]) : '';
+        $config    = config(MartConfig::class);
+        $reference = $text('reference');
+        $file      = $this->request->getFile('slip');
+        $hasFile   = $file !== null && $file->getError() !== UPLOAD_ERR_NO_FILE;
+        $errors    = [];
+        if (mb_strlen($reference) > 100) {
+            $errors['reference'] = 'too_long';
+        }
+        $extension = null;
+        if ($hasFile) {
+            if (! service('imageProcessor')->isGenuineUpload($file) || $file->getSize() > $config->maxSlipFileSize) {
+                $errors['slip'] = 'invalid';
+            } else {
+                $extension = self::SLIP_TYPES[$file->getMimeType()] ?? null;
+                if ($extension === null) {
+                    $errors['slip'] = 'type';
+                }
+            }
+        }
+        if ($reference === '' && ! $hasFile) {
+            $errors['reference'] = 'required';
+        }
+        if ($errors !== []) {
+            return ApiResponse::error(lang('Mart.paymentReportInvalid'), 422, $errors);
+        }
+
+        try {
+            $businessId = service('martCache')->businessIdOf($text('business_slug'));
+            $order      = $businessId === null ? null
+                : model(MartOrderModel::class)->findWithKey($businessId, $text('number') !== '' ? $text('number') : $text('public_id'), $text('key'));
+            if ($order === null) {
+                return ApiResponse::error(lang('Mart.orderNotFound'), 404);
+            }
+            $folder = rtrim($config->orderSlipUploadPath, '/') . '/';
+            if ($hasFile && ! is_dir($folder) && ! @mkdir($folder, 0750, true) && ! is_dir($folder)) {
+                throw new RuntimeException('Cannot create ' . $folder);
+            }
+            $source = $hasFile ? $file->getTempName() : null;
+            $saved  = null;
+            $save   = $hasFile ? static function (int $paymentId) use ($source, $folder, $extension, &$saved): string {
+                $name = $paymentId . '-' . bin2hex(random_bytes(8)) . '.' . $extension;
+                if (! @copy($source, $folder . $name)) {
+                    throw new RuntimeException('Cannot save ' . $folder . $name);
+                }
+                $saved = $folder . $name;
+
+                return $name;
+            } : null;
+            try {
+                model(SalesOrderModel::class)->reportPayment($order, $reference === '' ? null : $reference, $save, self::now());
+            } catch (DomainException) {
+                return ApiResponse::error(lang('Mart.nothingDue'), 409);
+            } catch (Throwable $e) {
+                if ($saved !== null) {
+                    @unlink($saved); // the transaction rolled back: no row points at it
+                }
+                throw $e;
+            }
+            [$language] = model(MartCatalogModel::class)->languageOf($businessId, $text('lang'));
+
+            return ApiResponse::success(['order' => model(MartOrderModel::class)->order($businessId, $order['order_number'], $text('key'), $language)], 200,
+                lang('Mart.paymentReported'));
+        } catch (Throwable $e) {
+            log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Mart.loadFailed'), 500);
+        }
     }
 
     /**
@@ -430,127 +533,6 @@ class Mart extends BaseController
 
             return $order === null ? ApiResponse::error(lang('Mart.orderNotFound'), 404) : ApiResponse::success(['order' => $order]);
         });
-    }
-
-    /**
-     * The cart and the choices of a checkout request, checked for their shape only
-     * @return array{0: list<array>, 1: array, 2: array<string, string>} [cart, choice, errors by field]
-     */
-    private function checkoutInput(array $input, bool $withPeople = false): array
-    {
-        $errors = [];
-        $id     = static fn (mixed $value): bool => is_string($value) && preg_match(self::PUBLIC_ID_PATTERN, $value) === 1;
-        $lines  = $input['lines'] ?? null;
-        $cart   = [];
-        if (! is_array($lines) || ! array_is_list($lines) || count($lines) > config(MartConfig::class)->maxCartLines) {
-            $errors['lines'] = 'invalid';
-            $lines           = [];
-        }
-        $keys = [];
-        foreach ($lines as $n => $line) {
-            $key = is_array($line) ? ($line['key'] ?? null) : null;
-            if (! is_array($line) || ! is_string($key) || ! preg_match('/^[A-Za-z0-9_-]{1,32}$/', $key) || isset($keys[$key])
-                || ! in_array($line['kind'] ?? null, ['P', 'A', 'G'], true) || ! $id($line['variant'] ?? null)
-                || ! is_int($line['quantity'] ?? null) || $line['quantity'] < 1 || $line['quantity'] > 99) {
-                $errors['lines.' . $n] = 'invalid';
-
-                continue;
-            }
-            $keys[$key] = true;
-            $item       = ['key' => $key, 'kind' => $line['kind'], 'variant' => $line['variant'], 'quantity' => $line['quantity'], 'participants' => []];
-            if ($line['kind'] === 'A') {
-                $staff = $line['staff'] ?? null;
-                if (! $id($line['store'] ?? null) || ! is_string($line['starts_at'] ?? null) || strlen($line['starts_at']) > 40
-                    || ! is_array($staff) || ! array_is_list($staff) || count($staff) > 10 || array_filter($staff, static fn ($s): bool => ! $id($s)) !== []) {
-                    $errors['lines.' . $n] = 'invalid';
-
-                    continue;
-                }
-                $item += ['store' => $line['store'], 'starts_at' => $line['starts_at'], 'staff' => $staff];
-            } elseif ($line['kind'] === 'G') {
-                if (! $id($line['session'] ?? null)) {
-                    $errors['lines.' . $n] = 'invalid';
-
-                    continue;
-                }
-                $item['session'] = $line['session'];
-            }
-            if ($withPeople && $line['kind'] !== 'P') {
-                $people = $line['participants'] ?? [];
-                if (! is_array($people) || ! array_is_list($people) || count($people) > 99
-                    || array_filter($people, static fn ($p): bool => ! is_string($p) || mb_strlen($p) > 100) !== []) {
-                    $errors['lines.' . $n . '.participants'] = 'invalid';
-
-                    continue;
-                }
-                $item['participants'] = array_map(static fn (string $p): string => trim(preg_replace('/\s+/u', ' ', $p)), $people);
-            }
-            $cart[] = $item;
-        }
-
-        $choice = [];
-        foreach (['shipping', 'pickup_store', 'payment'] as $name) {
-            $value = $input[$name] ?? '';
-            if ($value !== '' && $value !== null && ! $id($value)) {
-                $errors[$name] = 'invalid';
-            }
-            $choice[$name] = is_string($value) ? $value : '';
-        }
-        $discount = $input['discount'] ?? '';
-        if (! is_string($discount) || mb_strlen($discount) > 30) {
-            $errors['discount'] = 'invalid';
-            $discount           = '';
-        }
-        $choice['discount'] = $discount;
-
-        return [$cart, $choice, $errors];
-    }
-
-    /**
-     * The customer and the delivery of an order, trimmed and checked
-     * @return array{0: array, 1: array, 2: array<string, string>} [customer, delivery, errors by field]
-     */
-    private function customerInput(array $input): array
-    {
-        $errors = [];
-        $text   = static function (array $from, string $name, int $max, bool $required, string $field) use (&$errors): string {
-            $value = $from[$name] ?? '';
-            $value = is_string($value) ? trim(preg_replace('/\s+/u', ' ', $value)) : null;
-            if ($value === null || mb_strlen($value) > $max) {
-                $errors[$field] = 'invalid';
-
-                return '';
-            }
-            if ($required && $value === '') {
-                $errors[$field] = 'required';
-            }
-
-            return $value;
-        };
-        $who      = is_array($input['customer'] ?? null) ? $input['customer'] : [];
-        $customer = [
-            'first_name' => $text($who, 'first_name', 100, true, 'customer.first_name'),
-            'last_name'  => $text($who, 'last_name', 100, true, 'customer.last_name'),
-            'email'      => strtolower($text($who, 'email', 64, true, 'customer.email')),
-            'telephone'  => $text($who, 'telephone', 24, true, 'customer.telephone'),
-        ];
-        if ($customer['email'] !== '' && filter_var($customer['email'], FILTER_VALIDATE_EMAIL) === false) {
-            $errors['customer.email'] = 'invalid';
-        }
-        if ($customer['telephone'] !== '' && ! preg_match('/^\+?[0-9 ()-]{6,24}$/', $customer['telephone'])) {
-            $errors['customer.telephone'] = 'invalid';
-        }
-        $address  = is_array($input['delivery'] ?? null) ? $input['delivery'] : [];
-        $delivery = [
-            'line_1'           => $text($address, 'line_1', 255, false, 'address.line_1'),
-            'line_2'           => $text($address, 'line_2', 255, false, 'address.line_2'),
-            'city'             => $text($address, 'city', 128, false, 'address.city'),
-            'subdivision_code' => $text($address, 'subdivision_code', 8, false, 'address.subdivision_code'),
-            'postal_code'      => $text($address, 'postal_code', 16, false, 'address.postal_code'),
-            'pickup_point'     => $text($input, 'pickup_point', 500, false, 'pickup_point'),
-        ];
-
-        return [$customer, $delivery, $errors];
     }
 
     /** Now, which a test can set (Time::setTestNow()) */

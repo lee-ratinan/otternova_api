@@ -17,6 +17,36 @@ return [
         ],
     ],
 
+    'order' => [
+        'cancelled' => [
+            'title'   => 'Refund due on a cancelled order',
+            'message' => 'Order {order_number} was cancelled by {by}: {reason}. {amount} was paid. Please refund it.',
+        ],
+        'booked' => [
+            'title'   => 'New booking: {service}',
+            'message' => '{customer} booked {service} with you on {when} at {store} (order {order_number}). Payment: {payment}.',
+        ],
+        'seats_booked' => [
+            'title'   => '{seats} more taken: {session}',
+            'message' => '{customer} took {seats} of {session} on {when} at {store}; {booked} of {capacity} are now taken (order {order_number}). Payment: {payment}.',
+        ],
+        'payment_reported' => [
+            'title'   => 'Payment to check: {order_number}',
+            'message' => '{customer} says they paid {amount} for order {order_number} by {method}{reference}. Please check it and mark it received.',
+        ],
+        'cancelled_unpaid' => [
+            'title'   => 'Order cancelled',
+            'message' => 'Order {order_number} was cancelled by {by}: {reason}. It was not paid.',
+        ],
+    ],
+
+    // a booking's payment, for the people serving it
+    'payment_state' => [
+        'paid'     => 'paid',
+        'at_store' => 'to be paid at the store',
+        'awaiting' => 'not paid yet, so it may still be cancelled or not come',
+    ],
+
     'invalidRequest' => 'The request could not be read. Please reload the page and try again.',
     'invalidStatus'  => 'Please choose unread or read.',
     'notFound'       => 'This notification could not be found.',

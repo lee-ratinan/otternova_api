@@ -17,6 +17,11 @@ class EmailService
     public const TYPE_ACCOUNT_EXISTS     = 'account_exists';
     public const TYPE_PASSWORD_RESET     = 'password_reset';
     public const TYPE_BUSINESS_INVITATION = 'business_invitation';
+    public const TYPE_ORDER_CANCELLED      = 'order_cancelled';      // to the customer: an unpaid order was cancelled
+    public const TYPE_ORDER_CANCELLED_PAID = 'order_cancelled_paid'; // to the customer: a paid order was cancelled, a refund to come
+    public const TYPE_ORDER_RESCHEDULED    = 'order_rescheduled';    // to the customer: a booking moved to another time
+    public const TYPE_ORDER_PLACED         = 'order_placed';         // to the customer: the order, and how to pay it
+    public const TYPE_ORDER_PLACED_PAID    = 'order_placed_paid';    // to the customer: the order, paid already
 
     /** In beta, only these domains (lowercase, without "@") get real emails */
     private const BETA_ALLOWED_DOMAINS = ['otternova.com'];
@@ -49,7 +54,9 @@ class EmailService
      */
     public function send(string $type, string $to, array $data = [], ?string $locale = null): bool
     {
-        if (! in_array($type, [self::TYPE_LOGIN_OTP, self::TYPE_ACCOUNT_ACTIVATION, self::TYPE_ACCOUNT_EXISTS, self::TYPE_PASSWORD_RESET, self::TYPE_BUSINESS_INVITATION], true)) {
+        if (! in_array($type, [self::TYPE_LOGIN_OTP, self::TYPE_ACCOUNT_ACTIVATION, self::TYPE_ACCOUNT_EXISTS, self::TYPE_PASSWORD_RESET, self::TYPE_BUSINESS_INVITATION,
+            self::TYPE_ORDER_CANCELLED, self::TYPE_ORDER_CANCELLED_PAID, self::TYPE_ORDER_RESCHEDULED,
+            self::TYPE_ORDER_PLACED, self::TYPE_ORDER_PLACED_PAID], true)) {
             throw new InvalidArgumentException('Unknown email type: ' . $type);
         }
 

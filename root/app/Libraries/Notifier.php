@@ -14,12 +14,19 @@ use InvalidArgumentException;
  * (see present()), and its icon and tone come from EVENTS.
  *
  * Adding an event: a line in EVENTS, its title and message in Language/{en-US,th}/Notification.php, and a call here.
+ * A param written "lang:<key>" is itself a line of the Notification file, rendered in the reader's language too
+ * ("lang:payment_state.paid"), for what changes with the event but must not be stored in one language.
  */
 class Notifier
 {
     public const PAYMENT_SLIP_SUBMITTED = 'payment.slip_submitted';
     public const PAYMENT_APPROVED       = 'payment.approved';
     public const PAYMENT_REJECTED       = 'payment.rejected';
+    public const ORDER_CANCELLED        = 'order.cancelled';        // to the owners and managers: a refund is due
+    public const ORDER_CANCELLED_UNPAID = 'order.cancelled_unpaid'; // to the owners and managers: nothing was paid
+    public const ORDER_BOOKED           = 'order.booked';           // to the people booked: a private appointment took their time
+    public const ORDER_SEATS_BOOKED     = 'order.seats_booked';     // to the people of a group session: more of its seats are taken
+    public const ORDER_PAYMENT_REPORTED = 'order.payment_reported'; // to the store's people: a customer says they paid, to check
 
     /**
      * Every event type, with its Bootstrap icon and tone. The tone is info, success, warning or danger, the
@@ -29,6 +36,11 @@ class Notifier
         self::PAYMENT_SLIP_SUBMITTED => ['icon' => 'bi-cash-coin', 'tone' => 'warning'],
         self::PAYMENT_APPROVED       => ['icon' => 'bi-check-circle', 'tone' => 'success'],
         self::PAYMENT_REJECTED       => ['icon' => 'bi-x-circle', 'tone' => 'danger'],
+        self::ORDER_CANCELLED        => ['icon' => 'bi-arrow-counterclockwise', 'tone' => 'warning'],
+        self::ORDER_CANCELLED_UNPAID => ['icon' => 'bi-x-octagon', 'tone' => 'info'],
+        self::ORDER_BOOKED           => ['icon' => 'bi-calendar-check', 'tone' => 'success'],
+        self::ORDER_SEATS_BOOKED     => ['icon' => 'bi-people', 'tone' => 'success'],
+        self::ORDER_PAYMENT_REPORTED => ['icon' => 'bi-cash-coin', 'tone' => 'warning'],
     ];
 
     /** Shown for an event_type no longer in EVENTS */
@@ -99,6 +111,46 @@ class Notifier
     public function toAccount(int $authId, string $eventType, array $params, ?string $targetUrl, ?array $subject = null, ?int $businessId = null, ?int $exceptId = null): int
     {
         return $this->send([$authId], $eventType, $params, $targetUrl, $subject, $businessId, $exceptId);
+    }
+
+    /**
+     * Notify people of a business by their client_master ids (the people booked for a service), who are still active
+     * in it
+     * @param list<int> $clientIds
+     * @return int How many were notified
+     */
+    public function toClients(int $businessId, array $clientIds, string $eventType, array $params, ?string $targetUrl, ?array $subject = null, ?int $exceptId = null): int
+    {
+        if ($clientIds === []) {
+            return 0;
+        }
+        $ids = db_connect()->table('business_client_link l')
+            ->select('c.auth_id')
+            ->join('client_master c', 'c.id = l.client_id', 'inner')
+            ->join('auth_master a', 'a.id = c.auth_id', 'inner')
+            ->where('l.business_id', $businessId)->whereIn('l.client_id', array_values(array_unique($clientIds)))
+            ->where('l.client_status', BusinessClientLinkModel::STATUS_ACTIVE)
+            ->where('a.account_status', 'A')
+            ->get()->getResultArray();
+
+        return $this->send(array_column($ids, 'auth_id'), $eventType, $params, $targetUrl, $subject, $businessId, $exceptId);
+    }
+
+    /**
+     * Notify the people working at stores of a business (business_store_client_link), or its owners and managers
+     * when nobody does
+     * @param list<int> $storeIds
+     * @return int How many were notified
+     */
+    public function toStoreStaff(int $businessId, array $storeIds, string $eventType, array $params, ?string $targetUrl, ?array $subject = null, ?int $exceptId = null): int
+    {
+        $clients = $storeIds === [] ? [] : array_map('intval', array_column(db_connect()->table('business_store_client_link')->select('client_id')
+            ->where('business_id', $businessId)->whereIn('store_id', array_values(array_unique($storeIds)))->where('link_status', 'A')
+            ->get()->getResultArray(), 'client_id'));
+        $sent = $this->toClients($businessId, $clients, $eventType, $params, $targetUrl, $subject, $exceptId);
+
+        return $sent > 0 ? $sent : $this->toBusiness($businessId, [BusinessClientLinkModel::ROLE_OWNER, BusinessClientLinkModel::ROLE_MANAGER],
+            $eventType, $params, $targetUrl, $subject, $exceptId);
     }
 
     /**
@@ -185,6 +237,11 @@ class Notifier
      */
     private static function line(string $key, array $params): string
     {
+        foreach ($params as $name => $value) {
+            if (is_string($value) && str_starts_with($value, 'lang:')) {
+                $params[$name] = self::line(substr($value, 5), []);
+            }
+        }
         $line = lang('Notification.' . $key, $params, service('request')->getLocale());
         if ($line === 'Notification.' . $key) {
             $line = lang('Notification.' . $key, $params, config('App')->defaultLocale);

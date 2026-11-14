@@ -128,21 +128,21 @@ final class ArtifactsTest extends CIUnitTestCase
     {
         $service = ['artifact_name' => 'Muay Thai', 'artifact_type' => 'S', 'tax_calculation' => 'X'];
         $response = $this->create(['artifact' => $service, 'variants' => [
-            ['price_active' => 1500, 'duration_minutes' => 60, 'capacity' => 5, 'attribute_values' => [$this->color['Blue']]], // an appointment by default; capacity not kept
+            ['price_active' => 1500, 'duration_minutes' => 60, 'capacity' => 2, 'attribute_values' => [$this->color['Blue']]], // an appointment by default, for 2 customers
             ['price_active' => 800, 'duration_minutes' => 60, 'booking_type' => 'g', 'staff_required' => 2, 'capacity' => 12, 'attribute_values' => [$this->color['Red']]],
         ]]);
         $response->assertStatus(200);
         $data     = $this->body($response)['data'];
         $variants = array_map(static fn (array $v): array => [$v['booking_type'], $v['staff_required'], $v['capacity']], $data['variants']);
-        $this->assertSame([['A', 1, null], ['G', 2, 12]], $variants);
+        $this->assertSame([['A', 1, 2], ['G', 2, 12]], $variants);
 
-        // turned into an appointment, a group variant drops its capacity
+        // turned into an appointment, a group variant's capacity is the customers of one booking
         $group = $data['variants'][1]['public_id'];
         $this->edit(['public_id' => $data['artifact']['public_id'], 'variants' => [
             ['public_id' => $data['variants'][0]['public_id']],
             ['public_id' => $group, 'booking_type' => 'A'],
         ]])->assertStatus(200);
-        $this->seeInDatabase('artifact_variant', ['public_id' => $group, 'booking_type' => 'A', 'staff_required' => 2, 'capacity' => null]);
+        $this->seeInDatabase('artifact_variant', ['public_id' => $group, 'booking_type' => 'A', 'staff_required' => 2, 'capacity' => 12]);
 
         foreach ([
             [['price_active' => 1, 'duration_minutes' => 60, 'booking_type' => 'X'], 'variants.0.booking_type'],

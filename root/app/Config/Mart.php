@@ -41,6 +41,12 @@ class Mart extends BaseConfig
     /** Days /mart/slots looks through for the first with a free time, when no date is asked for */
     public int $firstDateSearchDays = 14;
 
+    /** The transfer slips customers send with /mart/order/report-payment, kept at {$orderSlipUploadPath}{order_payment.slip_path}; never under public/ */
+    public string $orderSlipUploadPath = WRITEPATH . 'uploads/order-slips/';
+
+    /** Largest slip accepted, in bytes */
+    public int $maxSlipFileSize = 10 * 1024 * 1024;
+
     /** Lines a cart may send to /mart/quote and /mart/order, as many as the mart's cart may hold */
     public int $maxCartLines = 50;
 }

@@ -18,7 +18,9 @@ use DateTimeZone;
  * - at least staff_required people who may perform the service and are active at the store work there for the whole
  *   appointment (business_client_hours and its exceptions), with nothing else held then (service_slot_staff)
  * - for each resource type the service needs, quantity of the store's active resources are free from the start to
- *   the end plus the type's buffer_minutes (service_slot_resource)
+ *   the end plus the type's buffer_minutes (service_slot_resource), each taking its share of the customers the
+ *   booking is for (the variant's capacity over the quantity: a couples massage needs one room for 2, not room 101
+ *   for 1, or two beds for 1 each)
  * The people go out under their auth_master.public_id, never their ids or uids (a uid is made from the email address).
  */
 class MartSlotModel extends Model
@@ -35,13 +37,13 @@ class MartSlotModel extends Model
      * appointment (A) with a duration
      * @param int    $businessId
      * @param string $publicId artifact_variant.public_id
-     * @return array|null { id, public_id, artifact_id, artifact_public_id, duration_minutes, staff_required, the
-     *                    BookingWindow::FIELDS }
+     * @return array|null { id, public_id, artifact_id, artifact_public_id, duration_minutes, staff_required, people
+     *                    (the customers one booking is for, its capacity, 1 when null), the BookingWindow::FIELDS }
      */
     public function bookableVariant(int $businessId, string $publicId): ?array
     {
         $row = $this->db->table('artifact_variant v')
-            ->select('v.id, v.public_id, v.artifact_id, a.public_id AS artifact_public_id, v.duration_minutes, v.staff_required, '
+            ->select('v.id, v.public_id, v.artifact_id, a.public_id AS artifact_public_id, v.duration_minutes, v.staff_required, v.capacity, '
                 . 'v.booking_horizon_days, v.booking_notice_unit, v.booking_notice_value, v.booking_notice_time')
             ->join('artifact_master a', 'a.id = v.artifact_id')
             ->where('a.business_id', $businessId)->where('v.public_id', $publicId)
@@ -53,7 +55,7 @@ class MartSlotModel extends Model
         }
 
         return ['id' => (int) $row['id'], 'artifact_id' => (int) $row['artifact_id'], 'duration_minutes' => (int) $row['duration_minutes'],
-            'staff_required' => max(1, (int) $row['staff_required'])] + $row;
+            'staff_required' => max(1, (int) $row['staff_required']), 'people' => max(1, (int) $row['capacity'])] + $row;
     }
 
     /**
@@ -151,12 +153,15 @@ class MartSlotModel extends Model
      * @param string            $date      The store's business day, Y-m-d
      * @param int|null          $staffId   Only the starts this person (client_id, one of the store's staff) is free for
      * @param DateTimeImmutable $now
+     * @param bool              $counter At the counter (a walk-in, a call-in): the booking window does not apply, only
+     *                                   no start before the step now is in (a walk-in at 10:10 may have 10:00)
+     * @param int|null          $except  A session whose own holds do not count: the booking being moved
      * @return list<array{store_public_id: string, starts_at: string, ends_at: string, time: string, end_time: string, staff: list<string>}>
      *         by start; starts_at and ends_at in ISO 8601 with the store's offset; staff: the public_ids of whom the
      *         booking would hold. A start comes once for each person free then, by name, when one person is needed
      *         (only for $staffId when given); once, with the first of them by name (and $staffId), when more are
      */
-    public function slotsOn(array $business, array $variant, array $store, string $date, ?int $staffId, DateTimeImmutable $now): array
+    public function slotsOn(array $business, array $variant, array $store, string $date, ?int $staffId, DateTimeImmutable $now, bool $counter = false, ?int $except = null): array
     {
         $zone     = new DateTimeZone($store['timezone']);
         $rule     = BookingWindow::effective($business, $variant);
@@ -169,8 +174,8 @@ class MartSlotModel extends Model
         $to   = end($openings)[1];
 
         $shifts = $this->shiftsAt((int) $business['id'], array_keys($store['staff']), $store['id'], $date);
-        $held   = $this->staffHolds((int) $business['id'], array_keys($store['staff']), $from, $to);
-        $needs  = $this->resourceNeeds((int) $business['id'], $variant['artifact_id'], $store['id'], $from, $to);
+        $held   = $this->staffHolds((int) $business['id'], array_keys($store['staff']), $from, $to, $except);
+        $needs  = $this->resourceNeeds((int) $business['id'], $variant['artifact_id'], $store['id'], $from, $to, $variant['people'] ?? 1, $except);
         if ($needs === null) {
             return [];
         }
@@ -184,7 +189,7 @@ class MartSlotModel extends Model
             $minutes = (int) $local->format('G') * 60 + (int) $local->format('i') + ($local->format('s') === '00' ? 0 : 1);
             $start   = $local->setTime(0, 0)->modify('+' . ($minutes + ($step - $minutes % $step) % $step) . ' minutes');
             for (; ($end = $start->modify('+' . $duration . ' minutes')) <= $close; $start = $start->modify('+' . $step . ' minutes')) {
-                if (! BookingWindow::allows($rule, $start, $zone, $now)) {
+                if ($counter ? $start->modify('+' . $step . ' minutes') <= $now : ! BookingWindow::allows($rule, $start, $zone, $now)) {
                     continue;
                 }
                 $free = [];
@@ -303,13 +308,14 @@ class MartSlotModel extends Model
      * What each person is already held for between $from and $to (at any store)
      * @return array<int, list<array{0: DateTimeImmutable, 1: DateTimeImmutable}>> client_id => holds
      */
-    private function staffHolds(int $businessId, array $clientIds, DateTimeImmutable $from, DateTimeImmutable $to): array
+    private function staffHolds(int $businessId, array $clientIds, DateTimeImmutable $from, DateTimeImmutable $to, ?int $except = null): array
     {
-        $out = [];
-        foreach ($this->db->table(ServiceSessionModel::STAFF)->select('client_id, starts_at, ends_at')
+        $out     = [];
+        $builder = $this->db->table(ServiceSessionModel::STAFF)->select('client_id, starts_at, ends_at')
             ->where('business_id', $businessId)->whereIn('client_id', $clientIds)
-            ->where('starts_at <', self::db($to))->where('ends_at >', self::db($from))
-            ->get()->getResultArray() as $row) {
+            ->where('starts_at <', self::db($to))->where('ends_at >', self::db($from));
+        $this->exceptSession($builder, $except);
+        foreach ($builder->get()->getResultArray() as $row) {
             $out[(int) $row['client_id']][] = [self::utc($row['starts_at']), self::utc($row['ends_at'])];
         }
 
@@ -321,15 +327,23 @@ class MartSlotModel extends Model
      * @return list<array{quantity: int, buffer: int, resources: array<int, list<array{0: DateTimeImmutable, 1: DateTimeImmutable}>>}>|null
      *         null when the store has too few of a type to ever hold the service
      */
-    private function resourceNeeds(int $businessId, int $artifactId, int $storeId, DateTimeImmutable $from, DateTimeImmutable $to): ?array
+    private function resourceNeeds(int $businessId, int $artifactId, int $storeId, DateTimeImmutable $from, DateTimeImmutable $to, int $people = 1, ?int $except = null): ?array
     {
         $links = $this->db->table('business_service_resource_link')->select('resource_type_id, quantity')
             ->where('business_id', $businessId)->where('artifact_id', $artifactId)->get()->getResultArray();
         if ($links === []) {
             return [];
         }
+        // each resource held takes its share of the customers: a room for 2 when one is held, a bed for 1 when two are
+        $least = [];
+        foreach ($links as $link) {
+            $least[(int) $link['resource_type_id']] = (int) ceil($people / max(1, (int) $link['quantity']));
+        }
         $byType = [];
         foreach (model(ServiceSessionModel::class)->eligibleResources($businessId, $artifactId, $storeId) as $resource) {
+            if ($resource['capacity'] < ($least[$resource['type_id']] ?? 1)) {
+                continue;
+            }
             $byType[$resource['type_id']]['buffer']                       = $resource['buffer_minutes'];
             $byType[$resource['type_id']]['resources'][$resource['id']] = [];
         }
@@ -346,10 +360,11 @@ class MartSlotModel extends Model
         }
         $maxBuffer = max(array_column($needs, 'buffer'));
         $holds     = [];
-        foreach ($this->db->table(ServiceSessionModel::RESOURCES)->select('resource_id, starts_at, held_until')
+        $builder = $this->db->table(ServiceSessionModel::RESOURCES)->select('resource_id, starts_at, held_until')
             ->where('business_id', $businessId)->whereIn('resource_id', $ids)
-            ->where('starts_at <', self::db($to->modify('+' . $maxBuffer . ' minutes')))->where('held_until >', self::db($from))
-            ->get()->getResultArray() as $row) {
+            ->where('starts_at <', self::db($to->modify('+' . $maxBuffer . ' minutes')))->where('held_until >', self::db($from));
+        $this->exceptSession($builder, $except);
+        foreach ($builder->get()->getResultArray() as $row) {
             $holds[(int) $row['resource_id']][] = [self::utc($row['starts_at']), self::utc($row['held_until'])];
         }
         foreach ($needs as &$need) {
@@ -359,6 +374,14 @@ class MartSlotModel extends Model
         }
 
         return $needs;
+    }
+
+    /** Leave out the holds of a session's slots: the booking being moved does not stand in its own way */
+    private function exceptSession($builder, ?int $sessionId): void
+    {
+        if ($sessionId !== null) {
+            $builder->where('slot_id NOT IN (SELECT id FROM ' . $this->db->prefixTable(ServiceSessionModel::SLOTS) . ' WHERE session_id = ' . $sessionId . ')', null, false);
+        }
     }
 
     /** Whether each type has its quantity free from $start until $end plus its buffer */
@@ -377,17 +400,19 @@ class MartSlotModel extends Model
 
     /**
      * The resources an appointment from $start to $end would hold at the store: for each type the service needs, its
-     * quantity of the free ones, the first by name; for an order of the mart (MartOrderModel)
+     * quantity of the free ones that take $people customers, the first by order; for an order of the mart (MartOrderModel)
      * @param int               $businessId
      * @param int               $artifactId
      * @param int               $storeId
      * @param DateTimeImmutable $start
      * @param DateTimeImmutable $end
+     * @param int               $people The customers the booking is for
+     * @param int|null          $except A session whose own holds do not count: the booking being moved
      * @return list<array{id: int, buffer_minutes: int}>|null null when too few are free
      */
-    public function freeResources(int $businessId, int $artifactId, int $storeId, DateTimeImmutable $start, DateTimeImmutable $end): ?array
+    public function freeResources(int $businessId, int $artifactId, int $storeId, DateTimeImmutable $start, DateTimeImmutable $end, int $people = 1, ?int $except = null): ?array
     {
-        $needs = $this->resourceNeeds($businessId, $artifactId, $storeId, $start, $end);
+        $needs = $this->resourceNeeds($businessId, $artifactId, $storeId, $start, $end, $people, $except);
         if ($needs === null) {
             return null;
         }

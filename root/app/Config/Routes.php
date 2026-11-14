@@ -49,6 +49,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('quote', 'Mart::quote');
         $routes->post('order', 'Mart::placeOrder');
         $routes->get('order', 'Mart::order');
+        $routes->post('order/report-payment', 'Mart::reportPayment');
     });
 
     // Admin app: staff accounts only (a valid token with typ S)
@@ -220,6 +221,20 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('order/status', 'SalesOrders::saveStatus');
         $routes->post('order/payment/create', 'SalesOrders::createPayment');
         $routes->post('order/payment/settle', 'SalesOrders::settlePayment');
+        $routes->post('order/reschedule/slots', 'SalesOrders::rescheduleSlots');
+        $routes->post('order/reschedule', 'SalesOrders::reschedule');
+        $routes->post('order/cancel', 'SalesOrders::cancel');
+        $routes->get('order/payment-slip/(:segment)', 'SalesOrders::paymentSlip/$1');
+        $routes->post('order/no-show', 'SalesOrders::noShow');
+        $routes->post('order/refund-close', 'SalesOrders::closeRefund');
+        // orders taken at the counter of a store (walk-ins, call-ins): any of the business's active clients; see
+        // App\Controllers\CounterOrders
+        $routes->post('counter/stores', 'CounterOrders::stores');
+        $routes->post('counter/catalog', 'CounterOrders::catalog');
+        $routes->post('counter/slots', 'CounterOrders::slots');
+        $routes->post('counter/sessions', 'CounterOrders::sessions');
+        $routes->post('counter/quote', 'CounterOrders::quote');
+        $routes->post('counter/order', 'CounterOrders::create');
         // the opening hours of a store: the active owners and managers of its business only; see App\Controllers\StoreHours
         $routes->post('store/hours', 'StoreHours::show');
         $routes->post('store/hours/save', 'StoreHours::save');

@@ -3,7 +3,9 @@
 namespace App\Models;
 
 use App\Libraries\ActivityLog;
+use App\Libraries\CancelPolicy;
 use App\Libraries\Money;
+use App\Libraries\Notifier;
 use CodeIgniter\Model;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -16,6 +18,15 @@ use DomainException;
  *
  * financial_status is never set by hand: refreshFinancial() works it out again from the succeeded rows of
  * order_payment after every change of them. The amounts are compared in cents (Money).
+ *
+ * Cancelling (cancel()) is for anyone working in the business, and only before anything of the order has been sent or
+ * has started: it gives back the stock, the appointments and the seats, and leaves refund_due_amount for an owner or
+ * manager to refund (or settle without refunding, closeRefund()); they are notified. Once a booked service has
+ * started the order can only be marked a no-show (noShow()), which flags the customer when nothing was paid.
+ *
+ * A private appointment may be moved to another time, or to other people (reschedule()), by anyone working in the
+ * business until the deadline of the cancellation policy before it starts; the free times it may go to are those of
+ * the counter (rescheduleSlots()), its own holds aside.
  *
  * What the mart's customers do with an order is MartOrderModel's.
  */
@@ -55,6 +66,14 @@ class SalesOrderModel extends Model
     public const TXN_FAILED    = 'failed';
     public const TXN_VOIDED    = 'voided';
     public const TXN_STATUSES  = [self::TXN_PENDING, self::TXN_SUCCEEDED, self::TXN_FAILED, self::TXN_VOIDED];
+
+    /** business_customer_flag */
+    public const FLAGS        = 'business_customer_flag';
+    public const FLAG_NO_SHOW = 'no_show';
+
+    /** The shortest and longest reason of a cancellation, or of settling a refund without refunding it all */
+    public const REASON_MIN = 3;
+    public const REASON_MAX = 255;
 
     /** The search words looked for; more are left out */
     public const MAX_SEARCH_WORDS = 5;
@@ -100,6 +119,9 @@ class SalesOrderModel extends Model
                 $builder->where('o.' . $filter, $filters[$filter]);
             }
         }
+        if (! empty($filters['needs_refund'])) {
+            $builder->where('o.cancelled_at IS NOT NULL', null, false)->where('o.refund_due_amount >', 0);
+        }
         if (isset($filters['fulfillment_status'])) {
             $filters['fulfillment_status'] === 'none' ? $builder->where('o.fulfillment_status', null) : $builder->where('o.fulfillment_status', $filters['fulfillment_status']);
         }
@@ -116,7 +138,7 @@ class SalesOrderModel extends Model
         $lines    = $this->db->prefixTable('order_line');
         $rows     = $builder
             ->select('o.public_id, o.order_number, o.created_at, o.first_name, o.last_name, o.email_address, o.telephone_number, o.currency_code, '
-                . 'o.total_amount, o.order_status, o.financial_status, o.fulfillment_status, o.payment_method_name, o.shipping_method_name, o.cancelled_at, '
+                . 'o.total_amount, o.order_status, o.financial_status, o.fulfillment_status, o.payment_method_name, o.shipping_method_name, o.cancelled_at, o.refund_due_amount, o.no_show_at, o.order_source, '
                 . '(SELECT COUNT(*) FROM ' . $lines . ' ol WHERE ol.order_id = o.id) AS line_count', false)
             ->orderBy('o.created_at', 'DESC')
             ->orderBy('o.id', 'DESC')
@@ -140,6 +162,9 @@ class SalesOrderModel extends Model
             'payment_method_name'  => $row['payment_method_name'],
             'shipping_method_name' => $row['shipping_method_name'],
             'cancelled_at'         => $row['cancelled_at'],
+            'refund_due_amount'    => Money::format($row['refund_due_amount']),
+            'no_show_at'           => $row['no_show_at'],
+            'order_source'         => $row['order_source'],
         ], $rows)];
     }
 
@@ -159,8 +184,9 @@ class SalesOrderModel extends Model
      *   payments: [{public_id, transaction_type, transaction_status, amount, payment_method_name, reference, note,
      *   failure_reason, recorded_by_name, processed_at, created_at}] oldest first }
      */
-    public function detail(array $row): array
+    public function detail(array $row, ?string $now = null): array
     {
+        $now ??= gmdate(self::DB_FORMAT);
         $stores = [];
         foreach ($this->db->table('business_store')->select('id, public_id, store_name, store_timezone')->where('business_id', $row['business_id'])->get()->getResultArray() as $store) {
             $stores[(int) $store['id']] = ['public_id' => $store['public_id'], 'store_name' => $store['store_name'], 'timezone' => $store['store_timezone']];
@@ -174,7 +200,15 @@ class SalesOrderModel extends Model
                 $people[(int) $person['line_id']][] = $person['participant_name'];
             }
         }
+        $business = $this->db->table('business_master')->where('id', $row['business_id'])->get()->getRowArray();
+        $booked   = $this->bookedStaff(array_values(array_filter(array_map(static fn (array $l): ?int => $l['line_kind'] === 'A' && $l['session_id'] !== null
+            ? (int) $l['session_id'] : null, $lines))));
         $money = $this->moneyOf($row);
+        $flags = $row['customer_id'] === null ? 0 : $this->db->table(self::FLAGS)->where('business_id', $row['business_id'])
+            ->where('customer_id', $row['customer_id'])->where('flag_type', self::FLAG_NO_SHOW)->countAllResults();
+        $actors = $this->db->table('auth_master a')->select('a.id, a.full_name')
+            ->whereIn('a.id', array_values(array_filter([$row['cancelled_by'], $row['no_show_by'], $row['created_by']]) ?: [0]))->get()->getResultArray();
+        $names = array_column($actors, 'full_name', 'id');
 
         return [
             'public_id'          => $row['public_id'],
@@ -183,6 +217,18 @@ class SalesOrderModel extends Model
             'updated_at'         => $row['updated_at'],
             'paid_at'            => $row['paid_at'],
             'cancelled_at'       => $row['cancelled_at'],
+            'order_source'       => $row['order_source'],
+            'created_by_name'    => $row['created_by'] === null ? null : ($names[$row['created_by']] ?? null),
+            'counter_store'      => $row['counter_store_id'] === null ? null : ($stores[(int) $row['counter_store_id']] ?? null),
+            'cancelled_by_name'  => $row['cancelled_by'] === null ? null : ($names[$row['cancelled_by']] ?? null),
+            'cancel_reason'      => $row['cancel_reason'],
+            'refund_due_amount'  => Money::format($row['refund_due_amount']),
+            'refund_closed_reason' => $row['refund_closed_reason'],
+            'no_show_at'         => $row['no_show_at'],
+            'no_show_by_name'    => $row['no_show_by'] === null ? null : ($names[$row['no_show_by']] ?? null),
+            'can_cancel'         => $this->cancelBlocker($row, $now) === null,
+            'cancel_blocker'     => $this->cancelBlocker($row, $now),
+            'can_mark_no_show'   => $this->noShowBlocker($row, $now) === null,
             'language_code'      => $row['language_code'],
             'currency_code'      => $row['currency_code'],
             'order_status'       => $row['order_status'],
@@ -190,8 +236,8 @@ class SalesOrderModel extends Model
             'fulfillment_status' => $row['fulfillment_status'],
             'has_products'       => in_array('P', array_column($lines, 'line_kind'), true),
             'customer'           => ['first_name' => $row['first_name'], 'last_name' => $row['last_name'], 'email_address' => $row['email_address'],
-                'telephone_number' => $row['telephone_number']],
-            'lines'              => array_map(static fn (array $line): array => [
+                'telephone_number' => $row['telephone_number'], 'no_show_count' => $flags],
+            'lines'              => array_map(fn (array $line): array => [
                 'line_number'        => (int) $line['line_number'],
                 'kind'               => $line['line_kind'],
                 'artifact_public_id' => $line['artifact_public_id'],
@@ -208,6 +254,12 @@ class SalesOrderModel extends Model
                 'starts_at'          => $line['starts_at'],
                 'ends_at'            => $line['ends_at'],
                 'participants'       => $people[(int) $line['id']] ?? [],
+                'staff'              => $line['line_kind'] === 'A' ? ($booked[(int) $line['session_id']] ?? []) : [],
+                'reschedule'         => $line['line_kind'] !== 'A' ? null : [
+                    'allowed' => $this->rescheduleBlocker($row, $line, $business, $now) === null,
+                    'blocker' => $this->rescheduleBlocker($row, $line, $business, $now),
+                    'until'   => $line['starts_at'] === null ? null : $this->rescheduleUntil($business, $line)->format(self::DB_FORMAT),
+                ],
             ], $lines),
             'shipping'           => $row['shipping_method_type'] === null ? null : [
                 'type'         => $row['shipping_method_type'],
@@ -243,6 +295,9 @@ class SalesOrderModel extends Model
     public function setStatuses(array $order, array $changes, int $actorId): bool
     {
         $changes = array_intersect_key($changes, array_flip(['order_status', 'fulfillment_status']));
+        if ($changes !== [] && ($order['cancelled_at'] !== null || $order['no_show_at'] !== null)) {
+            throw new DomainException('orderEnded');
+        }
         if (isset($changes['fulfillment_status']) && $order['fulfillment_status'] === null) {
             throw new DomainException('noProducts');
         }
@@ -300,8 +355,69 @@ class SalesOrderModel extends Model
             (new ActivityLog())->inserted($actorId, 'Recorded a ' . $row['transaction_type'] . ' of order ' . $order['order_number'], self::PAYMENTS,
                 (int) $this->db->insertID(), $row);
             $this->refreshFinancial($order, $actorId);
+            if ($row['transaction_status'] === self::TXN_SUCCEEDED) {
+                $this->moveRefundDue($order, $row['transaction_type'], Money::toCents($row['amount']), $actorId);
+            }
 
             return $row['public_id'];
+        });
+    }
+
+    /**
+     * A customer says they paid an order (on the mart, with its key): their reference and slip go on its waiting
+     * payment (one of the balance due is added when there is none), reported_at is set, and the people of its stores
+     * are told to check it and mark it received; it stays pending until they do
+     * @param array         $order     order_master
+     * @param string|null   $reference
+     * @param callable|null $saveSlip  fn(int $paymentId): string, saving the slip and giving its slip_path; null for none
+     * @param DateTimeImmutable $now
+     * @return string The public_id of the order_payment row
+     * @throws DomainException 'nothingDue' when the order is paid, cancelled or a no-show; nothing is written then
+     */
+    public function reportPayment(array $order, ?string $reference, ?callable $saveSlip, DateTimeImmutable $now): string
+    {
+        return $this->inTransaction(function () use ($order, $reference, $saveSlip, $now): string {
+            $order = $this->locked((int) $order['id']);
+            $money = $this->moneyOf($order);
+            if ($order['cancelled_at'] !== null || $order['no_show_at'] !== null || $money['balance_due'] <= 0) {
+                throw new DomainException('nothingDue');
+            }
+            $log     = new ActivityLog();
+            $at      = $now->setTimezone(new DateTimeZone('UTC'))->format(self::DB_FORMAT);
+            $payment = $this->db->table(self::PAYMENTS)->where('order_id', $order['id'])->where('transaction_type', self::TYPE_PAYMENT)
+                ->where('transaction_status', self::TXN_PENDING)->orderBy('id', 'DESC')->get(1)->getRowArray();
+            if ($payment === null) {
+                $payment = [
+                    'public_id' => $this->newPublicIdIn(self::PAYMENTS), 'order_id' => (int) $order['id'], 'transaction_type' => self::TYPE_PAYMENT,
+                    'transaction_status' => self::TXN_PENDING, 'currency_code' => $order['currency_code'], 'amount' => Money::fromCents($money['balance_due']),
+                    'payment_method_id' => $order['payment_method_id'], 'payment_method_code' => $order['payment_method_code'],
+                    'payment_handler_code' => $order['payment_handler_code'], 'payment_method_name' => $order['payment_method_name'],
+                ];
+                $this->db->table(self::PAYMENTS)->insert($payment);
+                $payment['id'] = (int) $this->db->insertID();
+                $log->inserted(null, 'The customer added a payment of order ' . $order['order_number'], self::PAYMENTS, $payment['id'], $payment);
+            }
+            $changes = ['reported_at' => $at, 'note' => $payment['note'] ?? lang('SalesOrder.reportedNote')];
+            if ($reference !== null) {
+                $changes['reference'] = $reference;
+            }
+            if ($saveSlip !== null) {
+                $changes['slip_path'] = $saveSlip((int) $payment['id']);
+            }
+            $this->db->table(self::PAYMENTS)->where('id', $payment['id'])->update($changes);
+            $log->updated(null, 'The customer reported paying order ' . $order['order_number'], self::PAYMENTS, (int) $payment['id'], $payment, $changes);
+
+            $stores = array_map('intval', array_column($this->db->table('order_line')->select('store_id')->where('order_id', $order['id'])->get()->getResultArray(), 'store_id'));
+            $stores = array_values(array_unique(array_filter([...$stores, $order['pickup_store_id'], $order['counter_store_id']])));
+            (new Notifier())->toStoreStaff((int) $order['business_id'], array_map('intval', $stores), Notifier::ORDER_PAYMENT_REPORTED, [
+                'customer'     => trim($order['first_name'] . ' ' . $order['last_name']),
+                'order_number' => $order['order_number'],
+                'amount'       => $order['currency_code'] . ' ' . number_format((float) Money::format($payment['amount']), 2),
+                'method'       => (string) $payment['payment_method_name'],
+                'reference'    => ($changes['reference'] ?? $payment['reference'] ?? null) === null ? '' : ' (' . ($changes['reference'] ?? $payment['reference']) . ')',
+            ], '/admin/sales/order/' . $order['public_id'], [self::PAYMENTS, (int) $payment['id']]);
+
+            return $payment['public_id'];
         });
     }
 
@@ -337,8 +453,444 @@ class SalesOrderModel extends Model
             $this->db->table(self::PAYMENTS)->where('id', $payment['id'])->update($changes);
             (new ActivityLog())->updated($actorId, ucfirst($status) . ' ' . $payment['transaction_type'] . ' ' . $payment['public_id'] . ' of order ' . $order['order_number'],
                 self::PAYMENTS, (int) $payment['id'], $payment, $changes);
+            // checked: the report is handled for everyone told of it
+            (new Notifier())->markSubjectRead(self::PAYMENTS, (int) $payment['id'], Notifier::ORDER_PAYMENT_REPORTED);
             $this->refreshFinancial($order, $actorId);
+            if ($status === self::TXN_SUCCEEDED) {
+                $this->moveRefundDue($order, $payment['transaction_type'], Money::toCents((string) Money::format($payment['amount'])), $actorId);
+            }
         });
+    }
+
+    /**
+     * Why the order cannot be cancelled now, or null when it can: ended (cancelled or a no-show already), fulfilled
+     * (products sent, all or some) or started (a booked service has started: a no-show now)
+     * @param array  $order order_master
+     * @param string $now   UTC "Y-m-d H:i:s"
+     * @return string|null
+     */
+    public function cancelBlocker(array $order, string $now): ?string
+    {
+        if ($order['cancelled_at'] !== null || $order['no_show_at'] !== null) {
+            return 'ended';
+        }
+        if (! in_array($order['fulfillment_status'], [null, self::FULFILLMENT_OPEN], true)) {
+            return 'fulfilled';
+        }
+        $started = $this->firstStart((int) $order['id']);
+
+        return $started !== null && $started <= $now ? 'started' : null;
+    }
+
+    /**
+     * Why the order cannot be marked a no-show now, or null when it can: ended, or not started (no booked service, or
+     * none has started yet)
+     * @param array  $order order_master
+     * @param string $now   UTC "Y-m-d H:i:s"
+     * @return string|null
+     */
+    public function noShowBlocker(array $order, string $now): ?string
+    {
+        if ($order['cancelled_at'] !== null || $order['no_show_at'] !== null) {
+            return 'ended';
+        }
+        $started = $this->firstStart((int) $order['id']);
+
+        return $started === null || $started > $now ? 'notStarted' : null;
+    }
+
+    /**
+     * Cancel an order, in one transaction: closed, with who and why; its pending payments voided; its products back
+     * in stock (unless $restock is false: damaged, lost), its appointments cancelled (their staff and resources free
+     * again), its group seats given back and its discount code's use; refund_due_amount is what was paid and not
+     * refunded. The owners and managers of the business are notified, but for $actorId.
+     * @param array    $order   order_master
+     * @param string   $reason  Checked by the caller
+     * @param bool     $restock
+     * @param int|null $actorId null for the customer or the system
+     * @param string   $now     UTC "Y-m-d H:i:s"
+     * @return array The order_master row as it is now
+     * @throws DomainException With cancelBlocker()'s reason; nothing is written then
+     */
+    public function cancel(array $order, string $reason, bool $restock, ?int $actorId, string $now): array
+    {
+        return $this->inTransaction(function () use ($order, $reason, $restock, $actorId, $now): array {
+            $order = $this->locked((int) $order['id']);
+            if (($blocker = $this->cancelBlocker($order, $now)) !== null) {
+                throw new DomainException($blocker);
+            }
+            $log      = new ActivityLog();
+            $orderId  = (int) $order['id'];
+            $label    = 'order ' . $order['order_number'];
+
+            // the payments still waiting will not come
+            foreach ($this->db->table(self::PAYMENTS)->where('order_id', $orderId)->where('transaction_status', self::TXN_PENDING)->get()->getResultArray() as $payment) {
+                $this->db->table(self::PAYMENTS)->where('id', $payment['id'])->update(['transaction_status' => self::TXN_VOIDED]);
+                $log->updated($actorId, 'Voided ' . $payment['transaction_type'] . ' ' . $payment['public_id'] . ' of cancelled ' . $label, self::PAYMENTS,
+                    (int) $payment['id'], $payment, ['transaction_status' => self::TXN_VOIDED]);
+                (new Notifier())->markSubjectRead(self::PAYMENTS, (int) $payment['id'], Notifier::ORDER_PAYMENT_REPORTED);
+            }
+
+            // what the order took, given back
+            $sessions = model(ServiceSessionModel::class);
+            foreach ($this->db->table('order_line')->where('order_id', $orderId)->get()->getResultArray() as $line) {
+                if ($line['line_kind'] === 'P' && $restock) {
+                    $updated = $this->db->table('artifact_variant_inventory')->set('quantity', 'quantity + ' . (int) $line['quantity'], false)
+                        ->where('variant_id', $line['variant_id'])->where('store_id', $line['store_id'])->update();
+                    if ($updated && $this->db->affectedRows() > 0) {
+                        $log->updated($actorId, 'Restocked ' . $line['quantity'] . ' of variant ' . $line['variant_id'] . ' at store ' . $line['store_id'] . ' from cancelled ' . $label,
+                            'artifact_variant_inventory', null, [], ['quantity' => '+' . $line['quantity']]);
+                    }
+                } elseif ($line['line_kind'] === 'A' && $line['session_id'] !== null) {
+                    $session = $this->db->table('service_session')->where('id', $line['session_id'])->get()->getRowArray();
+                    if ($session !== null && $session['session_status'] !== ServiceSessionModel::STATUS_CANCELLED) {
+                        $sessions->updateSession($session, ['session_status' => ServiceSessionModel::STATUS_CANCELLED], null, null, (int) $actorId);
+                    }
+                } elseif ($line['line_kind'] === 'G' && $line['session_id'] !== null) {
+                    $quantity = (int) $line['quantity'];
+                    $this->db->table('service_session')->set('seats_booked', 'CASE WHEN seats_booked > ' . $quantity . ' THEN seats_booked - ' . $quantity . ' ELSE 0 END', false)
+                        ->where('id', $line['session_id'])->update();
+                    $log->updated($actorId, 'Gave back ' . $quantity . ' seats of session ' . $line['session_id'] . ' from cancelled ' . $label,
+                        'service_session', (int) $line['session_id'], [], ['seats_booked' => '-' . $quantity]);
+                }
+            }
+            if ($order['discount_id'] !== null) {
+                $this->db->table('business_discount')->set('redemption_count', 'CASE WHEN redemption_count > 0 THEN redemption_count - 1 ELSE 0 END', false)
+                    ->where('id', $order['discount_id'])->update();
+            }
+
+            $money   = $this->moneyOf($order);
+            $changes = [
+                'order_status'      => self::ORDER_CLOSED,
+                'cancelled_at'      => $now,
+                'cancelled_by'      => $actorId,
+                'cancel_reason'     => $reason,
+                'refund_due_amount' => Money::fromCents($money['refundable']),
+            ];
+            $this->db->table($this->table)->where('id', $orderId)->update($changes);
+            $log->updated($actorId, 'Cancelled ' . $label, $this->table, $orderId, $order, $changes);
+
+            $params = [
+                'order_number' => $order['order_number'],
+                'by'           => $actorId === null ? '' : (string) ($this->db->table('auth_master')->select('full_name')->where('id', $actorId)->get()->getRow()->full_name ?? ''),
+                'amount'       => $order['currency_code'] . ' ' . number_format($money['refundable'] / 100, 2),
+                'reason'       => $reason,
+            ];
+            (new Notifier())->toBusiness((int) $order['business_id'], [BusinessClientLinkModel::ROLE_OWNER, BusinessClientLinkModel::ROLE_MANAGER],
+                $money['refundable'] > 0 ? Notifier::ORDER_CANCELLED : Notifier::ORDER_CANCELLED_UNPAID, $params,
+                '/admin/sales/order/' . $order['public_id'], [$this->table, $orderId], $actorId);
+
+            return $this->db->table($this->table)->where('id', $orderId)->get()->getRowArray();
+        });
+    }
+
+    /**
+     * Mark an order whose booked service started without the customer a no-show: closed; and when nothing of it was
+     * paid, its customer flagged by the business. An appointment (one block of time) ends now, so its staff and
+     * resources are free for the rest of it, a walk-in say; who was booked stays on record. Group seats stay taken.
+     * @param array  $order   order_master
+     * @param int    $actorId
+     * @param string $now     UTC "Y-m-d H:i:s"
+     * @return bool Whether the customer was flagged
+     * @throws DomainException With noShowBlocker()'s reason; nothing is written then
+     */
+    public function noShow(array $order, int $actorId, string $now): bool
+    {
+        return $this->inTransaction(function () use ($order, $actorId, $now): bool {
+            $order = $this->locked((int) $order['id']);
+            if (($blocker = $this->noShowBlocker($order, $now)) !== null) {
+                throw new DomainException($blocker);
+            }
+            $log     = new ActivityLog();
+            $changes = ['order_status' => self::ORDER_CLOSED, 'no_show_at' => $now, 'no_show_by' => $actorId];
+            $this->db->table($this->table)->where('id', $order['id'])->update($changes);
+            $log->updated($actorId, 'Marked order ' . $order['order_number'] . ' a no-show', $this->table, (int) $order['id'], $order, $changes);
+            foreach ($this->db->table('order_line')->where('order_id', $order['id'])->where('line_kind', 'A')->where('session_id IS NOT NULL', null, false)
+                ->get()->getResultArray() as $line) {
+                $this->endAppointmentAt((int) $line['session_id'], $now, $actorId, $log);
+            }
+
+            if ($order['customer_id'] === null || $this->moneyOf($order)['net_paid'] > 0) {
+                return false;
+            }
+            $flag = ['business_id' => (int) $order['business_id'], 'customer_id' => (int) $order['customer_id'], 'order_id' => (int) $order['id'],
+                'flag_type' => self::FLAG_NO_SHOW, 'flagged_by' => $actorId];
+            $this->db->table(self::FLAGS)->insert($flag);
+            $log->inserted($actorId, 'Flagged the customer of order ' . $order['order_number'] . ': unpaid no-show', self::FLAGS, (int) $this->db->insertID(), $flag);
+
+            return true;
+        });
+    }
+
+    /**
+     * End an appointment's block of time at $now when it is still running: the block, its session, and its staff and
+     * resource holds (with no turnover buffer: nobody used them), so they can be booked again for the rest
+     * @param int         $sessionId service_session of the appointment
+     * @param string      $now       UTC "Y-m-d H:i:s"
+     * @param int         $actorId
+     * @param ActivityLog $log
+     */
+    private function endAppointmentAt(int $sessionId, string $now, int $actorId, ActivityLog $log): void
+    {
+        $slots = $this->db->table(ServiceSessionModel::SLOTS)->where('session_id', $sessionId)
+            ->where('slot_status', ServiceSessionModel::SLOT_SCHEDULED)->where('starts_at <=', $now)->where('ends_at >', $now)->get()->getResultArray();
+        foreach ($slots as $slot) {
+            $label = 'slot ' . $slot['slot_number'] . ' of session ' . $sessionId . ' at a no-show';
+            $this->db->table(ServiceSessionModel::SLOTS)->where('id', $slot['id'])->update(['ends_at' => $now]);
+            $log->updated($actorId, 'Ended ' . $label, ServiceSessionModel::SLOTS, (int) $slot['id'], $slot, ['ends_at' => $now]);
+            foreach ($this->db->table(ServiceSessionModel::STAFF)->where('slot_id', $slot['id'])->get()->getResultArray() as $hold) {
+                $this->db->table(ServiceSessionModel::STAFF)->where('id', $hold['id'])->update(['ends_at' => $now]);
+                $log->updated($actorId, 'Freed the staff of ' . $label, ServiceSessionModel::STAFF, (int) $hold['id'], $hold, ['ends_at' => $now]);
+            }
+            foreach ($this->db->table(ServiceSessionModel::RESOURCES)->where('slot_id', $slot['id'])->get()->getResultArray() as $hold) {
+                // nobody used it, so it needs no turnover
+                $this->db->table(ServiceSessionModel::RESOURCES)->where('id', $hold['id'])->update(['held_until' => $now]);
+                $log->updated($actorId, 'Freed the resource of ' . $label, ServiceSessionModel::RESOURCES, (int) $hold['id'], $hold, ['held_until' => $now]);
+            }
+        }
+        if ($slots !== []) {
+            $session = $this->db->table('service_session')->where('id', $sessionId)->get()->getRowArray();
+            if ($session['ends_at'] !== null && $session['ends_at'] > $now) {
+                $this->db->table('service_session')->where('id', $sessionId)->update(['ends_at' => $now]);
+                $log->updated($actorId, 'Session ' . $session['public_id'] . ' ended at a no-show', 'service_session', $sessionId, $session, ['ends_at' => $now]);
+            }
+        }
+    }
+
+    /**
+     * Why a line of an order cannot be moved now, or null when it can: ended (the order is cancelled or a no-show),
+     * notAppointment (only a private appointment moves; a group's seats are in its session), started, or deadline
+     * (past the cancellation policy's deadline before it)
+     * @param array  $order    order_master
+     * @param array  $line     order_line
+     * @param array  $business business_master, for its cancellation policy
+     * @param string $now      UTC "Y-m-d H:i:s"
+     * @return string|null
+     */
+    public function rescheduleBlocker(array $order, array $line, array $business, string $now): ?string
+    {
+        if ($order['cancelled_at'] !== null || $order['no_show_at'] !== null) {
+            return 'ended';
+        }
+        if ($line['line_kind'] !== 'A' || $line['session_id'] === null || $line['starts_at'] === null) {
+            return 'notAppointment';
+        }
+        if ($line['starts_at'] <= $now) {
+            return 'started';
+        }
+
+        return $now > $this->rescheduleUntil($business, $line)->format(self::DB_FORMAT) ? 'deadline' : null;
+    }
+
+    /**
+     * The free times an appointment of the order could be moved to on $date (Y-m-d on its store's clock), as at the
+     * counter, its own holds aside, at its store, for as long as it was booked
+     * @param array             $order      order_master
+     * @param int               $lineNumber
+     * @param string            $date
+     * @param string            $language
+     * @param DateTimeImmutable $now
+     * @return array{date: string, until: string, staff: list<array{public_id: string, name: string}>, slots: list<array>}
+     * @throws DomainException With rescheduleBlocker()'s reason, or 'notFound'
+     */
+    public function rescheduleSlots(array $order, int $lineNumber, string $date, string $language, DateTimeImmutable $now): array
+    {
+        [$line, $business, $variant, $store] = $this->moving($order, $lineNumber, $language, $now);
+        $out = ['date' => $date, 'until' => $this->rescheduleUntil($business, $line)->format(self::DB_FORMAT), 'staff' => [], 'slots' => []];
+        if ($store === null) {
+            return $out;
+        }
+        $out['staff'] = array_values(array_map(static fn (array $p): array => ['public_id' => $p['public_id'], 'name' => $p['name']], $store['staff']));
+        $out['slots'] = model(MartSlotModel::class)->slotsOn($business, $variant, $store, $date, null, $now, true, (int) $line['session_id']);
+
+        return $out;
+    }
+
+    /**
+     * Move an appointment of the order to another start, with the people given (one of rescheduleSlots()'s), in one
+     * transaction: its slot, its staff and resource holds (the free resources picked again), its session and its line
+     * @param array             $order      order_master
+     * @param int               $lineNumber
+     * @param string            $startsAt   As rescheduleSlots() gave it (ISO 8601 with the store's offset)
+     * @param list<string>      $staff      The people's public_ids, as it gave them
+     * @param string            $language
+     * @param int               $actorId
+     * @param DateTimeImmutable $now
+     * @return array{from: string, to: string, timezone: string, line: array} from and to: the old and new start (UTC)
+     * @throws DomainException With rescheduleBlocker()'s reason, 'notFound', or 'taken' when that time is not free
+     *                         with those people; nothing is written then
+     */
+    public function reschedule(array $order, int $lineNumber, string $startsAt, array $staff, string $language, int $actorId, DateTimeImmutable $now): array
+    {
+        return $this->inTransaction(function () use ($order, $lineNumber, $startsAt, $staff, $language, $actorId, $now): array {
+            $order = $this->locked((int) $order['id']);
+            [$line, $business, $variant, $store] = $this->moving($order, $lineNumber, $language, $now);
+            $sessionId = (int) $line['session_id'];
+            $slots     = model(MartSlotModel::class);
+            $wanted    = array_values($staff);
+            sort($wanted);
+            $found = null;
+            foreach ($store === null || ! preg_match('/^\d{4}-\d{2}-\d{2}T/', $startsAt) ? []
+                : $slots->slotsOn($business, $variant, $store, substr($startsAt, 0, 10), null, $now, true, $sessionId) as $slot) {
+                $team = $slot['staff'];
+                sort($team);
+                if ($slot['starts_at'] === $startsAt && $team === $wanted) {
+                    $found = $slot;
+                    break;
+                }
+            }
+            $utc   = new DateTimeZone('UTC');
+            $start = $found === null ? null : (new DateTimeImmutable($found['starts_at']))->setTimezone($utc);
+            $end   = $found === null ? null : (new DateTimeImmutable($found['ends_at']))->setTimezone($utc);
+            $held  = $found === null ? null : $slots->freeResources((int) $business['id'], $variant['artifact_id'], $store['id'], $start, $end, $variant['people'], $sessionId);
+            if ($held === null) {
+                throw new DomainException('taken');
+            }
+            $clients = [];
+            foreach ($store['staff'] as $clientId => $person) {
+                if (in_array($person['public_id'], $wanted, true)) {
+                    $clients[] = $clientId;
+                }
+            }
+
+            $sessions = model(ServiceSessionModel::class);
+            $session  = $this->db->table('service_session')->where('id', $sessionId)->get()->getRowArray();
+            $slot     = $this->db->table(ServiceSessionModel::SLOTS)->where('session_id', $sessionId)->where('slot_status', ServiceSessionModel::SLOT_SCHEDULED)
+                ->orderBy('slot_number')->get(1)->getRowArray();
+            try {
+                $sessions->updateSession($session, [], null, [[
+                    'index' => 0, 'slot_number' => $slot === null ? null : (int) $slot['slot_number'],
+                    'starts_at' => $start->format(self::DB_FORMAT), 'ends_at' => $end->format(self::DB_FORMAT),
+                    'slot_status' => ServiceSessionModel::SLOT_SCHEDULED, 'staff' => $clients, 'resources' => $held,
+                ]], $actorId);
+            } catch (SlotConflictException) {
+                throw new DomainException('taken');
+            }
+            $changes = ['starts_at' => $start->format(self::DB_FORMAT), 'ends_at' => $end->format(self::DB_FORMAT)];
+            $this->db->table('order_line')->where('id', $line['id'])->update($changes);
+            (new ActivityLog())->updated($actorId, 'Moved line ' . $lineNumber . ' of order ' . $order['order_number'], 'order_line', (int) $line['id'], $line, $changes);
+
+            return ['from' => $line['starts_at'], 'to' => $changes['starts_at'], 'timezone' => $store['timezone'], 'line' => $line];
+        });
+    }
+
+    /**
+     * The line to move and what moving it needs: [order_line, business_master, the variant as MartSlotModel takes it
+     * (booked for as long as the line was), the store as MartSlotModel::storesFor() gives it, or null when nobody who
+     * performs it works there now]
+     * @throws DomainException With rescheduleBlocker()'s reason, or 'notFound'
+     */
+    private function moving(array $order, int $lineNumber, string $language, DateTimeImmutable $now): array
+    {
+        $line = $this->db->table('order_line')->where('order_id', $order['id'])->where('line_number', $lineNumber)->get()->getRowArray();
+        if ($line === null) {
+            throw new DomainException('notFound');
+        }
+        $business = $this->db->table('business_master')->where('id', $order['business_id'])->get()->getRowArray();
+        if (($blocker = $this->rescheduleBlocker($order, $line, $business, $now->setTimezone(new DateTimeZone('UTC'))->format(self::DB_FORMAT))) !== null) {
+            throw new DomainException($blocker);
+        }
+        $row     = $this->db->table('artifact_variant')->where('id', $line['variant_id'])->get()->getRowArray();
+        $minutes = intdiv(strtotime($line['ends_at'] . ' UTC') - strtotime($line['starts_at'] . ' UTC'), 60);
+        $variant = ['id' => (int) $row['id'], 'artifact_id' => (int) $row['artifact_id'], 'duration_minutes' => max(1, $minutes),
+            'staff_required' => max(1, (int) $row['staff_required']), 'people' => max(1, (int) $row['capacity'])] + $row;
+        $store   = current(array_filter(model(MartSlotModel::class)->storesFor((int) $order['business_id'], (int) $row['artifact_id'], $language),
+            static fn (array $s): bool => $s['id'] === (int) $line['store_id'])) ?: null;
+
+        return [$line, $business, $variant, $store];
+    }
+
+    /**
+     * The last moment an appointment may be moved: its cancellation deadline, by the business's policy on its store's
+     * clock (UTC)
+     */
+    private function rescheduleUntil(array $business, array $line): DateTimeImmutable
+    {
+        $zone = $this->db->table('business_store')->select('store_timezone')->where('id', $line['store_id'])->get()->getRow()->store_timezone ?? null;
+
+        return CancelPolicy::freeUntil($business, new DateTimeImmutable($line['starts_at'], new DateTimeZone('UTC')), new DateTimeZone($zone ?: 'UTC'))
+            ->setTimezone(new DateTimeZone('UTC'));
+    }
+
+    /**
+     * The people each appointment's session holds, by name
+     * @param list<int> $sessionIds
+     * @return array<int, list<array{public_id: string, name: string}>>
+     */
+    private function bookedStaff(array $sessionIds): array
+    {
+        if ($sessionIds === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($this->db->table(ServiceSessionModel::STAFF . ' h')
+            ->select('sl.session_id, a.public_id, c.display_name, c.legal_first_name, a.full_name')
+            ->join(ServiceSessionModel::SLOTS . ' sl', 'sl.id = h.slot_id')
+            ->join('client_master c', 'c.id = h.client_id')->join('auth_master a', 'a.id = c.auth_id')
+            ->whereIn('sl.session_id', $sessionIds)->where('sl.slot_status', ServiceSessionModel::SLOT_SCHEDULED)
+            ->orderBy('h.id')->get()->getResultArray() as $row) {
+            $out[(int) $row['session_id']][] = ['public_id' => $row['public_id'], 'name' => MartSlotModel::publicName($row)];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Settle the refund of a cancelled order without refunding what is left (a late-cancellation fee kept):
+     * refund_due_amount 0, with why; its notification is marked read
+     * @param array  $order   order_master
+     * @param string $reason  Checked by the caller
+     * @param int    $actorId
+     * @return void
+     * @throws DomainException 'noRefundDue' when the order is not cancelled or owes nothing; nothing is written then
+     */
+    public function closeRefund(array $order, string $reason, int $actorId): void
+    {
+        $this->inTransaction(function () use ($order, $reason, $actorId): void {
+            $order = $this->locked((int) $order['id']);
+            if ($order['cancelled_at'] === null || Money::isZero($order['refund_due_amount'])) {
+                throw new DomainException('noRefundDue');
+            }
+            $changes = ['refund_due_amount' => '0.00', 'refund_closed_reason' => $reason];
+            $this->db->table($this->table)->where('id', $order['id'])->update($changes);
+            (new ActivityLog())->updated($actorId, 'Settled the refund of order ' . $order['order_number'] . ' without refunding the rest', $this->table,
+                (int) $order['id'], $order, $changes);
+            (new Notifier())->markSubjectRead($this->table, (int) $order['id'], Notifier::ORDER_CANCELLED);
+        });
+    }
+
+    /**
+     * When the first booked service of an order starts (UTC), null for one with none
+     */
+    private function firstStart(int $orderId): ?string
+    {
+        $row = $this->db->table('order_line')->selectMin('starts_at', 'first_start')->where('order_id', $orderId)
+            ->whereIn('line_kind', ['A', 'G'])->get()->getRowArray();
+
+        return $row['first_start'] ?? null;
+    }
+
+    /**
+     * A succeeded payment or refund of a cancelled order: a payment raises what is owed back, a refund lowers it (never
+     * below 0); once nothing is owed, the cancellation's notification is marked read
+     */
+    private function moveRefundDue(array $order, string $type, int $cents, int $actorId): void
+    {
+        $order = $this->db->table($this->table)->where('id', $order['id'])->get()->getRowArray();
+        if ($order['cancelled_at'] === null) {
+            return;
+        }
+        $due = Money::toCents((string) Money::format($order['refund_due_amount']));
+        $new = $type === self::TYPE_PAYMENT ? $due + $cents : max(0, $due - $cents);
+        if ($new === $due) {
+            return;
+        }
+        $changes = ['refund_due_amount' => Money::fromCents($new)];
+        $this->db->table($this->table)->where('id', $order['id'])->update($changes);
+        (new ActivityLog())->updated($actorId, 'Worked out the refund due of order ' . $order['order_number'] . ' again', $this->table, (int) $order['id'], $order, $changes);
+        if ($new === 0) {
+            (new Notifier())->markSubjectRead($this->table, (int) $order['id'], Notifier::ORDER_CANCELLED);
+        }
     }
 
     /**
@@ -350,7 +902,7 @@ class SalesOrderModel extends Model
     {
         $rows = $this->db->table(self::PAYMENTS . ' p')
             ->select('p.public_id, p.transaction_type, p.transaction_status, p.amount, p.payment_method_name, p.reference, p.note, p.failure_reason, '
-                . 'p.processed_at, p.created_at, c.display_name, c.legal_first_name, c.legal_last_name')
+                . 'p.reported_at, p.slip_path, p.processed_at, p.created_at, c.display_name, c.legal_first_name, c.legal_last_name')
             ->join('client_master c', 'c.auth_id = p.recorded_by', 'left')
             ->where('p.order_id', $orderId)
             ->orderBy('p.created_at')->orderBy('p.id')
@@ -361,6 +913,8 @@ class SalesOrderModel extends Model
             $name = $name !== '' ? $name : trim(($row['legal_first_name'] ?? '') . ' ' . ($row['legal_last_name'] ?? ''));
             unset($row['display_name'], $row['legal_first_name'], $row['legal_last_name']);
             $row['amount']           = Money::format($row['amount']);
+            $row['has_slip']         = $row['slip_path'] !== null;
+            unset($row['slip_path']);
             $row['recorded_by_name'] = $name === '' ? null : $name;
 
             return $row;

@@ -32,4 +32,26 @@ return [
         'subject' => 'Reset your OtterNova password',
         'body'    => "Hello {full_name},\n\nWe received a request to reset the password of your OtterNova account. Please open this link to choose a new password:\n\n{link}\n\nThe link expires in {minutes} minutes and can be used once. If you did not ask for this, you can ignore this email: your password stays the same.",
     ],
+    'order_cancelled'    => [
+        'subject' => 'Your order {order_number} with {business_name} was cancelled',
+        'body'    => "Hello {first_name},\n\nYour order {order_number} with {business_name} has been cancelled. Nothing was paid for it, so there is nothing to refund.\n\nYou can see your order here:\n\n{link}\n\nIf you have any questions, please contact {business_name}.",
+    ],
+    'order_cancelled_paid' => [
+        'subject' => 'Your order {order_number} with {business_name} was cancelled',
+        'body'    => "Hello {first_name},\n\nYour order {order_number} with {business_name} has been cancelled. You paid {amount} for it: {business_name} will refund it to you, and may contact you about how.\n\nYou can see your order here:\n\n{link}\n\nIf you have any questions, please contact {business_name}.",
+    ],
+    'order_rescheduled'  => [
+        'subject' => 'Your booking with {business_name} has moved to {to}',
+        'body'    => "Hello {first_name},\n\nYour booking of {service} with {business_name} (order {order_number}) has moved from {from} to {to}.\n\nYou can see your order here:\n\n{link}\n\nIf this time does not suit you, please contact {business_name}.",
+    ],
+    'order_placed'       => [
+        'subject'        => 'Your order {order_number} with {business_name}',
+        'body'           => "Hello {first_name},\n\nThank you for your order with {business_name}. Your order number is {order_number}.\n\n{items}\n\nTotal: {total}\n\nIt is not paid yet. Payment: {method}\n{how}\n\nYou can see your order, pay it and tell us once you have paid here:\n\n{link}\n\nUntil it is paid, your booking may be cancelled.",
+        'promptpay'      => 'Scan the PromptPay QR code on your order page, with the amount already in it.',
+        'no-instruction' => '{business_name} will tell you how to pay.',
+    ],
+    'order_placed_paid'  => [
+        'subject' => 'Your order {order_number} with {business_name}',
+        'body'    => "Hello {first_name},\n\nThank you for your order with {business_name}. Your order number is {order_number}.\n\n{items}\n\nTotal: {total}, paid by {method}.\n\nYou can see your order here:\n\n{link}",
+    ],
 ];

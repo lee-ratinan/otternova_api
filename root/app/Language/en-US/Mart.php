@@ -24,4 +24,7 @@ return [
     'invalidCheckout'    => 'The checkout request is not valid.',
     'orderRefused'       => 'The order could not be placed as it is.',
     'orderNotFound'      => 'There is no such order.',
+    'paymentReportInvalid' => 'Please give the transfer reference or attach the slip (JPEG, PNG, WebP or PDF).',
+    'nothingDue'           => 'Nothing is due on this order.',
+    'paymentReported'      => 'Thank you. The shop will check your payment.',
 ];

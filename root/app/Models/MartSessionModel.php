@@ -55,6 +55,7 @@ class MartSessionModel extends Model
      * @param int               $variantId
      * @param string            $language For the session and store names
      * @param DateTimeImmutable $now
+     * @param bool              $counter At the counter: until each ends, whatever its booking_closes_at
      * @return array{sessions: list<array>, stores: array<int, array>, staff: array<int, array>}
      *         sessions: { public_id, name, description, store_id, timezone, starts_at, ends_at, booking_closes_at (ISO
      *         8601 with the store's offset; booking_closes_at the effective one), local_start_date (Y-m-d on the
@@ -62,10 +63,10 @@ class MartSessionModel extends Model
      *         starts_at, ends_at, staff: list<client_id>}] };
      *         stores: store id => storeRows(); staff: client_id => { public_id, name, restrictions }, by name
      */
-    public function bookable(int $businessId, int $variantId, string $language, DateTimeImmutable $now): array
+    public function bookable(int $businessId, int $variantId, string $language, DateTimeImmutable $now, bool $counter = false): array
     {
-        $at   = $now->setTimezone(new DateTimeZone('UTC'))->format(self::DB_FORMAT);
-        $rows = $this->db->table($this->table . ' s')
+        $at      = $now->setTimezone(new DateTimeZone('UTC'))->format(self::DB_FORMAT);
+        $builder = $this->db->table($this->table . ' s')
             ->select('s.id, s.public_id, s.store_id, s.session_name, s.session_description, s.capacity, s.seats_booked, s.starts_at, s.ends_at, '
                 . 's.booking_closes_at, st.store_timezone')
             ->join('business_store st', 'st.id = s.store_id')
@@ -73,13 +74,17 @@ class MartSessionModel extends Model
             ->where('s.session_status', ServiceSessionModel::STATUS_OPEN)
             ->where('st.store_type', BusinessStoreModel::TYPE_PHYSICAL)
             ->where('s.starts_at IS NOT NULL', null, false)
-            ->where('s.seats_booked < s.capacity', null, false)
-            ->groupStart()
+            ->where('s.seats_booked < s.capacity', null, false);
+        if ($counter) {
+            // at the counter, until it ends: a walk-in may join a class that has started
+            $builder->where('s.ends_at >', $at);
+        } else {
+            $builder->groupStart()
                 ->groupStart()->where('s.booking_closes_at', null)->where('s.starts_at >', $at)->groupEnd()
                 ->orWhere('s.booking_closes_at >', $at)
-            ->groupEnd()
-            ->orderBy('s.starts_at')->orderBy('s.id')
-            ->get()->getResultArray();
+            ->groupEnd();
+        }
+        $rows = $builder->orderBy('s.starts_at')->orderBy('s.id')->get()->getResultArray();
         if ($rows === []) {
             return ['sessions' => [], 'stores' => [], 'staff' => []];
         }

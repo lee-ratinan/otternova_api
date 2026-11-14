@@ -30,4 +30,26 @@ return [
         'subject' => 'ตั้งรหัสผ่าน OtterNova ใหม่',
         'body'    => "สวัสดีคุณ {full_name}\n\nเราได้รับคำขอตั้งรหัสผ่านใหม่สำหรับบัญชี OtterNova ของคุณ กรุณาเปิดลิงก์นี้เพื่อตั้งรหัสผ่านใหม่:\n\n{link}\n\nลิงก์จะหมดอายุภายใน {minutes} นาทีและใช้ได้เพียงครั้งเดียว หากคุณไม่ได้ขอ สามารถเพิกเฉยต่ออีเมลนี้ได้ รหัสผ่านของคุณจะยังคงเหมือนเดิม",
     ],
+    'order_cancelled'    => [
+        'subject' => 'คำสั่งซื้อ {order_number} กับ {business_name} ถูกยกเลิกแล้ว',
+        'body'    => "สวัสดีคุณ {first_name}\n\nคำสั่งซื้อ {order_number} กับ {business_name} ถูกยกเลิกแล้ว คำสั่งซื้อนี้ยังไม่ได้ชำระเงิน จึงไม่มียอดที่ต้องคืน\n\nคุณสามารถดูคำสั่งซื้อได้ที่:\n\n{link}\n\nหากมีข้อสงสัย กรุณาติดต่อ {business_name}",
+    ],
+    'order_cancelled_paid' => [
+        'subject' => 'คำสั่งซื้อ {order_number} กับ {business_name} ถูกยกเลิกแล้ว',
+        'body'    => "สวัสดีคุณ {first_name}\n\nคำสั่งซื้อ {order_number} กับ {business_name} ถูกยกเลิกแล้ว คุณได้ชำระเงินไปแล้ว {amount} ซึ่ง {business_name} จะคืนเงินให้คุณ และอาจติดต่อคุณเกี่ยวกับวิธีการคืนเงิน\n\nคุณสามารถดูคำสั่งซื้อได้ที่:\n\n{link}\n\nหากมีข้อสงสัย กรุณาติดต่อ {business_name}",
+    ],
+    'order_rescheduled'  => [
+        'subject' => 'การจองของคุณกับ {business_name} ถูกเลื่อนเป็น {to}',
+        'body'    => "สวัสดีคุณ {first_name}\n\nการจอง {service} กับ {business_name} (คำสั่งซื้อ {order_number}) ถูกเลื่อนจาก {from} เป็น {to}\n\nคุณสามารถดูคำสั่งซื้อได้ที่:\n\n{link}\n\nหากเวลานี้ไม่สะดวก กรุณาติดต่อ {business_name}",
+    ],
+    'order_placed'       => [
+        'subject'        => 'คำสั่งซื้อ {order_number} ของคุณกับ {business_name}',
+        'body'           => "สวัสดีคุณ {first_name}\n\nขอบคุณที่สั่งซื้อกับ {business_name} หมายเลขคำสั่งซื้อของคุณคือ {order_number}\n\n{items}\n\nยอดรวม: {total}\n\nยังไม่ได้ชำระเงิน ช่องทางชำระเงิน: {method}\n{how}\n\nคุณสามารถดูคำสั่งซื้อ ชำระเงิน และแจ้งเมื่อชำระแล้วได้ที่:\n\n{link}\n\nหากยังไม่ชำระเงิน การจองของคุณอาจถูกยกเลิก",
+        'promptpay'      => 'สแกน QR PromptPay ในหน้าคำสั่งซื้อ ซึ่งมียอดเงินอยู่แล้ว',
+        'no-instruction' => '{business_name} จะแจ้งวิธีชำระเงินให้คุณทราบ',
+    ],
+    'order_placed_paid'  => [
+        'subject' => 'คำสั่งซื้อ {order_number} ของคุณกับ {business_name}',
+        'body'    => "สวัสดีคุณ {first_name}\n\nขอบคุณที่สั่งซื้อกับ {business_name} หมายเลขคำสั่งซื้อของคุณคือ {order_number}\n\n{items}\n\nยอดรวม: {total} ชำระแล้วผ่าน {method}\n\nคุณสามารถดูคำสั่งซื้อได้ที่:\n\n{link}",
+    ],
 ];

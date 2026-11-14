@@ -17,6 +17,36 @@ return [
         ],
     ],
 
+    'order' => [
+        'cancelled' => [
+            'title'   => 'มีคำสั่งซื้อที่ยกเลิกรอคืนเงิน',
+            'message' => 'คำสั่งซื้อ {order_number} ถูกยกเลิกโดย {by}: {reason} ลูกค้าชำระแล้ว {amount} กรุณาคืนเงิน',
+        ],
+        'booked' => [
+            'title'   => 'มีการจองใหม่: {service}',
+            'message' => '{customer} จอง {service} กับคุณ วันที่ {when} ที่ {store} (คำสั่งซื้อ {order_number}) การชำระเงิน: {payment}',
+        ],
+        'seats_booked' => [
+            'title'   => 'จองเพิ่ม {seats} ที่: {session}',
+            'message' => '{customer} จอง {seats} ที่ของ {session} วันที่ {when} ที่ {store} ตอนนี้จองแล้ว {booked} จาก {capacity} ที่ (คำสั่งซื้อ {order_number}) การชำระเงิน: {payment}',
+        ],
+        'payment_reported' => [
+            'title'   => 'มีการชำระเงินรอตรวจสอบ: {order_number}',
+            'message' => '{customer} แจ้งว่าชำระเงิน {amount} สำหรับคำสั่งซื้อ {order_number} ผ่าน {method}{reference} กรุณาตรวจสอบและบันทึกว่าได้รับแล้ว',
+        ],
+        'cancelled_unpaid' => [
+            'title'   => 'คำสั่งซื้อถูกยกเลิก',
+            'message' => 'คำสั่งซื้อ {order_number} ถูกยกเลิกโดย {by}: {reason} คำสั่งซื้อนี้ยังไม่ได้ชำระเงิน',
+        ],
+    ],
+
+    // a booking's payment, for the people serving it
+    'payment_state' => [
+        'paid'     => 'ชำระแล้ว',
+        'at_store' => 'ชำระที่ร้าน',
+        'awaiting' => 'ยังไม่ได้ชำระ อาจถูกยกเลิกหรือลูกค้าไม่มาได้',
+    ],
+
     'invalidRequest' => 'ไม่สามารถอ่านคำขอได้ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง',
     'invalidStatus'  => 'กรุณาเลือก ยังไม่อ่าน หรือ อ่านแล้ว',
     'notFound'       => 'ไม่พบการแจ้งเตือนนี้',

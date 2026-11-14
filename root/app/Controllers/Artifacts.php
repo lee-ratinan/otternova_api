@@ -149,8 +149,9 @@ class Artifacts extends BaseController
      *   duration_minutes, booking_type, staff_required, capacity, sort_order, attribute_values: [value public_id, ...],
      *   inventory: [{ store_public_id, quantity }] }. barcode and weight_grams are kept for products only,
      *   duration_minutes, booking_type, staff_required and capacity for services only: booking_type A (appointment, the
-     *   default) or G (group), staff_required 1-255 (1 by default), and capacity 1-65535, the most customers in one
-     *   session, required for G and not kept for A; inventory, for products only, creates the variant's stock at the stores
+     *   default) or G (group), staff_required 1-255 (1 by default), and capacity 1-65535: for G the most customers in
+     *   one session, required; for A how many customers one booking is for (2 for a couples massage), null for one;
+     *   inventory, for products only, creates the variant's stock at the stores
      *   picked. Every variant uses the same attributes. A product's variants differ by the combination of their
      *   values; a service's by that combination together with duration_minutes (required for a service) and
      *   booking_type, so a service can have, say, a 60- and a 90-minute variant, each as a group or a private session.
@@ -568,12 +569,13 @@ class Artifacts extends BaseController
             $errors[$key . '.duration_minutes'] = lang('Artifact.durationRequired');
         }
 
-        // a group session takes up to capacity customers; an appointment is one customer's
+        // a group session takes up to capacity customers; an appointment is for capacity customers together, one
+        // when null (a couples massage: 2)
         if ($row['booking_type'] === ArtifactMasterModel::BOOKING_GROUP) {
             if ($row['capacity'] === null && ! isset($errors[$key . '.capacity'])) {
                 $errors[$key . '.capacity'] = lang('Artifact.capacityRequired');
             }
-        } else {
+        } elseif ($type !== ArtifactMasterModel::TYPE_SERVICE) {
             $row['capacity'] = null;
             unset($errors[$key . '.capacity']);
         }
