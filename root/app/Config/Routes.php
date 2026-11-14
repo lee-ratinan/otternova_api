@@ -213,6 +213,13 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('discounts', 'Discounts::list');
         $routes->post('discount/create', 'Discounts::create');
         $routes->post('discount/edit', 'Discounts::edit');
+        // the orders customers placed with a business: their statuses, payments and refunds; any of its active clients,
+        // refunds its owners and managers only; see App\Controllers\SalesOrders
+        $routes->post('orders', 'SalesOrders::list');
+        $routes->post('order', 'SalesOrders::show');
+        $routes->post('order/status', 'SalesOrders::saveStatus');
+        $routes->post('order/payment/create', 'SalesOrders::createPayment');
+        $routes->post('order/payment/settle', 'SalesOrders::settlePayment');
         // the opening hours of a store: the active owners and managers of its business only; see App\Controllers\StoreHours
         $routes->post('store/hours', 'StoreHours::show');
         $routes->post('store/hours/save', 'StoreHours::save');

@@ -36,6 +36,7 @@ class MartOrderModel extends Model
     use PublicIdTrait;
     use TransactionTrait;
 
+    // the status the mart shows the customer (order()), worked out from the order's statuses: see SalesOrderModel
     public const STATUS_PLACED    = 'P';
     public const STATUS_CONFIRMED = 'C';
     public const STATUS_CANCELLED = 'X';
@@ -194,7 +195,10 @@ class MartOrderModel extends Model
                 'access_key'           => hash('sha256', $key),
                 'business_id'          => $businessId,
                 'customer_id'          => $customerId,
-                'order_status'         => self::STATUS_PLACED,
+                'order_status'         => SalesOrderModel::ORDER_OPEN,
+                'financial_status'     => $totals['total'] > 0 ? SalesOrderModel::FINANCIAL_PENDING : SalesOrderModel::FINANCIAL_PAID,
+                'fulfillment_status'   => array_filter($priced['lines'], static fn (array $l): bool => $l['kind'] === self::KIND_PRODUCT) !== []
+                    ? SalesOrderModel::FULFILLMENT_OPEN : null,
                 'language_code'        => $language,
                 'currency_code'        => $business['currency_code'],
                 'first_name'           => $customer['first_name'],
@@ -225,8 +229,26 @@ class MartOrderModel extends Model
                 'tax_added'            => Money::fromCents($totals['tax_added']),
                 'total_amount'         => Money::fromCents($totals['total']),
             ];
+            if ($totals['total'] <= 0) {
+                $row['paid_at'] = $now->setTimezone(new DateTimeZone('UTC'))->format(self::DB_FORMAT);
+            }
             $this->db->table($this->table)->insert($row);
             $orderId = (int) $this->db->insertID();
+            // what is to be paid, waiting for the payment (or for the business to record it)
+            if ($totals['total'] > 0) {
+                $this->db->table(SalesOrderModel::PAYMENTS)->insert([
+                    'public_id'            => $this->newPublicIdIn(SalesOrderModel::PAYMENTS),
+                    'order_id'             => $orderId,
+                    'transaction_type'     => SalesOrderModel::TYPE_PAYMENT,
+                    'transaction_status'   => SalesOrderModel::TXN_PENDING,
+                    'currency_code'        => $business['currency_code'],
+                    'amount'               => Money::fromCents($totals['total']),
+                    'payment_method_id'    => $payment['id'],
+                    'payment_method_code'  => $payment['method_code'],
+                    'payment_handler_code' => $payment['handler_code'],
+                    'payment_method_name'  => $payment['name'],
+                ]);
+            }
 
             foreach (array_values($priced['lines']) as $number => $line) {
                 $this->db->table(self::LINES)->insert([
@@ -312,7 +334,10 @@ class MartOrderModel extends Model
         return [
             'public_id'    => $row['public_id'],
             'order_number' => $row['order_number'],
-            'status'     => $row['order_status'],
+            'status'     => self::customerStatus($row),
+            'order_status'       => $row['order_status'],
+            'financial_status'   => $row['financial_status'],
+            'fulfillment_status' => $row['fulfillment_status'],
             'created_at' => (new DateTimeImmutable($row['created_at'], new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z'),
             'currency'   => $row['currency_code'],
             'customer'   => ['first_name' => $row['first_name'], 'last_name' => $row['last_name'], 'email' => $row['email_address'], 'telephone' => $row['telephone_number']],
@@ -355,6 +380,21 @@ class MartOrderModel extends Model
                 'total'        => Money::format($row['total_amount']),
             ],
         ];
+    }
+
+    /**
+     * P, C or X, as the mart shows an order to its customer: X when cancelled, C once paid (or more), else P
+     * @param array $row order_master
+     * @return string
+     */
+    public static function customerStatus(array $row): string
+    {
+        if ($row['cancelled_at'] !== null) {
+            return self::STATUS_CANCELLED;
+        }
+
+        return $row['financial_status'] === SalesOrderModel::FINANCIAL_PENDING || $row['financial_status'] === SalesOrderModel::FINANCIAL_PARTIALLY_PAID
+            ? self::STATUS_PLACED : self::STATUS_CONFIRMED;
     }
 
     // --- pricing -----------------------------------------------------------------------------------------------

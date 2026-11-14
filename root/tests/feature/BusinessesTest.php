@@ -65,7 +65,7 @@ final class BusinessesTest extends CIUnitTestCase
                 'currency_code'          => 'sgd',
                 'tax_id'                 => '201912345A',
             ]),
-            'translations' => ['th' => ' ออตเตอร์คาเฟ่ ', 'ja' => 'オッターカフェ', 'ko' => ''],
+            'translations' => ['th' => ' ออตเตอร์คาเฟ่ ', 'ja' => 'オッターカフェ', 'zh-TW' => ''],
         ]);
         $response->assertStatus(200);
         $this->assertSame(['business_slug' => 'otter-cafe-sg'], $this->body($response)['data']);
@@ -285,7 +285,7 @@ final class BusinessesTest extends CIUnitTestCase
         $response = $this->send([
             'business_slug' => 'otter-cafe-sg',
             'business'      => ['business_slug' => 'otter-cafe', 'business_description' => 'Coffee by the river.', 'contact_phone_number' => '+6561234567'],
-            'translations'  => ['th' => 'ออตเตอร์คาเฟ่', 'ko' => '오터카페'],
+            'translations'  => ['th' => 'ออตเตอร์คาเฟ่', 'ja' => 'オッタルカーフェ'],
         ], null, 'v1/client/business/edit');
         $response->assertStatus(200);
         $this->assertSame(['business_slug' => 'otter-cafe'], $this->body($response)['data']);
@@ -295,7 +295,7 @@ final class BusinessesTest extends CIUnitTestCase
         $this->assertSame('201912345A', (new FieldEncryption())->decryptRow('business_master', $row)['tax_id']); // left out, kept
 
         $names = $this->db->table('business_master_translation')->where('business_id', $id)->get()->getResultArray();
-        $this->assertEqualsCanonicalizing(['ko' => '오터카페', 'th' => 'ออตเตอร์คาเฟ่'], array_column($names, 'business_name', 'language_code'));
+        $this->assertEqualsCanonicalizing(['ja' => 'オッタルカーフェ', 'th' => 'ออตเตอร์คาเฟ่'], array_column($names, 'business_name', 'language_code'));
 
         // only what changed is logged: the three columns, then the Korean name added and the Japanese one removed
         $logs = $this->db->table('log_activity')->where('changed_by_acc', $this->client['id'])->orderBy('id', 'DESC')->limit(3)->get()->getResultArray();
