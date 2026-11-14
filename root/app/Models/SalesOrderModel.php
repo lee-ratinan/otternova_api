@@ -397,7 +397,7 @@ class SalesOrderModel extends Model
                 $payment['id'] = (int) $this->db->insertID();
                 $log->inserted(null, 'The customer added a payment of order ' . $order['order_number'], self::PAYMENTS, $payment['id'], $payment);
             }
-            $changes = ['reported_at' => $at, 'note' => $payment['note'] ?? lang('SalesOrder.reportedNote')];
+            $changes = ['reported_at' => $at]; // shown as reported by itself: no note needed
             if ($reference !== null) {
                 $changes['reference'] = $reference;
             }

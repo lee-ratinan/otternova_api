@@ -147,6 +147,25 @@ final class OrderNoticesTest extends CIUnitTestCase
         $this->assertStringContainsString(', paid by Cash.', end($this->mailer->sent)['body']);
     }
 
+    public function testTheEmailTotalAddsUp(): void
+    {
+        $delivery = $this->fixturePublicId();
+        $this->db->table('business_shipping_method')->insert(['public_id' => $delivery, 'business_id' => $this->businessId, 'method_type' => 'H',
+            'method_name' => 'Delivery', 'fee_basis' => 'P']);
+        $this->db->table('business_shipping_rate')->insert(['shipping_method_id' => (int) $this->db->insertID(), 'range_from' => '0.00', 'range_to' => null, 'fee_amount' => '50.00']);
+        [$balmId] = $this->artifactRow($this->businessId);
+        $balm     = $this->fixturePublicId();
+        $this->db->table('artifact_variant')->insert(['public_id' => $balm, 'business_id' => $this->businessId, 'artifact_id' => $balmId, 'price_active' => '199.00']);
+        $response = $this->withBodyFormat('json')->post('v1/mart/order', ['business_slug' => 'otter-spa', 'lang' => 'en-US', 'payment' => $this->transfer, 'shipping' => $delivery,
+            'lines'    => [['key' => 'b', 'kind' => 'P', 'variant' => $balm, 'quantity' => 1]],
+            'delivery' => ['line_1' => '1 Main Rd', 'city' => 'Bangkok', 'postal_code' => '10500'],
+            'customer' => ['first_name' => 'Ann', 'last_name' => 'Lee', 'email' => 'ann@example.com', 'telephone' => '081 234 5678']]);
+        $response->assertStatus(201);
+        $body = $this->mailer->sent[0]['body'];
+        $this->assertStringContainsString("THB 199.00\nShipping: THB 50.00\n\nTotal: THB 249.00", $body);
+        $this->assertStringContainsString('your order may be cancelled', $body);
+    }
+
     public function testMoreSeatsOfAGroupAreToldToItsPeople(): void
     {
         $this->order([['key' => 'y', 'kind' => 'G', 'variant' => $this->yoga, 'quantity' => 2, 'session' => $this->yogaSession, 'participants' => ['Ann', 'Ben']]], $this->transfer);

@@ -52,7 +52,6 @@ return [
         'notFound'       => 'This line of the order could not be found.',
         'taken'          => 'This time is no longer free with these people. Please choose another.',
     ],
-    'reportedNote'       => 'Reported paid by the customer.',
     'nothingDue'         => 'Nothing is due on this order.',
     'noSlip'             => 'This payment has no slip.',
 ];

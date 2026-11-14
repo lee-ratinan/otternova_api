@@ -48,6 +48,10 @@ final class OrderMailer
                 }
                 $items[] = '• ' . $what . ': ' . $money($line['total']);
             }
+            // a line's total has its share of the discount off and its added tax in: the shipping is all the total adds
+            if ((float) ($order['totals']['shipping'] ?? 0) > 0) {
+                $items[] = lang('Email.order_placed.shipping', [$money($order['totals']['shipping'])], $locale);
+            }
             $paid    = $row['financial_status'] !== 'pending' && $row['financial_status'] !== 'partially_paid';
             $payment = $order['payment'];
             $how     = $payment['handler_code'] === 'promptpay_qr'
