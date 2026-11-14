@@ -56,4 +56,16 @@ class Mart extends BaseConfig
      */
     public int $lookupMaxFailures = 5;
     public int $lookupWindow      = 15 * MINUTE;
+
+    /** How long the emailed link into a customer's order history works, once, and the session it opens lasts */
+    public int $historyLinkMinutes  = 30;
+    public int $historySessionHours = 24;
+
+    /**
+     * History links asked for an email address within $historyWindow seconds: at one business, and at all of them,
+     * so the form cannot flood an inbox
+     */
+    public int $historyMaxPerBusiness = 3;
+    public int $historyMaxPerEmail    = 10;
+    public int $historyWindow         = HOUR;
 }

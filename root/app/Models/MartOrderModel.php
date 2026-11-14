@@ -387,6 +387,42 @@ class MartOrderModel extends Model
         return strlen($short) >= 6 && $prefix <= 3 && $international($longRaw) && str_ends_with($long, $short);
     }
 
+    /**
+     * The orders of the business placed with the email address, newest first: the order history a customer sees
+     * once they have shown it is their address (App\Models\OrderHistoryAccessModel)
+     * @param string $email lowercase
+     * @return list<array{order_number: string, created_at: string, currency: string, total: string, status: string,
+     *   order_status: string, financial_status: string, cancelled: bool}> created_at ISO 8601 on the business's clock
+     *   (OrderNumber::timezoneOf()); status as order()'s
+     * @param array $business business_master
+     */
+    public function history(array $business, string $email, int $limit = 200): array
+    {
+        $businessId = (int) $business['id'];
+        $zone       = OrderNumber::timezoneOf($this->db, $business);
+        $rows = $this->db->table($this->table)
+            ->select('order_number, created_at, currency_code, total_amount, order_status, financial_status, cancelled_at')
+            ->where('business_id', $businessId)->where('LOWER(email_address)', $email)
+            ->orderBy('created_at', 'DESC')->orderBy('id', 'DESC')->get($limit)->getResultArray();
+
+        return array_map(static fn (array $row): array => [
+            'order_number'     => $row['order_number'],
+            'created_at'       => (new DateTimeImmutable($row['created_at'], new DateTimeZone('UTC')))->setTimezone($zone)->format(self::LOCAL_FORMAT),
+            'currency'         => $row['currency_code'],
+            'total'            => Money::format($row['total_amount']),
+            'status'           => self::customerStatus($row),
+            'order_status'     => $row['order_status'],
+            'financial_status' => $row['financial_status'],
+            'cancelled'        => $row['cancelled_at'] !== null,
+        ], $rows);
+    }
+
+    /** Whether the business has an order placed with the email address */
+    public function hasOrdersOf(int $businessId, string $email): bool
+    {
+        return $this->db->table($this->table)->where('business_id', $businessId)->where('LOWER(email_address)', $email)->countAllResults() > 0;
+    }
+
     /** order()'s answer for the order_master row */
     private function customerView(int $businessId, array $row, string $language): array
     {

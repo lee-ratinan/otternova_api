@@ -22,6 +22,7 @@ class EmailService
     public const TYPE_ORDER_RESCHEDULED    = 'order_rescheduled';    // to the customer: a booking moved to another time
     public const TYPE_ORDER_PLACED         = 'order_placed';         // to the customer: the order, and how to pay it
     public const TYPE_ORDER_PLACED_PAID    = 'order_placed_paid';    // to the customer: the order, paid already
+    public const TYPE_ORDER_HISTORY_LINK   = 'order_history_link';   // to the customer: the link into their order history at a business
 
     /** In beta, only these domains (lowercase, without "@") get real emails */
     private const BETA_ALLOWED_DOMAINS = ['otternova.com'];
@@ -56,7 +57,7 @@ class EmailService
     {
         if (! in_array($type, [self::TYPE_LOGIN_OTP, self::TYPE_ACCOUNT_ACTIVATION, self::TYPE_ACCOUNT_EXISTS, self::TYPE_PASSWORD_RESET, self::TYPE_BUSINESS_INVITATION,
             self::TYPE_ORDER_CANCELLED, self::TYPE_ORDER_CANCELLED_PAID, self::TYPE_ORDER_RESCHEDULED,
-            self::TYPE_ORDER_PLACED, self::TYPE_ORDER_PLACED_PAID], true)) {
+            self::TYPE_ORDER_PLACED, self::TYPE_ORDER_PLACED_PAID, self::TYPE_ORDER_HISTORY_LINK], true)) {
             throw new InvalidArgumentException('Unknown email type: ' . $type);
         }
 

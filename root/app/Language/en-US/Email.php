@@ -55,4 +55,8 @@ return [
         'subject' => 'Your order {order_number} with {business_name}',
         'body'    => "Hello {first_name},\n\nThank you for your order with {business_name}. Your order number is {order_number}.\n\n{items}\n\nTotal: {total}, paid by {method}.\n\nYou can see your order here:\n\n{link}",
     ],
+    'order_history_link' => [
+        'subject' => 'Your order history with {business_name}',
+        'body'    => "Hello,\n\nSomeone asked to see the orders placed with {business_name} using this email address ({email}). Open this link to see them:\n\n{link}\n\nThe link works once, for {minutes} minutes. If you did not ask for it, you can ignore this email: nothing has been shown to anyone.",
+    ],
 ];

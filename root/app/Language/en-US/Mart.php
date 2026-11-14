@@ -30,4 +30,9 @@ return [
     'lookupInvalid'        => 'Please give the order number and the email address or telephone number it was placed with.',
     'lookupNotFound'       => 'No order matches this order number and email address or telephone number.',
     'lookupBlocked'        => 'Too many tries for this order number. Please try again later.',
+    'historyInvalidEmail'  => 'Please enter a valid email address.',
+    'historyRequested'     => 'If there are orders with this email address, a link to see them has been sent to it.',
+    'historyBlocked'       => 'Too many links have been asked for this email address. Please try again later.',
+    'historyLinkInvalid'   => 'This link has expired or has been used already. Please ask for a new one.',
+    'historySessionEnded'  => 'Please ask for a new link to see your orders.',
 ];

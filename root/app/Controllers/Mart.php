@@ -2,7 +2,9 @@
 
 namespace App\Controllers;
 
+use App\Libraries\AfterResponse;
 use App\Libraries\ApiResponse;
+use App\Libraries\EmailService;
 use App\Models\SalesOrderModel;
 use App\Libraries\OrderMailer;
 use App\Libraries\BookingWindow;
@@ -11,6 +13,7 @@ use App\Models\ArtifactMasterModel;
 use App\Models\BusinessMasterModel;
 use App\Models\MartCatalogModel;
 use App\Models\MartOrderModel;
+use App\Models\OrderHistoryAccessModel;
 use App\Models\OrderRefusedException;
 use App\Models\MartSessionModel;
 use App\Models\MartSlotModel;
@@ -39,6 +42,11 @@ use DomainException;
  * - POST /mart/order: place an order
  * - GET  /mart/order: an order, for its customer
  * - POST /mart/order/lookup: an order, for its customer who gives its number with its email address or telephone
+ * The order history of a customer at the business, by their email address (App\Models\OrderHistoryAccessModel):
+ * - POST /mart/order-history/request: email a link into it, when there are orders
+ * - POST /mart/order-history/open:    the link's token for a session
+ * - POST /mart/order-history:         the orders, for a session
+ * - POST /mart/order-history/close:   end the session
  */
 class Mart extends BaseController
 {
@@ -580,6 +588,112 @@ class Mart extends BaseController
             $cache->delete($cacheKey);
 
             return ApiResponse::success(['order' => $order]);
+        });
+    }
+
+    /**
+     * POST /mart/order-history/request, JSON: business_slug, lang, email
+     * A link into the order history of the email address at the business is emailed to it, when the business has an
+     * order placed with it. The answer is the same either way, so no one learns who has ordered where, and the email
+     * goes out after the answer (AfterResponse), so its time tells nothing either. 200 always; 422 for an address that
+     * is not one; 429 after Config\Mart::$historyMaxPerBusiness asks for the address at the business, or
+     * $historyMaxPerEmail at all of them, within $historyWindow.
+     * @return ResponseInterface
+     */
+    public function requestHistory(): ResponseInterface
+    {
+        return $this->answerJson('v1/mart/order-history/request', function (array $business, string $language, array $input): ResponseInterface {
+            $email = is_string($input['email'] ?? null) ? strtolower(trim($input['email'])) : '';
+            if ($email === '' || strlen($email) > 64 || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                return ApiResponse::error(lang('Mart.historyInvalidEmail'), 422, ['email' => $email === '' ? 'required' : 'invalid']);
+            }
+            $config     = config(MartConfig::class);
+            $businessId = (int) $business['id'];
+            $counters   = [
+                ['mart_history_' . hash('sha256', $businessId . '|' . $email), $config->historyMaxPerBusiness],
+                ['mart_history_' . hash('sha256', $email), $config->historyMaxPerEmail],
+            ];
+            $cache = service('cache');
+            $now   = time();
+            foreach ($counters as [$key, $max]) {
+                $entry = $cache->get($key);
+                if (is_array($entry) && $entry['until'] > $now && $entry['count'] >= $max) {
+                    return ApiResponse::error(lang('Mart.historyBlocked'), 429);
+                }
+            }
+            // every ask counts, whether a link goes out or not
+            foreach ($counters as [$key]) {
+                $entry = $cache->get($key);
+                $entry = is_array($entry) && $entry['until'] > $now ? $entry : ['count' => 0, 'until' => $now + $config->historyWindow];
+                $entry['count']++;
+                $cache->save($key, $entry, max(1, $entry['until'] - $now));
+            }
+
+            $response = ApiResponse::success(null, 200, lang('Mart.historyRequested'));
+            if (! model(MartOrderModel::class)->hasOrdersOf($businessId, $email)) {
+                return $response;
+            }
+            $token = model(OrderHistoryAccessModel::class)->createLink($businessId, $email, $now + $config->historyLinkMinutes * MINUTE, $now);
+            $lang  = $input['lang'] ?? null;
+
+            return AfterResponse::defer($response, static function () use ($business, $email, $token, $config, $lang): void {
+                service('emailService')->send(EmailService::TYPE_ORDER_HISTORY_LINK, $email, [
+                    'business_name' => $business['business_name'],
+                    'email'         => $email,
+                    'minutes'       => $config->historyLinkMinutes,
+                    'link'          => rtrim((string) env('LINK_MART', ''), '/') . '/' . rawurlencode($business['business_slug'])
+                        . '/my-order-history/open?token=' . rawurlencode($token),
+                ], is_string($lang) ? $lang : null);
+            });
+        });
+    }
+
+    /**
+     * POST /mart/order-history/open, JSON: business_slug, token (the emailed link's)
+     * 200 { session, expires_at (UTC ISO 8601) }: the session the mart keeps for the customer, never shown in an
+     * address; 404 for a link that is wrong, used, expired or of another business, alike.
+     * @return ResponseInterface
+     */
+    public function openHistory(): ResponseInterface
+    {
+        return $this->answerJson('v1/mart/order-history/open', function (array $business, string $language, array $input): ResponseInterface {
+            $config    = config(MartConfig::class);
+            $now       = time();
+            $expiresAt = $now + $config->historySessionHours * HOUR;
+            $session   = model(OrderHistoryAccessModel::class)->openLink((int) $business['id'], is_string($input['token'] ?? null) ? $input['token'] : '', $expiresAt, $now);
+
+            return $session === null ? ApiResponse::error(lang('Mart.historyLinkInvalid'), 404)
+                : ApiResponse::success(['session' => $session, 'expires_at' => gmdate('Y-m-d\TH:i:s\Z', $expiresAt)]);
+        });
+    }
+
+    /**
+     * POST /mart/order-history, JSON: business_slug, session
+     * 200 { email, orders: MartOrderModel::history() (created_at on the business's clock) }; 401 for a session that is wrong, over or of another business.
+     * @return ResponseInterface
+     */
+    public function history(): ResponseInterface
+    {
+        return $this->answerJson('v1/mart/order-history', function (array $business, string $language, array $input): ResponseInterface {
+            $email = model(OrderHistoryAccessModel::class)->emailOf((int) $business['id'], is_string($input['session'] ?? null) ? $input['session'] : '', time());
+            if ($email === null) {
+                return ApiResponse::error(lang('Mart.historySessionEnded'), 401);
+            }
+
+            return ApiResponse::success(['email' => $email, 'orders' => model(MartOrderModel::class)->history($business, $email)]);
+        });
+    }
+
+    /**
+     * POST /mart/order-history/close, JSON: business_slug, session. The customer signs out. 200 always.
+     * @return ResponseInterface
+     */
+    public function closeHistory(): ResponseInterface
+    {
+        return $this->answerJson('v1/mart/order-history/close', function (array $business, string $language, array $input): ResponseInterface {
+            model(OrderHistoryAccessModel::class)->endSession((int) $business['id'], is_string($input['session'] ?? null) ? $input['session'] : '');
+
+            return ApiResponse::success(null);
         });
     }
 
