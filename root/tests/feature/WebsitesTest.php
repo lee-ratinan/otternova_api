@@ -124,8 +124,8 @@ final class WebsitesTest extends CIUnitTestCase
     {
         $this->save(['languages' => [
             $this->language('th', ['hero_badge' => '  คัดสรรพิเศษ ', 'meta_keywords' => '']),
-            $this->language('en-US', ['heading_font' => 'Montserrat', 'nav_font' => 'Ubuntu', 'default_font' => 'Raleway']),
-        ]])->assertStatus(422); // Raleway is not one of the typefaces
+            $this->language('en-US', ['heading_font' => 'Montserrat', 'nav_font' => 'Ubuntu', 'default_font' => 'Helvetica']),
+        ]])->assertStatus(422); // Helvetica is not one of the typefaces
 
         $this->save(['languages' => [
             $this->language('th', ['hero_badge' => '  คัดสรรพิเศษ ', 'meta_keywords' => '']),
