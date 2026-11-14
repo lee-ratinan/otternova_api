@@ -249,6 +249,46 @@ final class MartOrderTest extends CIUnitTestCase
         $this->assertNull(PromptPay::payload('12345', '10.00'));
     }
 
+    public function testACustomerFindsTheirOrderByItsNumberWithTheirEmailOrTelephone(): void
+    {
+        $order = $this->body($this->order([$this->product('mug', 1)], ['shipping' => $this->delivery]))['data']['order'];
+        $number = $order['order_number'];
+
+        foreach (['otter@example.com', ' OTTER@Example.COM ', '0812345678', '+66 81-234-5678', '0066 81 234 5678', '812345678'] as $contact) {
+            $response = $this->lookup($number, $contact);
+            $response->assertStatus(200);
+            $found = $this->body($response)['data']['order'];
+            $this->assertSame($number, $found['order_number']);
+            $this->assertSame('P', $found['status']);
+            $this->assertArrayNotHasKey('key', $found);
+        }
+        // lower case, as a customer may type it
+        $this->lookup(strtolower($number), '0812345678')->assertStatus(200);
+
+        // someone else's contact, or another order's number, is no order, alike
+        foreach (['other@example.com', '0812345679', '12345678', 'otter@example'] as $contact) {
+            $this->lookup($number, $contact)->assertStatus(404);
+        }
+        $this->lookup('IN2611-0099', 'otter@example.com')->assertStatus(404);
+        $this->lookup('', 'otter@example.com')->assertStatus(422);
+        $this->lookup($number, '')->assertStatus(422);
+
+        // only at the business that took it
+        $this->business('other-shop');
+        $this->withBodyFormat('json')->post('v1/mart/order/lookup', ['business_slug' => 'other-shop', 'lang' => 'en-US', 'number' => $number, 'contact' => 'otter@example.com'])
+            ->assertStatus(404);
+    }
+
+    public function testWrongContactsForAnOrderNumberAreThrottled(): void
+    {
+        $number = $this->body($this->order([$this->product('mug', 1)], ['shipping' => $this->delivery]))['data']['order']['order_number'];
+        for ($i = 0; $i < config('Mart')->lookupMaxFailures; $i++) {
+            $this->lookup($number, 'guess' . $i . '@example.com')->assertStatus(404);
+        }
+        // even the right one, until the window is over
+        $this->lookup($number, 'otter@example.com')->assertStatus(429);
+    }
+
     // --- helpers ------------------------------------------------------------------------------------------------
 
     private function product(string $name, int $quantity): array
@@ -273,6 +313,11 @@ final class MartOrderTest extends CIUnitTestCase
         $response->assertStatus(200);
 
         return $this->body($response)['data'];
+    }
+
+    private function lookup(string $number, string $contact): \CodeIgniter\Test\TestResponse
+    {
+        return $this->withBodyFormat('json')->post('v1/mart/order/lookup', ['business_slug' => 'otter-shop', 'lang' => 'en-US', 'number' => $number, 'contact' => $contact]);
     }
 
     private function order(array $lines, array $choice, array $address = []): \CodeIgniter\Test\TestResponse

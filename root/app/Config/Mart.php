@@ -49,4 +49,11 @@ class Mart extends BaseConfig
 
     /** Lines a cart may send to /mart/quote and /mart/order, as many as the mart's cart may hold */
     public int $maxCartLines = 50;
+
+    /**
+     * Wrong email addresses or telephone numbers allowed per order number within $lookupWindow seconds on
+     * /mart/order/lookup, so the contact of a known order number cannot be guessed
+     */
+    public int $lookupMaxFailures = 5;
+    public int $lookupWindow      = 15 * MINUTE;
 }

@@ -27,4 +27,7 @@ return [
     'paymentReportInvalid' => 'Please give the transfer reference or attach the slip (JPEG, PNG, WebP or PDF).',
     'nothingDue'           => 'Nothing is due on this order.',
     'paymentReported'      => 'Thank you. The shop will check your payment.',
+    'lookupInvalid'        => 'Please give the order number and the email address or telephone number it was placed with.',
+    'lookupNotFound'       => 'No order matches this order number and email address or telephone number.',
+    'lookupBlocked'        => 'Too many tries for this order number. Please try again later.',
 ];

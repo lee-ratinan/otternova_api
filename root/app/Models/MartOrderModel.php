@@ -317,9 +317,79 @@ class MartOrderModel extends Model
     public function order(int $businessId, string $reference, string $key, string $language): ?array
     {
         $row = $this->findWithKey($businessId, $reference, $key);
+
+        return $row === null ? null : $this->customerView($businessId, $row, $language);
+    }
+
+    /**
+     * An order as its customer sees it, as order() answers it, found by its order number when $contact is the email
+     * address or the telephone number it was placed with: for a customer who comes back to the business's mart to look
+     * it up without the key. null when either does not match, as for no order.
+     * @param string $orderNumber the business's number of it (IN2611-0001); never its public_id
+     * @param string $contact     an email address, or a telephone number written any way (spaces, dashes, +66)
+     */
+    public function orderByContact(int $businessId, string $orderNumber, string $contact, string $language): ?array
+    {
+        $row = $this->findWithContact($businessId, $orderNumber, $contact);
+
+        return $row === null ? null : $this->customerView($businessId, $row, $language);
+    }
+
+    /**
+     * The order_master row of an order of the business, by its order number, when $contact is its email address
+     * (any case) or its telephone number (by its digits; 0812345678 and +66 81 234 5678 are the same); null otherwise
+     */
+    public function findWithContact(int $businessId, string $orderNumber, string $contact): ?array
+    {
+        $contact = trim($contact);
+        if ($contact === '' || strlen($orderNumber) > 24 || ! preg_match('/^[A-Z]{0,4}\d{0,6}-\d+$/', $orderNumber)) {
+            return null;
+        }
+        $row = $this->db->table($this->table)->where('business_id', $businessId)->where('order_number', $orderNumber)->get()->getRowArray();
         if ($row === null) {
             return null;
         }
+        if (str_contains($contact, '@')) {
+            $email = strtolower((string) $row['email_address']);
+
+            return $email !== '' && hash_equals($email, strtolower($contact)) ? $row : null;
+        }
+
+        return self::samePhone((string) $row['telephone_number'], $contact) ? $row : null;
+    }
+
+    /**
+     * Whether two telephone numbers are the same, by their digits: alike, or the same national number with or without
+     * its trunk 0 (0812345678, 812345678), or one of them written with its country code (+66 81 234 5678, 0066...);
+     * at least 6 digits each. Digits more on one side count as a country code only after a + or 00, so a number with
+     * a digit left out is not the same.
+     */
+    public static function samePhone(string $stored, string $given): bool
+    {
+        $a = preg_replace('/\D+/', '', $stored);
+        $b = preg_replace('/\D+/', '', $given);
+        if (strlen($a) < 6 || strlen($b) < 6) {
+            return false;
+        }
+        if (hash_equals($a, $b)) {
+            return true;
+        }
+        $international = static fn (string $n): bool => (bool) preg_match('/^\s*(\+|00)/', $n);
+        // the national number, without the trunk 0 or the 00 of an international one
+        $national = static fn (string $digits, string $n): string => ltrim($international($n) && str_starts_with($digits, '00') ? substr($digits, 2) : $digits, '0');
+        [$x, $y] = [$national($a, $stored), $national($b, $given)];
+        if (strlen($x) === strlen($y)) {
+            return strlen($x) >= 6 && hash_equals($x, $y);
+        }
+        [$short, $long, $longRaw] = strlen($x) < strlen($y) ? [$x, $y, $given] : [$y, $x, $stored];
+        $prefix = strlen($long) - strlen($short);
+
+        return strlen($short) >= 6 && $prefix <= 3 && $international($longRaw) && str_ends_with($long, $short);
+    }
+
+    /** order()'s answer for the order_master row */
+    private function customerView(int $businessId, array $row, string $language): array
+    {
         $stores = $this->storesOf($businessId, $language);
         $store  = static fn (?int $id): ?array => $id === null || ! isset($stores[$id]) ? null
             : ['public_id' => $stores[$id]['public_id'], 'name' => $stores[$id]['name'], 'timezone' => $stores[$id]['timezone'], 'address' => $stores[$id]['address']];

@@ -50,6 +50,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('order', 'Mart::placeOrder');
         $routes->get('order', 'Mart::order');
         $routes->post('order/report-payment', 'Mart::reportPayment');
+        $routes->post('order/lookup', 'Mart::lookupOrder');
     });
 
     // Admin app: staff accounts only (a valid token with typ S)

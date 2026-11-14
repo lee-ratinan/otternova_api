@@ -38,6 +38,7 @@ use DomainException;
  * - POST /mart/quote: what a cart costs now, and the shipping and payment methods it may have
  * - POST /mart/order: place an order
  * - GET  /mart/order: an order, for its customer
+ * - POST /mart/order/lookup: an order, for its customer who gives its number with its email address or telephone
  */
 class Mart extends BaseController
 {
@@ -532,6 +533,53 @@ class Mart extends BaseController
             $order     = is_string($reference) && is_string($key) ? model(MartOrderModel::class)->order($businessId, $reference, $key, $language) : null;
 
             return $order === null ? ApiResponse::error(lang('Mart.orderNotFound'), 404) : ApiResponse::success(['order' => $order]);
+        });
+    }
+
+    /**
+     * POST /mart/order/lookup, JSON: business_slug, lang, number (the business's order number, IN2611-0001), contact
+     * (the email address or the telephone number the order was placed with)
+     * A customer who comes back to the business's mart finds their order without its key: only that business's
+     * orders, and only when both match. 200 { order: GET /mart/order's } (never its key); 404 when either does not
+     * match, alike, so neither can be told apart; 422 for a missing number or contact; 429 after
+     * Config\Mart::$lookupMaxFailures wrong tries at the order number within $lookupWindow.
+     * @return ResponseInterface
+     */
+    public function lookupOrder(): ResponseInterface
+    {
+        return $this->answerJson('v1/mart/order/lookup', function (array $business, string $language, array $input): ResponseInterface {
+            $number  = is_string($input['number'] ?? null) ? strtoupper(trim($input['number'])) : '';
+            $contact = is_string($input['contact'] ?? null) ? trim($input['contact']) : '';
+            $errors  = [];
+            if ($number === '' || strlen($number) > 24) {
+                $errors['number'] = $number === '' ? 'required' : 'invalid';
+            }
+            if ($contact === '' || mb_strlen($contact) > 64) {
+                $errors['contact'] = $contact === '' ? 'required' : 'invalid';
+            }
+            if ($errors !== []) {
+                return ApiResponse::error(lang('Mart.lookupInvalid'), 422, $errors);
+            }
+
+            $config   = config(MartConfig::class);
+            $cache    = service('cache');
+            $cacheKey = 'mart_lookup_fail_' . hash('sha256', $business['id'] . '|' . $number);
+            $failures = $cache->get($cacheKey);
+            $failures = is_array($failures) && $failures['until'] > time() ? $failures : ['count' => 0, 'until' => time() + $config->lookupWindow];
+            if ($failures['count'] >= $config->lookupMaxFailures) {
+                return ApiResponse::error(lang('Mart.lookupBlocked'), 429);
+            }
+
+            $order = model(MartOrderModel::class)->orderByContact((int) $business['id'], $number, $contact, $language);
+            if ($order === null) {
+                $failures['count']++;
+                $cache->save($cacheKey, $failures, max(1, $failures['until'] - time()));
+
+                return ApiResponse::error(lang('Mart.lookupNotFound'), 404);
+            }
+            $cache->delete($cacheKey);
+
+            return ApiResponse::success(['order' => $order]);
         });
     }
 
