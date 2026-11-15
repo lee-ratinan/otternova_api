@@ -76,6 +76,19 @@ class ImageUpload extends BaseConfig
             'ownRowOnly'  => [],
             'access'      => self::ACCESS_PUBLIC, // on the business's public pages
         ],
+        // the pictures of the sections of a business's own web pages, uploaded and deleted by
+        // App\Controllers\Webpages, each as a row of its own named after its public_id. The size is the image slot's
+        // of the section's design (Config\WebpageDesigns); width and height here are only the largest there is.
+        // No uploaders, so the generic image-upload and image-delete refuse it, as they cannot check the business
+        'webpage-image' => [
+            'uploaders'   => [],
+            'width'       => 2000,
+            'height'      => 1000,
+            'target'      => 'webpage_image.image_path',
+            'ownerColumn' => 'id',
+            'ownRowOnly'  => [],
+            'access'      => self::ACCESS_PUBLIC, // on the business's public pages
+        ],
     ];
 
     /**

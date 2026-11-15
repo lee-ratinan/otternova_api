@@ -4,6 +4,7 @@
 return [
     'slugRequired'     => 'Which business? business_slug is required.',
     'businessNotFound' => 'There is no such business.',
+    'pageNotFound'     => 'There is no such page.',
     'artifactNotFound' => 'There is no such product or service.',
     'categoryNotFound' => 'There is no such category.',
     'loadFailed'       => 'The page could not be loaded. Please try again.',

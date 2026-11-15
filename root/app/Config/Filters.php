@@ -121,6 +121,7 @@ class Filters extends BaseFilters
             'v1/client/website/save',
             'v1/client/website/logo-upload',
             'v1/client/website/logo-delete',
+            'v1/client/webpage/*', // every one of them a change; v1/client/webpage itself only reads
             'v1/client/artifact/create',
             'v1/client/artifact/edit',
             'v1/client/artifact/image-*',

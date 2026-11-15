@@ -42,6 +42,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
     // App\Controllers\Mart and App\Libraries\MartCache
     $routes->group('mart', static function (RouteCollection $routes) {
         $routes->get('site', 'Mart::site');
+        $routes->get('webpage', 'Mart::webpage');
         $routes->get('artifacts', 'Mart::artifacts');
         $routes->get('artifact', 'Mart::artifact');
         $routes->get('slots', 'Mart::slots');
@@ -301,6 +302,18 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('website/save', 'Websites::save');
         $routes->post('website/logo-upload', 'Websites::logoUpload');
         $routes->post('website/logo-delete', 'Websites::logoDelete');
+        // the pages a business designs itself, their sections and images: its active owners and managers only;
+        // see App\Controllers\Webpages
+        $routes->post('webpages', 'Webpages::list');
+        $routes->post('webpage', 'Webpages::show');
+        $routes->post('webpage/create', 'Webpages::create');
+        $routes->post('webpage/edit', 'Webpages::edit');
+        $routes->post('webpage/delete', 'Webpages::delete');
+        $routes->post('webpage/reorder', 'Webpages::reorder');
+        $routes->post('webpage/section/save', 'Webpages::saveSection');
+        $routes->post('webpage/section/delete', 'Webpages::deleteSection');
+        $routes->post('webpage/image-upload', 'Webpages::uploadImage');
+        $routes->post('webpage/image-delete', 'Webpages::deleteImage');
         // the people of a business and their accounts: its active owners only; see App\Controllers\Employees
         $routes->post('employees', 'Employees::list');
         $routes->post('employee', 'Employees::show');

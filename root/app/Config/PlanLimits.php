@@ -17,9 +17,9 @@ use CodeIgniter\Config\BaseConfig;
  * - PRODUCTS:  artifact_master rows of artifact_type P; 0 means the plan cannot sell products at all
  * - SERVICES:  artifact_master rows of artifact_type S
  * - VARIANTS:  artifact_variant rows of artifact_master
- * - WEBPAGES:  pages of its own design
+ * - WEBPAGES:  webpage_master rows of the business, its home page included; 0 means no pages of its own design
  * - IMAGE_PER_ARTIFACT: artifact_image rows per 1 artifact_master
- * - IMAGE_PER_WEBPAGE: (future) number of images per 1 webpage
+ * - IMAGE_PER_WEBPAGE: webpage_image rows per 1 webpage_master, all its sections together
  * Monthly allowances, not caps on rows: how many times a month the business may ask the AI to generate, counted
  * separately for each field it generates into:
  * - AI_CREDIT_TEXT_ATTEMPTS: text generations (a name, a description) per field

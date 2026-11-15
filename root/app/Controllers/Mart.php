@@ -17,6 +17,7 @@ use App\Models\OrderHistoryAccessModel;
 use App\Models\OrderRefusedException;
 use App\Models\MartSessionModel;
 use App\Models\MartSlotModel;
+use App\Models\WebpageMasterModel;
 use CodeIgniter\I18n\Time;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\Mart as MartConfig;
@@ -33,6 +34,7 @@ use DomainException;
  * Answers come from the cache (App\Libraries\MartCache) when they can; App\Filters\MartCacheRefresh clears the
  * business's when the Client app changes it.
  * - /mart/site:      the business and how its pages look
+ * - /mart/webpage:   a page the business designed itself, when published
  * - /mart/artifacts: product cards, by public_ids, category or type
  * - /mart/artifact:  one product or service with its variants, options, images and reviews
  * - /mart/slots:     the times an appointment may be booked at, on one day (never cached)
@@ -84,6 +86,37 @@ class Mart extends BaseController
             });
 
             return ApiResponse::success($data);
+        });
+    }
+
+    /**
+     * GET /mart/webpage?business_slug=&lang=&page_slug=
+     * A page the business designed itself (App\Controllers\Webpages), when it is published; page_slug left out or
+     * empty is its home page. 404 when there is no such published page: for the home page, the storefront shows the
+     * system home instead.
+     * { language, page: {public_id, slug, is_home, name (null for the home page: the storefront's own word), meta:
+     *   {title, description} (null for the home page: /mart/site's)}, menu: [{public_id, slug, is_home, name}] (the
+     *   published pages), sections: [{public_id, section_type, design_code (the view sections/{design_code}),
+     *   texts: {slot_code: text}, images: {slot_code: [url]}}] }
+     * A text the page has none of in the language is the default language's.
+     * @return ResponseInterface
+     */
+    public function webpage(): ResponseInterface
+    {
+        return $this->answer('v1/mart/webpage', function (int $businessId, string $lang): ResponseInterface {
+            $slug = $this->request->getGet('page_slug');
+            $slug = is_string($slug) && trim($slug) !== '' ? strtolower(trim($slug)) : WebpageMasterModel::HOME_SLUG;
+            if (strlen($slug) > WebpageMasterModel::MAX_SLUG || preg_match(Webpages::SLUG_PATTERN, $slug) !== 1) {
+                return ApiResponse::error(lang('Mart.pageNotFound'), 404);
+            }
+            $data = service('martCache')->remember($businessId, 'webpage', [$lang, $slug], static function () use ($businessId, $lang, $slug): ?array {
+                [$language, $rows] = model(MartCatalogModel::class)->languageOf($businessId, $lang);
+                $page              = model(WebpageMasterModel::class)->publishedPage($businessId, $slug, $language, $rows[0]['language_code'] ?? $language);
+
+                return $page === null ? null : ['language' => $language] + $page;
+            });
+
+            return $data === null ? ApiResponse::error(lang('Mart.pageNotFound'), 404) : ApiResponse::success($data);
         });
     }
 

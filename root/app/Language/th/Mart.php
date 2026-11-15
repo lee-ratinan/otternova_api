@@ -4,6 +4,7 @@
 return [
     'slugRequired'     => 'ธุรกิจใด? ต้องระบุ business_slug',
     'businessNotFound' => 'ไม่พบธุรกิจนี้',
+    'pageNotFound'     => 'ไม่พบหน้านี้',
     'artifactNotFound' => 'ไม่พบสินค้าหรือบริการนี้',
     'categoryNotFound' => 'ไม่พบหมวดหมู่นี้',
     'loadFailed'       => 'ไม่สามารถโหลดหน้านี้ได้ กรุณาลองอีกครั้ง',
