@@ -43,7 +43,15 @@ class Websites extends BaseController
         'hero_badge'       => 48,
         'hero_headline'    => 120,
         'hero_paragraph'   => 500,
+        // what the business calls its staff and the people a booking is for (AddWebsiteTerms)
+        'staff_term_one'         => 40,
+        'staff_term_other'       => 40,
+        'participant_term_one'   => 40,
+        'participant_term_other' => 40,
     ];
+
+    /** The words of TEXT_LIMITS, put into the storefront's sentences: plain words, no markup */
+    public const TERM_FIELDS = ['staff_term_one', 'staff_term_other', 'participant_term_one', 'participant_term_other'];
 
     /** The typeface fields of a language */
     public const FONT_FIELDS = ['heading_font', 'nav_font', 'default_font'];
@@ -79,8 +87,9 @@ class Websites extends BaseController
      * Saves the parts sent; a part left out stays as it is.
      * - colors: {background_color, default_color, heading_color, accent_color, surface_color, contrast_color}, each #rrggbb
      * - languages: [{language_code, heading_font, nav_font, default_font, meta_title, meta_description, meta_keywords,
-     *   hero_badge, hero_headline, hero_paragraph}, ...], at least one, each language once, the default first;
-     *   replaces the languages the pages had. The texts are optional, empty being none.
+     *   hero_badge, hero_headline, hero_paragraph, staff_term_one, staff_term_other, participant_term_one,
+     *   participant_term_other}, ...], at least one, each language once, the default first; replaces the languages
+     *   the pages had. The texts are optional, empty being none; the terms are words without < > & " or `.
      * - featured: {best_sellers: [artifact public_id, ...], trending: [...]}, in order, at most MAX_FEATURED each;
      *   a section left out or [] has none
      * @return ResponseInterface The settings, as show() gives them
@@ -318,6 +327,8 @@ class Websites extends BaseController
                 $text = trim(preg_replace('/\s+/u', ' ', (string) $text) ?? '');
                 if (mb_strlen($text) > $limit) {
                     $errors[$key . $field] = lang('Website.textTooLong', [$limit]);
+                } elseif (in_array($field, self::TERM_FIELDS, true) && preg_match('/[<>&"`]/', $text) === 1) {
+                    $errors[$key . $field] = lang('Website.invalidTerm');
                 }
                 $language[$field] = $text === '' ? null : $text;
             }

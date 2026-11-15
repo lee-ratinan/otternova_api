@@ -66,7 +66,8 @@ class Mart extends BaseController
      * { language, languages: [{code, name}], business: {slug, name, description, country_code, currency_code,
      *   contact: {...}, audience: {...}, shows_staff (has a staff page, see staff()), rating: {average, count, breakdown}}, theme: {colors: {...}, fonts: {heading,
      *   nav, default: {name, query} or null}, google_fonts_url, logo: {url, shape} or null}, meta: {title, description,
-     *   keywords}, hero: {badge, headline, paragraph}, featured: {best_sellers, trending, highest_rated: [card]},
+     *   keywords}, hero: {badge, headline, paragraph},
+     *   terms: {staff: {one, other}, participant: {one, other}} (each the business's word or null), featured: {best_sellers, trending, highest_rated: [card]},
      *   categories: [{public_id, name, artifact_count}], stores: [{public_id, name, type, phone_number, address..., google_maps_url}] }
      * A card is as in /mart/artifacts.
      * @return ResponseInterface

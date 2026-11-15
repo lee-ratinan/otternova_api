@@ -18,6 +18,7 @@ return [
     'invalidFont'       => 'Please choose a font from the list.',
     'invalidText'       => 'Please enter text.',
     'textTooLong'       => 'This can be at most {0} characters.',
+    'invalidTerm'       => 'Please enter a word without < > & " or `.',
     'invalidFeatured'   => 'Please send a list of products or services.',
     'tooManyFeatured'   => 'Please choose at most {0}.',
     'duplicateFeatured' => 'A product or service is chosen more than once.',

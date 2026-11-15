@@ -158,6 +158,11 @@ class MartCatalogModel extends Model
                 'headline'  => $settings['hero_headline'] ?? null,
                 'paragraph' => $settings['hero_paragraph'] ?? null,
             ],
+            // what the business calls its staff and the people a booking is for, null for the storefront's own word
+            'terms'     => [
+                'staff'       => ['one' => $settings['staff_term_one'] ?? null, 'other' => $settings['staff_term_other'] ?? null],
+                'participant' => ['one' => $settings['participant_term_one'] ?? null, 'other' => $settings['participant_term_other'] ?? null],
+            ],
             'featured'  => [
                 'best_sellers'  => $this->pick($cards, $featured[BusinessWebsiteModel::SECTION_BEST_SELLERS]),
                 'trending'      => $this->pick($cards, $featured[BusinessWebsiteModel::SECTION_TRENDING]),

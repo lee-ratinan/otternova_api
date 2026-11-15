@@ -36,7 +36,8 @@ class BusinessWebsiteModel extends Model
     ];
 
     /** The columns of a language row the client sets, besides language_code */
-    public const LANGUAGE_FIELDS = ['heading_font', 'nav_font', 'default_font', 'meta_title', 'meta_description', 'meta_keywords', 'hero_badge', 'hero_headline', 'hero_paragraph'];
+    public const LANGUAGE_FIELDS = ['heading_font', 'nav_font', 'default_font', 'meta_title', 'meta_description', 'meta_keywords', 'hero_badge', 'hero_headline', 'hero_paragraph',
+        'staff_term_one', 'staff_term_other', 'participant_term_one', 'participant_term_other'];
 
     /** business_website_featured.section */
     public const SECTION_BEST_SELLERS = 'B';
