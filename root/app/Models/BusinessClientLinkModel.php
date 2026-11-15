@@ -41,6 +41,7 @@ class BusinessClientLinkModel extends Model
         'client_id',
         'client_status',
         'client_role',
+        'show_profile',
         'is_default_business',
         'start_date',
         'termination_date',
@@ -59,6 +60,7 @@ class BusinessClientLinkModel extends Model
         'client_id'           => 'required|is_natural_no_zero',
         'client_status'       => 'permit_empty|in_list[A,T]',
         'client_role'         => 'permit_empty|in_list[O,M,E]',
+        'show_profile'        => 'permit_empty|in_list[Y,N]',
         'is_default_business' => 'permit_empty|in_list[Y,N]',
         'start_date'          => 'required|valid_date[Y-m-d]',
         'termination_date'    => 'permit_empty|valid_date[Y-m-d]',
@@ -325,6 +327,30 @@ class BusinessClientLinkModel extends Model
                 $this->db->table($this->table)->where('id', $link['id'])->update($changes);
                 $log->updated($actorId, 'Changed owner notes of client ' . $link['client_id'] . ' in business ' . $link['business_id'], $this->table, (int) $link['id'], $link, $changes);
             }
+
+            return true;
+        });
+    }
+
+    /**
+     * Show the person on the business's staff page on the mart, or take them off it (show_profile), logged to
+     * log_activity; nothing is written when it is already so
+     * @param array  $link    findStaff() or findLink()
+     * @param bool   $show
+     * @param int    $actorId auth_master.id of whoever makes the change
+     * @throws Throwable When the write fails
+     */
+    public function setShowProfile(array $link, bool $show, int $actorId): void
+    {
+        $value = $show ? self::DEFAULT_YES : self::DEFAULT_NO;
+        if (($link['show_profile'] ?? self::DEFAULT_NO) === $value) {
+            return;
+        }
+        $log = new ActivityLog();
+        $this->inTransaction(function () use ($link, $value, $actorId, $log) {
+            $this->db->table($this->table)->where('id', $link['id'])->update(['show_profile' => $value]);
+            $log->updated($actorId, ($value === self::DEFAULT_YES ? 'Showed' : 'Hid') . ' the profile of client ' . $link['client_id'] . ' on the staff page of business ' . $link['business_id'],
+                $this->table, (int) $link['id'], $link, ['show_profile' => $value]);
 
             return true;
         });

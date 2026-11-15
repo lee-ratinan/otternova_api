@@ -32,6 +32,7 @@ class Stores extends BaseController
         'store_city',
         'store_subdivision_code',
         'store_postal_code',
+        'google_maps_url',
         'receipt_format',
         'receipt_footer',
     ];
@@ -148,7 +149,7 @@ class Stores extends BaseController
             }
             try {
                 $stored   = $stores->findByPublicId($publicId);
-                $business = $stored === null ? null : model(BusinessMasterModel::class)->select('id, country_code')->find((int) $stored['business_id']);
+                $business = $stored === null ? null : model(BusinessMasterModel::class)->select('id, country_code, business_slug')->find((int) $stored['business_id']);
             } catch (Throwable $e) {
                 log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
 
@@ -218,7 +219,8 @@ class Stores extends BaseController
             return ApiResponse::error(lang('Store.saveFailed'), 500);
         }
 
-        return ApiResponse::success(['public_id' => $publicId], 200, lang($edit ? 'Store.updated' : 'Store.created'));
+        // business_slug: an edit names only the store, so this is how MartCacheRefresh knows whose mart pages to refresh
+        return ApiResponse::success(['public_id' => $publicId, 'business_slug' => $business['business_slug'] ?? trim((string) $input['business_slug'])], 200, lang($edit ? 'Store.updated' : 'Store.created'));
     }
 
     /**

@@ -32,6 +32,7 @@ class BusinessStoreModel extends Model
         'store_city',
         'store_subdivision_code',
         'store_postal_code',
+        'google_maps_url', // its place on Google Maps, for the mart's contact page (AddPublicProfiles)
     ];
 
     /** The receipt_format of a store that prints receipts; NULL is a store with no printer (AddStoreReceipts) */
@@ -70,6 +71,7 @@ class BusinessStoreModel extends Model
         'store_city',
         'store_subdivision_code',
         'store_postal_code',
+        'google_maps_url',
         'receipt_format',
         'receipt_footer',
     ];
@@ -97,6 +99,7 @@ class BusinessStoreModel extends Model
         'store_city'             => 'permit_empty|max_length[128]',
         'store_subdivision_code' => 'permit_empty|max_length[8]',
         'store_postal_code'      => 'permit_empty|max_length[16]',
+        'google_maps_url'        => 'permit_empty|max_length[512]|valid_url_strict[https]',
         'receipt_format'         => 'permit_empty|in_list[58mm,80mm,A4]',
         'receipt_footer'         => 'permit_empty|max_length[255]',
     ];
@@ -121,6 +124,7 @@ class BusinessStoreModel extends Model
             'store_city'             => ['type' => 'text'],
             'store_subdivision_code' => ['type' => 'text', 'searchable' => false], // depends on the business's country
             'store_postal_code'      => ['type' => 'text'],
+            'google_maps_url'        => ['type' => 'url'],
             'receipt_format'         => ['type' => 'select'],
             'receipt_footer'         => ['type' => 'textarea'],
         ];

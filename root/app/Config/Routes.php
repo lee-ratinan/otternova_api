@@ -46,6 +46,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('artifact', 'Mart::artifact');
         $routes->get('slots', 'Mart::slots');
         $routes->get('sessions', 'Mart::sessions');
+        $routes->get('staff', 'Mart::staff');
         $routes->post('quote', 'Mart::quote');
         $routes->post('order', 'Mart::placeOrder');
         $routes->get('order', 'Mart::order');
@@ -284,6 +285,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('staff/languages/save', 'StaffProfiles::saveLanguages');
         $routes->post('staff/attributes/save', 'StaffProfiles::saveAttributes');
         $routes->post('staff/restrictions/save', 'StaffProfiles::saveRestrictions');
+        $routes->post('staff/visibility/save', 'StaffProfiles::saveVisibility');
         $routes->post('commission-policy', 'Staff::policy');
         $routes->post('commission-policy/save', 'Staff::savePolicy');
         // how the order numbers of a business look: its active owners and managers only; see App\Controllers\OrderNumbers

@@ -10,6 +10,7 @@ return [
         'store_city'             => 'City',
         'store_subdivision_code' => 'State / Province',
         'store_postal_code'      => 'Postal Code',
+        'google_maps_url'        => 'Google Maps Link',
         'receipt_format'         => 'Receipt Printer',
         'receipt_footer'         => 'Receipt Footer',
     ],

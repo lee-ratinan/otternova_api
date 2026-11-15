@@ -64,10 +64,10 @@ class Mart extends BaseController
     /**
      * GET /mart/site?business_slug=&lang=
      * { language, languages: [{code, name}], business: {slug, name, description, country_code, currency_code,
-     *   contact: {...}, audience: {...}, rating: {average, count, breakdown}}, theme: {colors: {...}, fonts: {heading,
+     *   contact: {...}, audience: {...}, shows_staff (has a staff page, see staff()), rating: {average, count, breakdown}}, theme: {colors: {...}, fonts: {heading,
      *   nav, default: {name, query} or null}, google_fonts_url, logo: {url, shape} or null}, meta: {title, description,
      *   keywords}, hero: {badge, headline, paragraph}, featured: {best_sellers, trending, highest_rated: [card]},
-     *   categories: [{public_id, name, artifact_count}], stores: [{public_id, name, type, phone_number, address...}] }
+     *   categories: [{public_id, name, artifact_count}], stores: [{public_id, name, type, phone_number, address..., google_maps_url}] }
      * A card is as in /mart/artifacts.
      * @return ResponseInterface
      */
@@ -80,6 +80,29 @@ class Mart extends BaseController
                 $business             = model(BusinessMasterModel::class)->find($businessId);
 
                 return $catalog->site($business, $language, $rows);
+            });
+
+            return ApiResponse::success($data);
+        });
+    }
+
+    /**
+     * GET /mart/staff?business_slug=&lang=
+     * { language, staff: [{public_id, name, avatar_url, bio, languages: [{code, proficiency}], attributes: [{name,
+     *   values: [string]}], restrictions: {excluded_genders: [M|F|NB], age_min, age_max} or null, stores: [{public_id,
+     *   name}]}] }
+     * Only the people the business shows on its staff page (business_client_link.show_profile), by name; see
+     * MartCatalogModel::staff(). An empty list is a business that shows no one.
+     * @return ResponseInterface
+     */
+    public function staff(): ResponseInterface
+    {
+        return $this->answer('v1/mart/staff', function (int $businessId, string $lang): ResponseInterface {
+            $data = service('martCache')->remember($businessId, 'staff', [$lang], function () use ($businessId, $lang): array {
+                $catalog     = model(MartCatalogModel::class);
+                [$language]  = $catalog->languageOf($businessId, $lang);
+
+                return ['language' => $language, 'staff' => $catalog->staff($businessId, $language)];
             });
 
             return ApiResponse::success($data);

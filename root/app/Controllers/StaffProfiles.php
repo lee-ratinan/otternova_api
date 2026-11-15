@@ -128,6 +128,8 @@ class StaffProfiles extends BaseController
 
         return ApiResponse::success([
             'person'              => ['uid' => $link['uid'], 'full_name' => $link['full_name']],
+            // shown on the business's staff page on the mart (business_client_link.show_profile)
+            'show_profile'        => ($link['show_profile'] ?? 'N') === BusinessClientLinkModel::DEFAULT_YES,
             'languages'           => $languages,
             'attributes'          => $attributes,
             'restrictions'        => $restrictions,
@@ -301,6 +303,34 @@ class StaffProfiles extends BaseController
             'restrictions'        => $saved,
             'restriction_notices' => self::notices($saved, (string) $link['full_name']),
         ], 200, lang('StaffProfile.restrictionsSaved'));
+    }
+
+    /**
+     * POST /client/staff/visibility/save { business_slug, uid, show_profile: true|false }
+     * Shows the person on the business's staff page on the mart, or takes them off it: their display name, picture,
+     * bio, languages, public attributes and restrictions (v1/mart/staff). Off for everyone until turned on, as most
+     * people of a business do not serve its customers.
+     * @return ResponseInterface { uid, show_profile }
+     */
+    public function saveVisibility(): ResponseInterface
+    {
+        $endpoint = 'v1/client/staff/visibility/save';
+        [$link, $input, $error] = $this->person($endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        $show = $input['show_profile'] ?? null;
+        if (! is_bool($show)) {
+            return ApiResponse::error(lang('StaffProfile.invalidFields'), 422, ['show_profile' => lang('StaffProfile.invalidVisibility')]);
+        }
+        try {
+            model(BusinessClientLinkModel::class)->setShowProfile($link, $show, $this->actorId());
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'StaffProfile.saveFailed');
+        }
+
+        return ApiResponse::success(['uid' => $link['uid'], 'show_profile' => $show], 200,
+            lang($show ? 'StaffProfile.profileShown' : 'StaffProfile.profileHidden'));
     }
 
     /**

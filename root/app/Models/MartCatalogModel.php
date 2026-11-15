@@ -133,6 +133,9 @@ class MartCatalogModel extends Model
                         'unit'  => $business['service_charge_unit'],
                     ],
                 ],
+                // whether it has a staff page: someone active shows their profile (business_client_link.show_profile)
+                'shows_staff'   => $this->db->table('business_client_link')->where('business_id', $businessId)
+                    ->where('client_status', BusinessClientLinkModel::STATUS_ACTIVE)->where('show_profile', 'Y')->countAllResults() > 0,
                 'rating'        => [
                     'average'   => number_format((float) $business['rating_average'], 2, '.', ''),
                     'count'     => (int) $business['rating_count'],
@@ -419,7 +422,7 @@ class MartCatalogModel extends Model
     private function stores(int $businessId, string $language): array
     {
         $rows = $this->db->table('business_store')
-            ->select('id, public_id, store_name, store_type, store_phone_number, store_address_line_1, store_address_line_2, store_city, store_subdivision_code, store_postal_code')
+            ->select('id, public_id, store_name, store_type, store_phone_number, store_address_line_1, store_address_line_2, store_city, store_subdivision_code, store_postal_code, google_maps_url')
             ->where('business_id', $businessId)
             ->orderBy('store_name')->orderBy('id')
             ->get()->getResultArray();
@@ -449,7 +452,103 @@ class MartCatalogModel extends Model
             'city'             => $row['store_type'] === BusinessStoreModel::TYPE_ONLINE ? null : ($texts[(int) $row['id']]['store_city'] ?? $row['store_city']),
             'subdivision_code' => $row['store_subdivision_code'],
             'postal_code'      => $row['store_postal_code'],
+            // its place on Google Maps as the business set it; null for none (and for an online store)
+            'google_maps_url'  => $row['store_type'] === BusinessStoreModel::TYPE_ONLINE ? null : $row['google_maps_url'],
         ], $rows);
+    }
+
+    /**
+     * The people of the business who show their profile on its staff page (business_client_link.show_profile Y,
+     * still active), by name: what a customer may know of them before booking
+     * @param int    $businessId
+     * @param string $language For the attribute names and values and the store names
+     * @return list<array{public_id: string, name: string, avatar_url: string|null, bio: string|null,
+     *         languages: list<array{code: string, proficiency: string}>, attributes: list<array{name: string, values: list<string>}>,
+     *         restrictions: array|null, stores: list<array{public_id: string, name: string}>}>
+     *         public_id: auth_master's, as /mart/slots gives it; avatar_url: the uploaded picture, null for none;
+     *         languages: native first (proficiency N native, F fluent, C conversational, B basic); attributes: only
+     *         the public ones, in their order; restrictions as in /mart/slots; stores: the active ones they work at
+     */
+    public function staff(int $businessId, string $language): array
+    {
+        $rows = $this->db->table('business_client_link l')
+            ->select('l.client_id, a.public_id, a.full_name, a.avatar_path, c.display_name, c.legal_first_name, c.bio')
+            ->join('client_master c', 'c.id = l.client_id')
+            ->join('auth_master a', 'a.id = c.auth_id')
+            ->where('l.business_id', $businessId)
+            ->where('l.client_status', BusinessClientLinkModel::STATUS_ACTIVE)
+            ->where('l.show_profile', 'Y')
+            ->get()->getResultArray();
+        if ($rows === []) {
+            return [];
+        }
+        $clientIds = array_map('intval', array_column($rows, 'client_id'));
+
+        $languages = [];
+        foreach ($this->db->table('business_client_language')->select('client_id, language_code, proficiency')
+            ->where('business_id', $businessId)->whereIn('client_id', $clientIds)
+            ->get()->getResultArray() as $row) {
+            $languages[(int) $row['client_id']][] = ['code' => $row['language_code'], 'proficiency' => $row['proficiency']];
+        }
+        $rank = array_flip(['N', 'F', 'C', 'B']);
+        foreach ($languages as &$spoken) {
+            usort($spoken, static fn (array $a, array $b): int => [$rank[$a['proficiency']] ?? 9, $a['code']] <=> [$rank[$b['proficiency']] ?? 9, $b['code']]);
+        }
+        unset($spoken);
+
+        // the public attributes' values, each attribute and value in the language when it has a translation
+        $values = $this->db->table('business_client_attribute_value v')
+            ->select('v.id, v.client_id, v.attribute_id, v.attribute_value, t.attribute_name, t.sort_order AS attribute_order, v.sort_order')
+            ->join('business_client_attribute t', 't.id = v.attribute_id')
+            ->where('v.business_id', $businessId)->whereIn('v.client_id', $clientIds)
+            ->where('t.is_public', 1)
+            ->orderBy('t.sort_order')->orderBy('t.attribute_name')->orderBy('v.sort_order')->orderBy('v.id')
+            ->get()->getResultArray();
+        $attributeNames = $this->namesIn('business_client_attribute_translation', 'attribute_id', 'attribute_name',
+            array_values(array_unique(array_map('intval', array_column($values, 'attribute_id')))), $language);
+        $valueTexts     = $this->namesIn('business_client_attribute_value_translation', 'value_id', 'attribute_value',
+            array_map('intval', array_column($values, 'id')), $language);
+        $attributes = [];
+        foreach ($values as $row) {
+            $attributeId = (int) $row['attribute_id'];
+            $attributes[(int) $row['client_id']][$attributeId] ??= ['name' => $attributeNames[$attributeId] ?? $row['attribute_name'], 'values' => []];
+            $attributes[(int) $row['client_id']][$attributeId]['values'][] = $valueTexts[(int) $row['id']] ?? $row['attribute_value'];
+        }
+
+        $workplaces = $this->db->table('business_store_client_link w')
+            ->select('w.client_id, s.id, s.public_id, s.store_name')
+            ->join('business_store s', 's.id = w.store_id')
+            ->where('w.business_id', $businessId)->whereIn('w.client_id', $clientIds)
+            ->where('w.link_status', BusinessStoreClientLinkModel::STATUS_ACTIVE)
+            ->orderBy('s.store_name')->orderBy('s.id')
+            ->get()->getResultArray();
+        $storeNames = $this->namesIn('business_store_translation', 'store_id', 'store_name',
+            array_values(array_unique(array_map('intval', array_column($workplaces, 'id')))), $language);
+        $stores = [];
+        foreach ($workplaces as $row) {
+            $stores[(int) $row['client_id']][] = ['public_id' => $row['public_id'], 'name' => $storeNames[(int) $row['id']] ?? $row['store_name']];
+        }
+
+        $restrictions = model(MartSlotModel::class)->restrictionsOf($businessId, $clientIds);
+        $people       = array_map(static function (array $row) use ($languages, $attributes, $stores, $restrictions): array {
+            $clientId = (int) $row['client_id'];
+            $avatar   = trim((string) $row['avatar_path']);
+            $bio      = trim((string) $row['bio']);
+
+            return [
+                'public_id'    => $row['public_id'],
+                'name'         => MartSlotModel::publicName($row),
+                'avatar_url'   => preg_match('#^https?://#i', $avatar) ? $avatar : null,
+                'bio'          => $bio === '' ? null : $bio,
+                'languages'    => $languages[$clientId] ?? [],
+                'attributes'   => array_values($attributes[$clientId] ?? []),
+                'restrictions' => $restrictions[$clientId] ?? null,
+                'stores'       => $stores[$clientId] ?? [],
+            ];
+        }, $rows);
+        usort($people, static fn (array $a, array $b): int => strcasecmp($a['name'], $b['name']) ?: strcmp($a['public_id'], $b['public_id']));
+
+        return $people;
     }
 
     /**

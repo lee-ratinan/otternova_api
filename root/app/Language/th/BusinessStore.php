@@ -10,6 +10,7 @@ return [
         'store_city'             => 'เมือง / อำเภอ',
         'store_subdivision_code' => 'จังหวัด / รัฐ',
         'store_postal_code'      => 'รหัสไปรษณีย์',
+        'google_maps_url'        => 'ลิงก์ Google Maps',
         'receipt_format'         => 'เครื่องพิมพ์ใบเสร็จ',
         'receipt_footer'         => 'ข้อความท้ายใบเสร็จ',
     ],

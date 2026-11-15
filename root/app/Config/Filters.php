@@ -127,6 +127,12 @@ class Filters extends BaseFilters
             'v1/client/artifact-category/*',
             'v1/client/artifact-attribute/*',
             'v1/client/artifact-review/*',
+            // what the staff page (v1/mart/staff) shows of a person
+            'v1/client/staff/visibility/save',
+            'v1/client/staff/languages/save',
+            'v1/client/staff/attributes/save',
+            'v1/client/staff/restrictions/save',
+            'v1/client/staff-attribute/*',
         ]],
     ];
 }
