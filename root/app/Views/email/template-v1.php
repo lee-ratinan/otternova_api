@@ -124,7 +124,7 @@
                     <td style="padding: 32px 40px 24px;">
                         <a href="https://otternova.com"
                            style="text-decoration: none;">
-                            <img src="https://otternova.com/assets/img/logo-dark.webp"
+                            <img src="https://assets.otternova.com/img/logo-dark.webp"
                                  alt="OtterNova"
                                  height="32"
                                  style="
