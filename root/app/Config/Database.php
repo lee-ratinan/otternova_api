@@ -194,6 +194,14 @@ class Database extends Config
     {
         parent::__construct();
 
+        // Every MySQLi connection keeps its session clock on UTC (App\Database\MySQLi\Connection), so the
+        // created_at/updated_at the database fills in are UTC like the rest; done after the .env overrides above
+        foreach (['default', 'tests'] as $group) {
+            if (($this->{$group}['DBDriver'] ?? '') === 'MySQLi') {
+                $this->{$group}['DBDriver'] = 'App\Database\MySQLi';
+            }
+        }
+
         // Ensure that we always set the database group to 'tests' if
         // we are currently running an automated test suite, so that
         // we don't overwrite live data on accident.
