@@ -270,6 +270,9 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('calendar/session', 'Calendar::session');
         // what the orders of a business placed in a period come to: its active owners only; see App\Controllers\Revenue
         $routes->post('revenue', 'Revenue::report');
+        // what the people of a business earn in a pay period, salary and commission: its active owners only; see App\Controllers\Payroll
+        $routes->post('payroll', 'Payroll::report');
+        $routes->post('payroll/person', 'Payroll::person');
         // where the people of a business work and what they are paid: its active owners and managers only; see App\Controllers\Staff
         $routes->post('staff', 'Staff::list');
         $routes->post('staff/show', 'Staff::show');
