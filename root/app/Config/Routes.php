@@ -265,6 +265,9 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('session/options', 'ServiceSessions::options');
         $routes->post('session/create', 'ServiceSessions::create');
         $routes->post('session/edit', 'ServiceSessions::edit');
+        // what a business has booked on a day, and one session of it: any of its active clients; see App\Controllers\Calendar
+        $routes->post('calendar', 'Calendar::day');
+        $routes->post('calendar/session', 'Calendar::session');
         // where the people of a business work and what they are paid: its active owners and managers only; see App\Controllers\Staff
         $routes->post('staff', 'Staff::list');
         $routes->post('staff/show', 'Staff::show');
