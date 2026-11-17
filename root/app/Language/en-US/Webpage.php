@@ -28,6 +28,7 @@ return [
     'slugTaken'           => 'Another page has this address.',
     'homeFixed'           => 'The home page\'s name and address cannot be changed.',
     'invalidStatus'       => 'Please choose draft or published.',
+    'publishBeyondPlan'   => 'The {1} plan allows {0} published web pages, the oldest first. Please upgrade your plan to publish this one.',
     'cannotDeleteHome'    => 'The home page cannot be deleted.',
     'invalidOrder'        => 'Please list every page once, the home page first.',
     'designNotFound'      => 'Please choose one of the designs.',

@@ -5,6 +5,8 @@ return [
     'slugRequired'     => 'ธุรกิจใด? ต้องระบุ business_slug',
     'businessNotFound' => 'ไม่พบธุรกิจนี้',
     'pageNotFound'     => 'ไม่พบหน้านี้',
+    'previewExpired'   => 'ลิงก์ตัวอย่างนี้หมดอายุแล้ว กรุณาเปิดตัวอย่างใหม่จากแดชบอร์ด',
+    'designNotFound'   => 'ไม่พบแบบนี้',
     'artifactNotFound' => 'ไม่พบสินค้าหรือบริการนี้',
     'categoryNotFound' => 'ไม่พบหมวดหมู่นี้',
     'loadFailed'       => 'ไม่สามารถโหลดหน้านี้ได้ กรุณาลองอีกครั้ง',

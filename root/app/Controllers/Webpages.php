@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Libraries\ApiResponse;
 use App\Libraries\UploadedImage;
+use App\Libraries\WebpagePreview;
 use App\Models\BusinessWebsiteModel;
 use App\Models\SubscriptionMasterModel;
 use App\Models\WebpageImageModel;
@@ -25,12 +26,15 @@ use Throwable;
  *   per website language, uniquely within the business, and get a slug from the name in the default language.
  * - A page needs the business's website (Websites::save) with at least one language first: its colours, typefaces
  *   and languages are the website's.
- * - A page is a draft (D) until published (P); a draft is never shown on the storefront.
+ * - A page is a draft (D) until published (P); a draft is never shown on the storefront, except through a preview
+ *   link (preview()). Only the business's oldest PlanLimits::WEBPAGES pages may be published: after a move to a
+ *   smaller plan the newer ones are unpublished (SubscriptionBilling) and cannot be published again; each page says
+ *   whether it may be (publishable).
  * - Its sections are designs of Config\WebpageDesigns, a hero first; their texts are per language and slot, their
  *   images per slot, cropped to the slot's size, at most PlanLimits::IMAGE_PER_WEBPAGE per page.
  * The image files are the webpage-image used-for of Config\ImageUpload, served by Images::show, named after the
  * image's public_id.
- * A page is sent as { public_id, page_slug, path, page_status, is_home, sort_order, names: {language_code:
+ * A page is sent as { public_id, page_slug, path, page_status, is_home, publishable, sort_order, names: {language_code:
  * {page_name, meta_title, meta_description}}, image_count, sections: [{public_id, section_type, design_code,
  * sort_order, texts: {language_code: {slot_code: text}}, images: [{public_id, slot_code, url, sort_order}]}] };
  * path is where the storefront shows it under the business's own: '' for the home page, else pages/{page_slug}.
@@ -72,6 +76,9 @@ class Webpages extends BaseController
         try {
             $businessId = (int) $business['id'];
             $context    = $this->context($businessId);
+            // a plan's caps may have changed without a subscription change (Config\PlanLimits); keep to them
+            model(WebpageMasterModel::class)->enforceCap($businessId, $context['max_pages'], $this->actorId(), true);
+            $allowed    = model(WebpageMasterModel::class)->allowedIds($businessId, $context['max_pages']);
             $pages      = model(WebpageMasterModel::class)->pagesOf($businessId);
             $names      = model(WebpageMasterModel::class)->namesOf(array_map('intval', array_column($pages, 'id')));
             $designs    = config(WebpageDesigns::class);
@@ -90,7 +97,7 @@ class Webpages extends BaseController
             ];
 
             return ApiResponse::success([
-                'pages'   => array_map(fn (array $page): array => $this->pageOut($page, $names[(int) $page['id']] ?? [], null), $pages),
+                'pages'   => array_map(fn (array $page): array => $this->pageOut($page, $names[(int) $page['id']] ?? [], null, $allowed), $pages),
                 'options' => $options,
             ]);
         } catch (Throwable $e) {
@@ -186,7 +193,8 @@ class Webpages extends BaseController
      * POST /client/webpage/edit { business_slug, page_public_id, names?, page_slug?, page_status? }
      * Saves the parts sent; a part left out stays as it is. names (as in create) replaces the names the page had;
      * page_slug moves the page to another address, after which links to the old one no longer work. The home page
-     * has neither: only its page_status changes. page_status: D draft, P published.
+     * has neither: only its page_status changes. page_status: D draft, P published; publishing a page beyond the
+     * business's oldest PlanLimits::WEBPAGES is refused with 409.
      * @return ResponseInterface The page, with its sections
      */
     public function edit(): ResponseInterface
@@ -227,10 +235,18 @@ class Webpages extends BaseController
             }
         }
         if (array_key_exists('page_status', $input)) {
-            if (in_array($input['page_status'], WebpageMasterModel::STATUSES, true)) {
-                $status = $input['page_status'];
-            } else {
+            if (! in_array($input['page_status'], WebpageMasterModel::STATUSES, true)) {
                 $errors['page_status'] = lang('Webpage.invalidStatus');
+            } else {
+                $status = $input['page_status'];
+                try {
+                    $publishable = in_array((int) $page['id'], model(WebpageMasterModel::class)->allowedIds($businessId, $context['max_pages']), true);
+                } catch (Throwable $e) {
+                    return $this->failed($endpoint, $e, 'Webpage.loadFailed');
+                }
+                if ($status === WebpageMasterModel::STATUS_PUBLISHED && $page['page_status'] !== WebpageMasterModel::STATUS_PUBLISHED && ! $publishable) {
+                    return ApiResponse::error(lang('Webpage.publishBeyondPlan', [$context['max_pages'], ucfirst($context['plan'])]), 409);
+                }
             }
         }
         try {
@@ -284,6 +300,32 @@ class Webpages extends BaseController
     }
 
     /**
+     * POST /client/webpage/preview { business_slug, page_public_id }
+     * A link's token that shows the page on the storefront as it is saved, a draft too, for WebpagePreview::TTL
+     * seconds: {LINK_MART}{business_slug}/{path}?preview={token}
+     * @return ResponseInterface { token, path, expires_at (Unix time) }
+     */
+    public function preview(): ResponseInterface
+    {
+        $endpoint = 'v1/client/webpage/preview';
+        [$business, $input, $error] = $this->managed($endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        $page = $this->page((int) $business['id'], $input['page_public_id'] ?? null, $endpoint);
+        if ($page instanceof ResponseInterface) {
+            return $page;
+        }
+        try {
+            $token = WebpagePreview::issue((int) $business['id'], $page['public_id']);
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'Webpage.loadFailed');
+        }
+
+        return ApiResponse::success($token + ['path' => $page['page_slug'] === WebpageMasterModel::HOME_SLUG ? '' : 'pages/' . $page['page_slug']]);
+    }
+
+    /**
      * POST /client/webpage/reorder { business_slug, order: [page public_id, ...] }
      * Puts the pages in this menu order; "order" lists every page once, the home page first.
      * @return ResponseInterface The pages, as list() gives them
@@ -305,11 +347,12 @@ class Webpages extends BaseController
             if (! $model->reorder($businessId, $order, $this->actorId())) {
                 return ApiResponse::error(lang('Webpage.invalidFields'), 422, ['order' => lang('Webpage.invalidOrder')]);
             }
-            $pages = $model->pagesOf($businessId);
-            $names = $model->namesOf(array_map('intval', array_column($pages, 'id')));
+            $pages   = $model->pagesOf($businessId);
+            $names   = $model->namesOf(array_map('intval', array_column($pages, 'id')));
+            $allowed = $model->allowedIds($businessId, $this->context($businessId)['max_pages']);
 
             return ApiResponse::success([
-                'pages' => array_map(fn (array $page): array => $this->pageOut($page, $names[(int) $page['id']] ?? [], null), $pages),
+                'pages' => array_map(fn (array $page): array => $this->pageOut($page, $names[(int) $page['id']] ?? [], null, $allowed), $pages),
             ], 200, lang('Webpage.reordered'));
         } catch (Throwable $e) {
             return $this->failed($endpoint, $e, 'Webpage.saveFailed');
@@ -596,9 +639,10 @@ class Webpages extends BaseController
      * @param array      $page     The stored row (image_count when pagesOf() gave it)
      * @param array      $names    Its names, by language
      * @param array|null $sections From WebpageSectionModel::sectionsOf(); null leaves them out
+     * @param list<int>  $allowed  WebpageMasterModel::allowedIds(): the pages that may be published
      * @return array
      */
-    private function pageOut(array $page, array $names, ?array $sections): array
+    private function pageOut(array $page, array $names, ?array $sections, array $allowed): array
     {
         $isHome = $page['page_slug'] === WebpageMasterModel::HOME_SLUG;
         $out    = [
@@ -607,6 +651,7 @@ class Webpages extends BaseController
             'path'        => $isHome ? '' : 'pages/' . $page['page_slug'],
             'page_status' => $page['page_status'],
             'is_home'     => $isHome,
+            'publishable' => in_array((int) $page['id'], $allowed, true),
             'sort_order'  => (int) $page['sort_order'],
             'names'       => $names,
         ];
@@ -628,9 +673,11 @@ class Webpages extends BaseController
      */
     private function pageDetail(array $page): array
     {
-        $id = (int) $page['id'];
+        $id      = (int) $page['id'];
+        $pages   = model(WebpageMasterModel::class);
+        $allowed = $pages->allowedIds((int) $page['business_id'], $this->context((int) $page['business_id'])['max_pages']);
 
-        return $this->pageOut($page, model(WebpageMasterModel::class)->namesOf([$id])[$id] ?? [], model(WebpageSectionModel::class)->sectionsOf($id));
+        return $this->pageOut($page, $pages->namesOf([$id])[$id] ?? [], model(WebpageSectionModel::class)->sectionsOf($id), $allowed);
     }
 
     /**

@@ -43,6 +43,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
     $routes->group('mart', static function (RouteCollection $routes) {
         $routes->get('site', 'Mart::site');
         $routes->get('webpage', 'Mart::webpage');
+        $routes->get('design', 'Mart::design');
         $routes->get('artifacts', 'Mart::artifacts');
         $routes->get('artifact', 'Mart::artifact');
         $routes->get('slots', 'Mart::slots');
@@ -317,6 +318,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('webpage/create', 'Webpages::create');
         $routes->post('webpage/edit', 'Webpages::edit');
         $routes->post('webpage/delete', 'Webpages::delete');
+        $routes->post('webpage/preview', 'Webpages::preview');
         $routes->post('webpage/reorder', 'Webpages::reorder');
         $routes->post('webpage/section/save', 'Webpages::saveSection');
         $routes->post('webpage/section/delete', 'Webpages::deleteSection');

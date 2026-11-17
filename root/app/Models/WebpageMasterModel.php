@@ -4,12 +4,16 @@ namespace App\Models;
 
 use App\Libraries\ActivityLog;
 use CodeIgniter\Model;
+use Config\PlanLimits;
 use Throwable;
 
 /**
  * Model for the webpage_master table: the pages a business designs itself, and their names and meta tags per
  * language (webpage_master_translation). The home page is the one with page_slug HOME_SLUG; it is always the first
  * one made, has no names of its own (the language file's Webpage.homeName) and is never deleted.
+ * A business may have more pages than its plan allows (PlanLimits::WEBPAGES) after moving to a smaller one: none is
+ * deleted, but only the oldest that many (by id, so the home page first) may be published; enforceCap() unpublishes
+ * the rest when the plan changes (SubscriptionBilling), and the storefront never shows them either way.
  * Every write is logged to log_activity in the same transaction. The controller checks the values
  * (App\Controllers\Webpages); this model only stores them, and keeps a business within its plan's page cap.
  */
@@ -281,16 +285,82 @@ class WebpageMasterModel extends Model
     }
 
     /**
+     * The ids of the pages a plan allowing $cap pages may publish: the business's oldest $cap, the home page first
+     * @param int $businessId
+     * @param int $cap PlanLimits::WEBPAGES of the business's plan
+     * @return list<int>
+     */
+    public function allowedIds(int $businessId, int $cap): array
+    {
+        if ($cap <= 0) {
+            return [];
+        }
+        $rows = $this->db->table($this->table)->select('id')->where('business_id', $businessId)->orderBy('id')->limit($cap)->get()->getResultArray();
+
+        return array_map('intval', array_column($rows, 'id'));
+    }
+
+    /**
+     * Unpublish the business's pages beyond the oldest $cap, the newest first to go. Runs in the caller's transaction
+     * (SubscriptionBilling's, when the plan changes), or in one of its own with $ownTransaction.
+     * @param int      $businessId
+     * @param int      $cap
+     * @param int|null $actorId        Null for the system
+     * @param bool     $ownTransaction
+     * @return int How many were unpublished
+     * @throws Throwable
+     */
+    public function enforceCap(int $businessId, int $cap, ?int $actorId, bool $ownTransaction = false): int
+    {
+        $work = function () use ($businessId, $cap, $actorId): int {
+            $allowed = $this->allowedIds($businessId, $cap);
+            $builder = $this->db->table($this->table)->where('business_id', $businessId)->where('page_status', self::STATUS_PUBLISHED);
+            if ($allowed !== []) {
+                $builder->whereNotIn('id', $allowed);
+            }
+            $over = $builder->get()->getResultArray();
+            $log  = new ActivityLog();
+            foreach ($over as $page) {
+                $this->db->table($this->table)->where('id', $page['id'])->update(['page_status' => self::STATUS_DRAFT]);
+                $log->updated($actorId, 'Unpublished web page ' . $page['page_slug'] . ': beyond the plan\'s ' . $cap . ' pages', $this->table, (int) $page['id'], $page,
+                    ['page_status' => self::STATUS_DRAFT]);
+            }
+
+            return count($over);
+        };
+
+        return $ownTransaction ? (int) $this->inTransaction($work) : $work();
+    }
+
+    /**
+     * enforceCap() with the cap of the plan the business is on now
+     * @param int      $businessId
+     * @param int|null $actorId
+     * @param bool     $ownTransaction
+     * @return int How many were unpublished
+     * @throws Throwable
+     */
+    public function enforcePlanOf(int $businessId, ?int $actorId, bool $ownTransaction = false): int
+    {
+        $plan = model(SubscriptionMasterModel::class)->planOfBusiness($businessId)['plan_code'];
+
+        return $this->enforceCap($businessId, (int) config(PlanLimits::class)->limitOf($plan, PlanLimits::WEBPAGES), $actorId, $ownTransaction);
+    }
+
+    /**
      * The business's published pages in menu order, the home page first, each with its name in $language (else the
      * default language's), for the storefront's menu
      * @param int    $businessId
      * @param string $language
      * @param string $default  The website's default language
+     * @param int    $cap      PlanLimits::WEBPAGES of the business's plan: only the oldest that many are shown
      * @return list<array{public_id: string, slug: string, is_home: bool, name: string|null}> name null for the home page
      */
-    public function menuOf(int $businessId, string $language, string $default): array
+    public function menuOf(int $businessId, string $language, string $default, int $cap): array
     {
-        $pages = array_values(array_filter($this->pagesOf($businessId), static fn (array $page): bool => $page['page_status'] === self::STATUS_PUBLISHED));
+        $allowed = $this->allowedIds($businessId, $cap);
+        $pages   = array_values(array_filter($this->pagesOf($businessId), static fn (array $page): bool => $page['page_status'] === self::STATUS_PUBLISHED
+            && in_array((int) $page['id'], $allowed, true)));
         $names = $this->namesOf(array_map('intval', array_column($pages, 'id')));
 
         return array_map(static function (array $page) use ($names, $language, $default): array {
@@ -312,14 +382,20 @@ class WebpageMasterModel extends Model
      * @param string $slug     HOME_SLUG for the home page
      * @param string $language
      * @param string $default  The website's default language
+     * @param int    $cap      PlanLimits::WEBPAGES of the business's plan: a page beyond its oldest that many is not shown
+     * @param string|null $previewOf A page's public_id from a preview token: that page is shown even as a draft
      * @return array{page: array, menu: list<array>, sections: list<array>}|null
-     *         page {public_id, slug, is_home, name (null for the home page), meta: {title, description}};
+     *         page {public_id, slug, is_home, status, preview, name (null for the home page), meta: {title, description}};
      *         sections {public_id, section_type, design_code, texts: {slot_code: text}, images: {slot_code: [url]}}
      */
-    public function publishedPage(int $businessId, string $slug, string $language, string $default): ?array
+    public function publishedPage(int $businessId, string $slug, string $language, string $default, int $cap, ?string $previewOf = null): ?array
     {
-        $page = $this->where('business_id', $businessId)->where('page_slug', $slug)->where('page_status', self::STATUS_PUBLISHED)->first();
+        $page = $this->where('business_id', $businessId)->where('page_slug', $slug)->first();
         if ($page === null) {
+            return null;
+        }
+        $preview = $previewOf !== null && $page['public_id'] === $previewOf;
+        if (! $preview && ($page['page_status'] !== self::STATUS_PUBLISHED || ! in_array((int) $page['id'], $this->allowedIds($businessId, $cap), true))) {
             return null;
         }
         $names = $this->namesOf([(int) $page['id']])[(int) $page['id']] ?? [];
@@ -345,10 +421,12 @@ class WebpageMasterModel extends Model
                 'public_id' => $page['public_id'],
                 'slug'      => $page['page_slug'],
                 'is_home'   => $page['page_slug'] === self::HOME_SLUG,
+                'status'    => $page['page_status'],
+                'preview'   => $preview,
                 'name'      => $name['page_name'] ?? null,
                 'meta'      => ['title' => $name['meta_title'] ?? null, 'description' => $name['meta_description'] ?? null],
             ],
-            'menu'     => $this->menuOf($businessId, $language, $default),
+            'menu'     => $this->menuOf($businessId, $language, $default, $cap),
             'sections' => $sections,
         ];
     }

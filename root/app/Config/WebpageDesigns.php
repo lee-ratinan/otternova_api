@@ -14,6 +14,8 @@ use CodeIgniter\Config\BaseConfig;
  *   its line breaks (all other whitespace is collapsed)]
  * - images: slot_code => [width, height: the size every upload is cropped to (smaller originals are refused), min,
  *   max: how many the slot has, max null being as many as the plan's PlanLimits::IMAGE_PER_WEBPAGE leaves]
+ * - sample: language_code => slot_code => text, what the design preview (Mart::design) shows before the business
+ *   has written anything; a language with none shows en-US's. The preview shows grey boxes of the image sizes.
  * A released design's image sizes never change: the images already uploaded were cut to them. A new shape is a new
  * design. Changing a section's design keeps its texts and images whose slot_code the new design has too, the images
  * only where the size is the same and as many as the new slot takes.
@@ -30,7 +32,7 @@ class WebpageDesigns extends BaseConfig
 
     /**
      * design_code => the design
-     * @var array<string, array{section_type: string, texts: array<string, array{max: int, required: bool, multiline?: bool}>, images: array<string, array{width: int, height: int, min: int, max: int|null}>}>
+     * @var array<string, array{section_type: string, texts: array<string, array{max: int, required: bool, multiline?: bool}>, images: array<string, array{width: int, height: int, min: int, max: int|null}>, sample?: array<string, array<string, string>>}>
      */
     public array $designs = [
         // a full-width picture behind the badge, headline, paragraph and the button to the system home
@@ -45,8 +47,33 @@ class WebpageDesigns extends BaseConfig
             'images'       => [
                 'background' => ['width' => 2000, 'height' => 1000, 'min' => 1, 'max' => 1],
             ],
+            'sample'       => [
+                'en-US' => [
+                    'badge'        => 'New this season',
+                    'headline'     => 'Your headline goes here',
+                    'paragraph'    => "A sentence or two about what you offer and why people love it.\nKeep it short and friendly.",
+                    'button_label' => 'Shop now',
+                ],
+                'th'    => [
+                    'badge'        => 'ใหม่ประจำฤดูกาล',
+                    'headline'     => 'พาดหัวของคุณอยู่ตรงนี้',
+                    'paragraph'    => "ประโยคสั้น ๆ เกี่ยวกับสิ่งที่คุณมีให้ และเหตุผลที่ลูกค้าชื่นชอบ\nเขียนให้กระชับและเป็นกันเอง",
+                    'button_label' => 'ดูสินค้า',
+                ],
+            ],
         ],
     ];
+
+    /**
+     * The sample texts of a design in a language: its own, else en-US's
+     * @param array  $design
+     * @param string $language
+     * @return array<string, string> slot_code => text
+     */
+    public function sampleOf(array $design, string $language): array
+    {
+        return $design['sample'][$language] ?? $design['sample']['en-US'] ?? [];
+    }
 
     /**
      * A design, or null for a code that is not one

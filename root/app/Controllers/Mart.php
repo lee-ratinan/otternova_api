@@ -17,7 +17,11 @@ use App\Models\OrderHistoryAccessModel;
 use App\Models\OrderRefusedException;
 use App\Models\MartSessionModel;
 use App\Models\MartSlotModel;
+use App\Libraries\WebpagePreview;
+use App\Models\SubscriptionMasterModel;
 use App\Models\WebpageMasterModel;
+use Config\PlanLimits;
+use Config\WebpageDesigns;
 use CodeIgniter\I18n\Time;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\Mart as MartConfig;
@@ -34,7 +38,8 @@ use DomainException;
  * Answers come from the cache (App\Libraries\MartCache) when they can; App\Filters\MartCacheRefresh clears the
  * business's when the Client app changes it.
  * - /mart/site:      the business and how its pages look
- * - /mart/webpage:   a page the business designed itself, when published
+ * - /mart/webpage:   a page the business designed itself, when published (or with a preview token)
+ * - /mart/design:    a section design with sample texts, for picking one (never cached)
  * - /mart/artifacts: product cards, by public_ids, category or type
  * - /mart/artifact:  one product or service with its variants, options, images and reviews
  * - /mart/slots:     the times an appointment may be booked at, on one day (never cached)
@@ -91,10 +96,12 @@ class Mart extends BaseController
 
     /**
      * GET /mart/webpage?business_slug=&lang=&page_slug=
-     * A page the business designed itself (App\Controllers\Webpages), when it is published; page_slug left out or
-     * empty is its home page. 404 when there is no such published page: for the home page, the storefront shows the
-     * system home instead.
-     * { language, page: {public_id, slug, is_home, name (null for the home page: the storefront's own word), meta:
+     * A page the business designed itself (App\Controllers\Webpages), when it is published and among the oldest
+     * PlanLimits::WEBPAGES of the business's plan (none on the free plan); page_slug left out or empty is its home
+     * page. 404 when there is no such page to show: for the home page, the storefront shows the system home instead.
+     * With preview={token} (Webpages::preview), the token's page is shown as saved, a draft too, and not cached; a
+     * token that is not genuine, has expired or is another business's is a 404 with Mart.previewExpired.
+     * { language, page: {public_id, slug, is_home, status (D or P), preview (shown by a token), name (null for the home page: the storefront's own word), meta:
      *   {title, description} (null for the home page: /mart/site's)}, menu: [{public_id, slug, is_home, name}] (the
      *   published pages), sections: [{public_id, section_type, design_code (the view sections/{design_code}),
      *   texts: {slot_code: text}, images: {slot_code: [url]}}] }
@@ -109,14 +116,56 @@ class Mart extends BaseController
             if (strlen($slug) > WebpageMasterModel::MAX_SLUG || preg_match(Webpages::SLUG_PATTERN, $slug) !== 1) {
                 return ApiResponse::error(lang('Mart.pageNotFound'), 404);
             }
-            $data = service('martCache')->remember($businessId, 'webpage', [$lang, $slug], static function () use ($businessId, $lang, $slug): ?array {
+            $token     = $this->request->getGet('preview');
+            $previewOf = $token === null || $token === '' ? null : WebpagePreview::pageOf($token, $businessId);
+            if ($token !== null && $token !== '' && $previewOf === null) {
+                return ApiResponse::error(lang('Mart.previewExpired'), 404);
+            }
+            $build = static function () use ($businessId, $lang, $slug, $previewOf): ?array {
                 [$language, $rows] = model(MartCatalogModel::class)->languageOf($businessId, $lang);
-                $page              = model(WebpageMasterModel::class)->publishedPage($businessId, $slug, $language, $rows[0]['language_code'] ?? $language);
+                $plan              = model(SubscriptionMasterModel::class)->planOfBusiness($businessId)['plan_code'];
+                $cap               = (int) config(PlanLimits::class)->limitOf($plan, PlanLimits::WEBPAGES);
+                $page              = model(WebpageMasterModel::class)->publishedPage($businessId, $slug, $language, $rows[0]['language_code'] ?? $language, $cap, $previewOf);
 
                 return $page === null ? null : ['language' => $language] + $page;
-            });
+            };
+            // a preview shows the page as saved this moment, for its one viewer: never cached
+            $data = $previewOf !== null ? $build() : service('martCache')->remember($businessId, 'webpage', [$lang, $slug], $build);
 
             return $data === null ? ApiResponse::error(lang('Mart.pageNotFound'), 404) : ApiResponse::success($data);
+        });
+    }
+
+    /**
+     * GET /mart/design?business_slug=&lang=&design_code=
+     * A design of Config\WebpageDesigns filled with its sample texts, for the Client app to show before the business
+     * picks it, in the business's own colours and typefaces (those come from /mart/site): { language, section:
+     * {public_id: null, section_type, design_code, texts: {slot_code: text}, images: {}}, image_slots: {slot_code:
+     * {width, height, min, max}} }; the storefront draws a box of each image slot's size in place of the pictures.
+     * @return ResponseInterface
+     */
+    public function design(): ResponseInterface
+    {
+        return $this->answer('v1/mart/design', function (int $businessId, string $lang): ResponseInterface {
+            $designs = config(WebpageDesigns::class);
+            $code    = $this->request->getGet('design_code');
+            $design  = $designs->design($code);
+            if ($design === null) {
+                return ApiResponse::error(lang('Mart.designNotFound'), 404);
+            }
+            [$language] = model(MartCatalogModel::class)->languageOf($businessId, $lang);
+
+            return ApiResponse::success([
+                'language'    => $language,
+                'section'     => [
+                    'public_id'    => null,
+                    'section_type' => $design['section_type'],
+                    'design_code'  => $code,
+                    'texts'        => $designs->sampleOf($design, $language),
+                    'images'       => (object) [],
+                ],
+                'image_slots' => $design['images'],
+            ]);
         });
     }
 

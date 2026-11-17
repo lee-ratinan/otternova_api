@@ -11,6 +11,7 @@ use App\Models\PlanMasterModel;
 use App\Models\PlanVersionModel;
 use App\Models\SubscriptionInvoiceModel;
 use App\Models\SubscriptionMasterModel;
+use App\Models\WebpageMasterModel;
 use App\Models\TransactionTrait;
 use App\Models\WithholdingTaxCertificateModel;
 use App\Models\WithholdingTaxRuleModel;
@@ -1370,6 +1371,24 @@ class SubscriptionBilling
     }
 
     /**
+     * What follows a change of a business's subscription, which may have moved it to a smaller plan (a downgrade,
+     * suspension, cancellation or expiry, back to free): its web pages beyond the plan's PlanLimits::WEBPAGES are
+     * unpublished, the newest first, in this same transaction, and its cached mart answers made stale
+     * @param int      $businessId
+     * @param int|null $actorId
+     * @return void
+     */
+    private function afterPlanChange(int $businessId, ?int $actorId): void
+    {
+        model(WebpageMasterModel::class)->enforcePlanOf($businessId, $actorId);
+        try {
+            service('martCache')->forget($businessId);
+        } catch (Throwable $e) {
+            log_message('error', 'The mart cache could not be cleared: {message}', ['message' => $e->getMessage()]);
+        }
+    }
+
+    /**
      * Update a row, only while it still has the $expected values, and log what changed
      * @param string   $table
      * @param array    $stored   The row as read
@@ -1390,6 +1409,9 @@ class SubscriptionBilling
             return false;
         }
         $this->log->updated($actorId, $summary, $table, (int) $stored['id'], $stored, $changes);
+        if ($table === 'subscription_master' && isset($stored['business_id'])) {
+            $this->afterPlanChange((int) $stored['business_id'], $actorId);
+        }
 
         return true;
     }
