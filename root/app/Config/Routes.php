@@ -268,6 +268,8 @@ $routes->group('v1', static function (RouteCollection $routes) {
         // what a business has booked on a day, and one session of it: any of its active clients; see App\Controllers\Calendar
         $routes->post('calendar', 'Calendar::day');
         $routes->post('calendar/session', 'Calendar::session');
+        // what the orders of a business placed in a period come to: its active owners only; see App\Controllers\Revenue
+        $routes->post('revenue', 'Revenue::report');
         // where the people of a business work and what they are paid: its active owners and managers only; see App\Controllers\Staff
         $routes->post('staff', 'Staff::list');
         $routes->post('staff/show', 'Staff::show');
