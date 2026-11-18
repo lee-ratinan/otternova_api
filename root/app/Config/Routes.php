@@ -155,6 +155,19 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('certificate-file/(:segment)', 'SubscriptionAdmin::certificateFile/$1');
     });
 
+    // Admin app's Finance dashboard: Executive Office and Finance only; see App\Controllers\Dashboards
+    $routes->group('staff/dashboard', ['filter' => ['jwt:S', 'department:EXE,FIN']], static function (RouteCollection $routes) {
+        $routes->post('finance', 'Dashboards::finance');
+    });
+    // ... and the Executive Office's, which holds the activity log: the Executive Office only
+    $routes->group('staff/dashboard', ['filter' => ['jwt:S', 'department:EXE']], static function (RouteCollection $routes) {
+        $routes->post('executive', 'Dashboards::executive');
+    });
+    // ... and Engineering's, with the API's error log: Engineering and the Executive Office
+    $routes->group('staff/dashboard', ['filter' => ['jwt:S', 'department:EXE,ENG']], static function (RouteCollection $routes) {
+        $routes->post('engineering', 'Dashboards::engineering');
+    });
+
     // Admin app's billing documents, as HTML pages: Executive Office and Finance only; see App\Controllers\Documents
     $routes->group('staff/documents', ['filter' => ['jwt:S', 'department:EXE,FIN']], static function (RouteCollection $routes) {
         $routes->get('invoice/(:segment)', 'Documents::staffInvoice/$1');
