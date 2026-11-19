@@ -376,5 +376,11 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('artifact-reviews', 'ArtifactReviews::list');
         $routes->post('artifact-review/approve', 'ArtifactReviews::approve');
         $routes->post('artifact-review/hide', 'ArtifactReviews::hide');
+        // the customers of a business, read only, and the notes its people write about them: any of its active clients
+        // (a note deleted by its writer or an owner or manager); see App\Controllers\Customers
+        $routes->post('customers', 'Customers::list');
+        $routes->post('customer', 'Customers::show');
+        $routes->post('customer-note/create', 'Customers::createNote');
+        $routes->post('customer-note/delete', 'Customers::deleteNote');
     });
 });
