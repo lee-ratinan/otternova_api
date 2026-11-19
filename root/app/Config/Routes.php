@@ -102,6 +102,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('messages', 'Inbox::messages');
         $routes->post('message', 'Inbox::message');
         $routes->post('message/status', 'Inbox::setStatus');
+        $routes->post('message/category', 'Inbox::setCategory');
     });
 
     // Admin app's internal ledger: staff of the Executive Office and Finance only; see App\Controllers\Ledger
@@ -166,6 +167,10 @@ $routes->group('v1', static function (RouteCollection $routes) {
     // ... and Engineering's, with the API's error log: Engineering and the Executive Office
     $routes->group('staff/dashboard', ['filter' => ['jwt:S', 'department:EXE,ENG']], static function (RouteCollection $routes) {
         $routes->post('engineering', 'Dashboards::engineering');
+    });
+    // ... and Client Experience's, with the inbox's response times: Client Experience and the Executive Office
+    $routes->group('staff/dashboard', ['filter' => ['jwt:S', 'department:EXE,CXD']], static function (RouteCollection $routes) {
+        $routes->post('client-experience', 'Dashboards::clientExperience');
     });
 
     // Admin app's billing documents, as HTML pages: Executive Office and Finance only; see App\Controllers\Documents

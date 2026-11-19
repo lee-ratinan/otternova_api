@@ -17,10 +17,11 @@ class Inbox extends BaseController
     use BillingRequestTrait;
 
     /**
-     * POST /staff/inbox/messages { start, length, search, filters: {status} }
+     * POST /staff/inbox/messages { start, length, search, filters: {status, category} }
      * One page of the messages, newest first, each with a short excerpt instead of its text. status is N (new),
-     * R (read), D (done) or S (spam); every message when left out. search matches the sender's name and email address
-     * and the subject.
+     * R (read), D (done) or S (spam); category is I (issue), C (complaint), U (user problem), M (misunderstanding),
+     * X (irrelevant) or NONE (not categorised yet); every message when left out. search matches the sender's name and
+     * email address and the subject.
      * @return ResponseInterface
      */
     public function messages(): ResponseInterface
@@ -30,13 +31,19 @@ class Inbox extends BaseController
             return ApiResponse::error(lang('Inbox.invalidRequest'), 422);
         }
         [$start, $length] = $this->page($input);
-        $status           = strtoupper($this->text(is_array($input['filters'] ?? null) ? $input['filters'] : [], 'status'));
+        $filters          = is_array($input['filters'] ?? null) ? $input['filters'] : [];
+        $status           = strtoupper($this->text($filters, 'status'));
         if ($status !== '' && ! isset(ContactMessageModel::STATUS_NAMES[$status])) {
             return ApiResponse::error(lang('Inbox.invalidStatus'), 422, ['status' => lang('Inbox.invalidStatus')]);
         }
+        $category = strtoupper($this->text($filters, 'category'));
+        if ($category !== '' && $category !== 'NONE' && ! isset(ContactMessageModel::CATEGORY_NAMES[$category])) {
+            return ApiResponse::error(lang('Inbox.invalidCategory'), 422, ['category' => lang('Inbox.invalidCategory')]);
+        }
 
         try {
-            $data = model(ContactMessageModel::class)->listForStaff($start, $length, $this->text($input, 'search'), $status === '' ? null : $status);
+            $data = model(ContactMessageModel::class)->listForStaff($start, $length, $this->text($input, 'search'), $status === '' ? null : $status,
+                $category === '' ? null : ($category === 'NONE' ? '' : $category));
         } catch (Throwable $e) {
             return $this->failed('v1/staff/inbox/messages', $e, 'Inbox.loadFailed');
         }
@@ -103,6 +110,40 @@ class Inbox extends BaseController
         }
 
         return ApiResponse::success(['message' => $message], 200, lang('Inbox.statusChanged'));
+    }
+
+    /**
+     * POST /staff/inbox/message/category { id, category }
+     * Set what a message turned out to be: I (issue), C (complaint), U (user problem), M (misunderstanding) or
+     * X (irrelevant); empty clears it
+     * @return ResponseInterface
+     */
+    public function setCategory(): ResponseInterface
+    {
+        $input = $this->jsonInput();
+        if ($input === null) {
+            return ApiResponse::error(lang('Inbox.invalidRequest'), 422);
+        }
+        $id = $this->messageId($input);
+        if ($id === null) {
+            return ApiResponse::error(lang('Inbox.notFound'), 404);
+        }
+        $category = strtoupper($this->text($input, 'category'));
+        if ($category !== '' && ! isset(ContactMessageModel::CATEGORY_NAMES[$category])) {
+            return ApiResponse::error(lang('Inbox.invalidCategory'), 422, ['category' => lang('Inbox.invalidCategory')]);
+        }
+        $messages = model(ContactMessageModel::class);
+        try {
+            if ($messages->findForStaff($id) === null) {
+                return ApiResponse::error(lang('Inbox.notFound'), 404);
+            }
+            $messages->setCategory($id, $category === '' ? null : $category, $this->actorId());
+            $message = $messages->findForStaff($id);
+        } catch (Throwable $e) {
+            return $this->failed('v1/staff/inbox/message/category', $e, 'Inbox.saveFailed');
+        }
+
+        return ApiResponse::success(['message' => $message], 200, lang('Inbox.categoryChanged'));
     }
 
     /**

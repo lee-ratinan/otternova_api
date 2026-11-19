@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Libraries\ApiResponse;
+use App\Libraries\ClientExperienceDashboard;
 use App\Libraries\EngineeringDashboard;
 use App\Libraries\ExecutiveDashboard;
 use App\Libraries\FinanceDashboard;
@@ -45,6 +46,25 @@ class Dashboards extends BaseController
             $data = (new EngineeringDashboard(db_connect()))->summary();
         } catch (Throwable $e) {
             log_message('error', 'v1/staff/dashboard/engineering: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('SubscriptionAdmin.loadFailed'), 500);
+        }
+
+        return ApiResponse::success($data);
+    }
+
+    /**
+     * POST /staff/dashboard/client-experience
+     * The inbox and how fast it is answered, what the messages turned out to be, and where the businesses' customers
+     * run into trouble; see App\Libraries\ClientExperienceDashboard. Behind the jwt:S and department:EXE,CXD filters.
+     * @return ResponseInterface
+     */
+    public function clientExperience(): ResponseInterface
+    {
+        try {
+            $data = (new ClientExperienceDashboard(db_connect()))->summary();
+        } catch (Throwable $e) {
+            log_message('error', 'v1/staff/dashboard/client-experience: {message}', ['message' => $e->getMessage()]);
 
             return ApiResponse::error(lang('SubscriptionAdmin.loadFailed'), 500);
         }
