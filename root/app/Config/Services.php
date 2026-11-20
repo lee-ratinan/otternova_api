@@ -2,6 +2,9 @@
 
 namespace Config;
 
+use App\Libraries\Ai\AiClient;
+use App\Libraries\Ai\FakeAiClient;
+use App\Libraries\Ai\GeminiClient;
 use App\Libraries\AuthContext;
 use App\Libraries\ContactFormGuard;
 use App\Libraries\EmailService;
@@ -12,6 +15,7 @@ use App\Libraries\LoginThrottle;
 use App\Libraries\MartCache;
 use App\Libraries\TrackerGuard;
 use CodeIgniter\Config\BaseService;
+use RuntimeException;
 
 /**
  * Services Configuration file.
@@ -112,6 +116,29 @@ class Services extends BaseService
         }
 
         return new GeoLocator(config(Tracker::class)->geoipDatabase);
+    }
+
+    /**
+     * The AI client: FakeAiClient or GeminiClient, by ai.driver. Production refuses the fake (customers would get
+     * dummy answers) and the tests refuse Gemini (a test run would spend money).
+     */
+    public static function ai(bool $getShared = true): AiClient
+    {
+        if ($getShared) {
+            return static::getSharedInstance('ai');
+        }
+
+        $config = config(Ai::class);
+
+        return match ($config->driver) {
+            Ai::DRIVER_FAKE => ENVIRONMENT === 'production'
+                ? throw new RuntimeException('ai.driver "fake" is not allowed in production')
+                : new FakeAiClient($config),
+            Ai::DRIVER_GEMINI => ENVIRONMENT === 'testing'
+                ? throw new RuntimeException('ai.driver "gemini" is not allowed in testing')
+                : new GeminiClient($config, static::curlrequest([], null, null, false)),
+            default => throw new RuntimeException('Unknown ai.driver "' . $config->driver . '"'),
+        };
     }
 
     public static function imageProcessor(bool $getShared = true): ImageProcessor
