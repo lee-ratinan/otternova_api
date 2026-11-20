@@ -13,6 +13,7 @@ return [
     'invalidColor'      => 'Please choose a colour as #rrggbb.',
     'invalidLanguages'  => 'Please send a list of languages.',
     'languageRequired'  => 'Please choose at least one language.',
+    'languageLimitReached' => 'The {1} plan allows up to {0} languages. Please upgrade your plan to add more.',
     'invalidLanguage'   => 'Please choose a language from the list.',
     'duplicateLanguage' => '{0} is chosen more than once.',
     'invalidFont'       => 'Please choose a font from the list.',

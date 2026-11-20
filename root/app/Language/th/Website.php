@@ -13,6 +13,7 @@ return [
     'invalidColor'      => 'กรุณาเลือกสีในรูปแบบ #rrggbb',
     'invalidLanguages'  => 'กรุณาส่งรายการภาษา',
     'languageRequired'  => 'กรุณาเลือกอย่างน้อยหนึ่งภาษา',
+    'languageLimitReached' => 'แพ็กเกจ {1} ใช้ได้ไม่เกิน {0} ภาษา',
     'invalidLanguage'   => 'กรุณาเลือกภาษาจากรายการ',
     'duplicateLanguage' => 'เลือก {0} ซ้ำกันมากกว่าหนึ่งครั้ง',
     'invalidFont'       => 'กรุณาเลือกแบบอักษรจากรายการ',

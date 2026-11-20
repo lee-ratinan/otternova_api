@@ -36,6 +36,7 @@ class PlanLimits extends BaseConfig
     public const SERVICES                = 'services';
     public const VARIANTS                = 'variants';
     public const WEBPAGES                = 'webpages';
+    public const WEB_LANGUAGES           = 'web_languages';
     public const IMAGE_PER_ARTIFACT      = 'image_per_artifact';
     public const IMAGE_PER_WEBPAGE       = 'image_per_webpage';
     public const AI_CREDIT_TEXT_ATTEMPTS = 'ai_credit_text_attempts';
@@ -61,6 +62,7 @@ class PlanLimits extends BaseConfig
             self::SERVICES                => 1,
             self::VARIANTS                => 2,
             self::WEBPAGES                => 0,
+            self::WEB_LANGUAGES           => 2,
             self::IMAGE_PER_ARTIFACT      => 1,
             self::IMAGE_PER_WEBPAGE       => 0,
             self::AI_CREDIT_TEXT_ATTEMPTS => 0,
@@ -75,6 +77,7 @@ class PlanLimits extends BaseConfig
             self::SERVICES                => 5,
             self::VARIANTS                => 10,
             self::WEBPAGES                => 1,
+            self::WEB_LANGUAGES           => 4,
             self::IMAGE_PER_ARTIFACT      => 3,
             self::IMAGE_PER_WEBPAGE       => 3,
             self::AI_CREDIT_TEXT_ATTEMPTS => 2,
@@ -89,6 +92,7 @@ class PlanLimits extends BaseConfig
             self::SERVICES                => 20,
             self::VARIANTS                => 15,
             self::WEBPAGES                => 3,
+            self::WEB_LANGUAGES           => 4,
             self::IMAGE_PER_ARTIFACT      => 5,
             self::IMAGE_PER_WEBPAGE       => 5,
             self::AI_CREDIT_TEXT_ATTEMPTS => 3,
@@ -103,6 +107,7 @@ class PlanLimits extends BaseConfig
             self::SERVICES                => 50,
             self::VARIANTS                => 30,
             self::WEBPAGES                => 5,
+            self::WEB_LANGUAGES           => 5,
             self::IMAGE_PER_ARTIFACT      => 10,
             self::IMAGE_PER_WEBPAGE       => 10,
             self::AI_CREDIT_TEXT_ATTEMPTS => 4,

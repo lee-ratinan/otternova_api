@@ -6,9 +6,11 @@ use App\Libraries\ApiResponse;
 use App\Libraries\ImageProcessor;
 use App\Libraries\UploadedImage;
 use App\Models\BusinessWebsiteModel;
+use App\Models\SubscriptionMasterModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\ImageUpload as ImageUploadConfig;
+use Config\PlanLimits;
 use RuntimeException;
 use Throwable;
 
@@ -17,7 +19,9 @@ use Throwable;
  * and only for the active owners and managers of the business, which comes in by its business_slug.
  * - colours: the six theme colours, #rrggbb
  * - languages: the languages of listLanguages() the pages are in, the default first, each with its typefaces
- *   (listTypefacesOfLanguage()), meta tags and main-page text
+ *   (listTypefacesOfLanguage()), meta tags and main-page text; at most PlanLimits::WEB_LANGUAGES of the business's
+ *   plan. A business over it after moving to a smaller plan keeps its languages and may save them, or fewer, but
+ *   cannot add one until it is under the cap
  * - featured: the artifacts of the main page's "best sellers" and "trending now", at most MAX_FEATURED each, active
  *   artifacts of the business only; "highest rated" is by artifact_master.rating_average and needs no picking
  * - the logo: the business-logo used-for of Config\ImageUpload, square or wide by the original's shape
@@ -65,7 +69,7 @@ class Websites extends BaseController
      *   (the default first), featured: {best_sellers: [...], trending: [...]} (public_id, artifact_name,
      *   artifact_type, artifact_status), options: {languages: {code: name}, typefaces: {code: {name: Google Fonts
      *   query}}, artifacts: [{public_id, artifact_name, artifact_type}] (those that may be featured), max_featured,
-     *   text_limits} }
+     *   text_limits, plan_code (the plan the business is on), max_languages (its PlanLimits::WEB_LANGUAGES)} }
      * @return ResponseInterface
      */
     public function show(): ResponseInterface
@@ -90,6 +94,8 @@ class Websites extends BaseController
      *   hero_badge, hero_headline, hero_paragraph, staff_term_one, staff_term_other, participant_term_one,
      *   participant_term_other}, ...], at least one, each language once, the default first; replaces the languages
      *   the pages had. The texts are optional, empty being none; the terms are words without < > & " or `.
+     *   More than the plan's PlanLimits::WEB_LANGUAGES is refused with 409 (errors.languages), unless every one of
+     *   them is a language the pages have already.
      * - featured: {best_sellers: [artifact public_id, ...], trending: [...]}, in order, at most MAX_FEATURED each;
      *   a section left out or [] has none
      * @return ResponseInterface The settings, as show() gives them
@@ -112,6 +118,16 @@ class Websites extends BaseController
         }
         if ($errors !== []) {
             return ApiResponse::error(lang('Website.invalidFields'), 422, $errors);
+        }
+        if ($languages !== null) {
+            try {
+                $tooMany = $this->tooManyLanguages($businessId, array_column($languages, 'language_code'));
+            } catch (Throwable $e) {
+                return $this->failed($endpoint, $e, 'Website.loadFailed');
+            }
+            if ($tooMany !== null) {
+                return ApiResponse::error($tooMany, 409, ['languages' => $tooMany]);
+            }
         }
         if ($colors === null && $languages === null && $featured === null) {
             return ApiResponse::error(lang('Website.nothingToSave'), 422);
@@ -234,6 +250,7 @@ class Websites extends BaseController
         $website  = $websites->websiteOf($businessId);
         $featured = $websites->featuredOf($businessId);
         $codes    = array_keys(listLanguages());
+        [$plan, $maxLanguages] = $this->languageCap($businessId);
 
         return [
             'colors'    => array_intersect_key($website, BusinessWebsiteModel::DEFAULT_COLORS),
@@ -241,13 +258,47 @@ class Websites extends BaseController
             'languages' => $websites->languagesOf($businessId),
             'featured'  => array_map(static fn (string $section): array => $featured[$section], self::SECTIONS),
             'options'   => [
-                'languages'    => listLanguages(),
-                'typefaces'    => array_combine($codes, array_map('listTypefacesOfLanguage', $codes)),
-                'artifacts'    => array_map(static fn (array $a): array => array_diff_key($a, ['id' => true]), $websites->featurableOf($businessId)),
-                'max_featured' => BusinessWebsiteModel::MAX_FEATURED,
-                'text_limits'  => self::TEXT_LIMITS,
+                'languages'     => listLanguages(),
+                'typefaces'     => array_combine($codes, array_map('listTypefacesOfLanguage', $codes)),
+                'artifacts'     => array_map(static fn (array $a): array => array_diff_key($a, ['id' => true]), $websites->featurableOf($businessId)),
+                'max_featured'  => BusinessWebsiteModel::MAX_FEATURED,
+                'text_limits'   => self::TEXT_LIMITS,
+                'plan_code'     => $plan,
+                'max_languages' => $maxLanguages,
             ],
         ];
+    }
+
+    /**
+     * The plan the business is on and how many languages its pages may be in (PlanLimits::WEB_LANGUAGES)
+     * @param int $businessId
+     * @return array{0: string, 1: int} [plan_code, max_languages]
+     */
+    private function languageCap(int $businessId): array
+    {
+        $plan = model(SubscriptionMasterModel::class)->planOfBusiness($businessId)['plan_code'];
+
+        return [$plan, (int) config(PlanLimits::class)->limitOf($plan, PlanLimits::WEB_LANGUAGES)];
+    }
+
+    /**
+     * Why the languages go beyond the business's plan, or null when they do not: more than its cap, one of them new
+     * @param int          $businessId
+     * @param list<string> $codes      The language_code of each language to save
+     * @return string|null
+     */
+    private function tooManyLanguages(int $businessId, array $codes): ?string
+    {
+        [$plan, $max] = $this->languageCap($businessId);
+        if (count($codes) <= $max) {
+            return null;
+        }
+        $saved = array_column(model(BusinessWebsiteModel::class)->languagesOf($businessId), 'language_code');
+        if (array_diff($codes, $saved) === []) {
+            return null;
+        }
+
+        return lang('Website.languageLimitReached', [$max, ucfirst($plan)]);
     }
 
     /**
