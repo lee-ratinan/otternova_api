@@ -26,6 +26,7 @@ return [
     'dateToBeforeFrom'   => '最後開始日期必須等於或晚於第一個日期。',
     'invalidCheckout'    => '結帳請求無效。',
     'orderRefused'       => '無法依目前內容下單。',
+    'shopClosed'       => '此商店尚未開放。',
     'orderNotFound'      => '沒有這筆訂單。',
     'paymentReportInvalid' => '請提供轉帳參考編號或附上付款憑證（JPEG、PNG、WebP 或 PDF）。',
     'nothingDue'           => '此訂單沒有應付款項。',

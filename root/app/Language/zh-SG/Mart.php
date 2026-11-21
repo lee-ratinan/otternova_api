@@ -26,6 +26,7 @@ return [
     'dateToBeforeFrom'   => '最后开始日期必须等于或晚于第一个日期。',
     'invalidCheckout'    => '结账请求无效。',
     'orderRefused'       => '无法按目前内容下单。',
+    'shopClosed'       => '此商店尚未开放。',
     'orderNotFound'      => '没有这个订单。',
     'paymentReportInvalid' => '请提供转账参考号或附上付款凭证（JPEG、PNG、WebP 或 PDF）。',
     'nothingDue'           => '此订单没有应付款项。',

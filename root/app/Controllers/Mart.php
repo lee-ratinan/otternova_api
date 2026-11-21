@@ -11,6 +11,7 @@ use App\Libraries\BookingWindow;
 use App\Libraries\MartCache;
 use App\Models\ArtifactMasterModel;
 use App\Models\BusinessMasterModel;
+use App\Models\BusinessSearchModel;
 use App\Models\MartCatalogModel;
 use App\Models\MartOrderModel;
 use App\Models\OrderHistoryAccessModel;
@@ -71,7 +72,7 @@ class Mart extends BaseController
     /**
      * GET /mart/site?business_slug=&lang=
      * { language, languages: [{code, name}], business: {slug, name, description, country_code, currency_code,
-     *   contact: {...}, audience: {...}, shows_staff (has a staff page, see staff()), rating: {average, count, breakdown}}, theme: {colors: {...}, fonts: {heading,
+     *   contact: {...}, social_links: [{platform, name, url}] (in order), audience: {...}, shows_staff (has a staff page, see staff()), rating: {average, count, breakdown}}, theme: {colors: {...}, fonts: {heading,
      *   nav, default: {name, query} or null}, google_fonts_url, logo: {url, shape} or null}, meta: {title, description,
      *   keywords}, hero: {badge, headline, paragraph},
      *   terms: {staff: {one, other}, participant: {one, other}} (each the business's word or null), featured: {best_sellers, trending, highest_rated: [card]},
@@ -92,6 +93,31 @@ class Mart extends BaseController
 
             return ApiResponse::success($data);
         });
+    }
+
+    /**
+     * GET /mart/search?q=&lang=&page=
+     * The businesses of the marketplace whose name (in any language it is named in) or tags hold every word of q
+     * (App\Models\BusinessSearchModel), best matches first, a page at a time; names in lang when the business has one.
+     * Not cached: it is across every business, and MartCache keeps answers by business.
+     * { query (the words looked for), businesses: [{slug, name, description, country_code, logo: {url, shape}|null,
+     *   tags: [name], rating: {average, count}, age_restricted}], total, page, per_page, pages }; no businesses for a
+     *   q with no words
+     * @return ResponseInterface
+     */
+    public function search(): ResponseInterface
+    {
+        $q    = $this->request->getGet('q');
+        $lang = $this->request->getGet('lang');
+        $lang = is_string($lang) && array_key_exists($lang, listLanguages()) ? $lang : 'en-US';
+        $page = filter_var($this->request->getGet('page'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 1;
+        try {
+            return ApiResponse::success(model(BusinessSearchModel::class)->search(is_string($q) ? $q : '', $lang, $page));
+        } catch (Throwable $e) {
+            log_message('error', 'v1/mart/search: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Mart.loadFailed'), 500);
+        }
     }
 
     /**
@@ -494,6 +520,9 @@ class Mart extends BaseController
     public function quote(): ResponseInterface
     {
         return $this->answerJson('v1/mart/quote', function (array $business, string $language, array $input): ResponseInterface {
+            if ($business['is_business_open'] !== BusinessMasterModel::OPEN) {
+                return self::closed();
+            }
             [$cart, $choice, $errors] = $this->checkoutInput($input);
             if ($errors !== []) {
                 return ApiResponse::error(lang('Mart.invalidCheckout'), 422, $errors);
@@ -516,6 +545,9 @@ class Mart extends BaseController
     public function placeOrder(): ResponseInterface
     {
         return $this->answerJson('v1/mart/order', function (array $business, string $language, array $input): ResponseInterface {
+            if ($business['is_business_open'] !== BusinessMasterModel::OPEN) {
+                return self::closed();
+            }
             [$cart, $choice, $errors] = $this->checkoutInput($input, true);
             [$customer, $delivery, $more] = $this->customerInput($input);
             $errors += $more;
@@ -983,5 +1015,15 @@ class Mart extends BaseController
         ksort($query);
 
         return [$query, $errors];
+    }
+    /**
+     * 409 for a quote or an order of a business that is not open on the mart (business_master.is_business_open N):
+     * data.reason "closed"
+     * @return ResponseInterface
+     */
+    private static function closed(): ResponseInterface
+    {
+        return service('response')->setStatusCode(409)->setJSON(['status' => 'error', 'message' => lang('Mart.shopClosed'),
+            'errors' => ['business' => 'closed'], 'data' => ['reason' => 'closed']]);
     }
 }

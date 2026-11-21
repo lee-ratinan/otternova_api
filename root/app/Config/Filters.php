@@ -116,11 +116,13 @@ class Filters extends BaseFilters
         // the Client app's endpoints that change what the public mart pages show (App\Controllers\Mart)
         'martCacheRefresh' => ['after' => [
             'v1/client/business/edit',
+            'v1/client/business/open',
             'v1/client/store/create',
             'v1/client/store/edit',
             'v1/client/website/save',
             'v1/client/website/logo-upload',
             'v1/client/website/logo-delete',
+            'v1/client/social-links/save',
             'v1/client/webpage/*', // every one of them a change; v1/client/webpage itself only reads
             'v1/client/artifact/create',
             'v1/client/artifact/edit',

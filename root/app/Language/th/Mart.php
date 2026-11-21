@@ -26,6 +26,7 @@ return [
     'dateToBeforeFrom'   => 'วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่มต้น',
     'invalidCheckout'    => 'คำขอชำระเงินไม่ถูกต้อง',
     'orderRefused'       => 'ไม่สามารถสั่งซื้อตามรายการนี้ได้',
+    'shopClosed'       => 'ร้านนี้ยังไม่เปิด',
     'orderNotFound'      => 'ไม่พบคำสั่งซื้อนี้',
     'paymentReportInvalid' => 'กรุณาระบุเลขอ้างอิงการโอน หรือแนบสลิป (JPEG, PNG, WebP หรือ PDF)',
     'nothingDue'           => 'คำสั่งซื้อนี้ไม่มียอดค้างชำระ',

@@ -26,6 +26,7 @@ return [
     'dateToBeforeFrom'   => 'Tanggal mulai terakhir harus sama dengan atau setelah tanggal pertama.',
     'invalidCheckout'    => 'Permintaan checkout tidak valid.',
     'orderRefused'       => 'Pesanan tidak dapat dibuat seperti ini.',
+    'shopClosed'       => 'Toko ini belum buka.',
     'orderNotFound'      => 'Pesanan tersebut tidak ada.',
     'paymentReportInvalid' => 'Silakan berikan referensi transfer atau lampirkan bukti pembayaran (JPEG, PNG, WebP atau PDF).',
     'nothingDue'           => 'Tidak ada tagihan untuk pesanan ini.',

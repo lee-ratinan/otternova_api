@@ -101,6 +101,7 @@ class MartCatalogModel extends Model
             'languages' => $languages,
             'business'  => [
                 'slug'          => $business['business_slug'],
+                'is_open'       => $business['is_business_open'] === BusinessMasterModel::OPEN, // closed: the shop pages say so, and take no order
                 'name'          => $name,
                 'description'   => $business['business_description'],
                 'country_code'  => $business['country_code'],
@@ -115,6 +116,9 @@ class MartCatalogModel extends Model
                     'subdivision_code' => $business['contact_subdivision_code'],
                     'postal_code'      => $business['contact_postal_code'],
                 ],
+                // its social media accounts, in the order it chose (App\Models\BusinessSocialLinkModel); name is the
+                // platform's, and platform is also its Bootstrap Icons name (bi-facebook)
+                'social_links'  => $this->socialLinksOf($businessId),
                 'audience'      => [
                     'lgbt'           => $business['lgbt_audience'],
                     'naturist'       => $business['naturist_audience'],
@@ -397,6 +401,23 @@ class MartCatalogModel extends Model
             ->get()->getResultArray();
 
         return array_values($this->toCards($rows, $language));
+    }
+
+    /**
+     * The social media accounts of the business, in its order, of the platforms still supported
+     * @return list<array{platform: string, name: string, url: string}>
+     */
+    private function socialLinksOf(int $businessId): array
+    {
+        $names = listSocialMediaKeys();
+        $links = [];
+        foreach (model(BusinessSocialLinkModel::class)->linksOf($businessId) as $link) {
+            if (isset(BusinessSocialLinkModel::PLATFORM_HOSTS[$link['platform']])) {
+                $links[] = ['platform' => $link['platform'], 'name' => $names[$link['platform']] ?? $link['platform'], 'url' => $link['profile_url']];
+            }
+        }
+
+        return $links;
     }
 
     /**

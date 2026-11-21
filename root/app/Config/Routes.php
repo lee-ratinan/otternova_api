@@ -42,6 +42,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
     // App\Controllers\Mart and App\Libraries\MartCache
     $routes->group('mart', static function (RouteCollection $routes) {
         $routes->get('site', 'Mart::site');
+        $routes->get('search', 'Mart::search'); // businesses by name or tag, across the marketplace
         $routes->get('webpage', 'Mart::webpage');
         $routes->get('design', 'Mart::design');
         $routes->get('artifacts', 'Mart::artifacts');
@@ -220,6 +221,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('business/edit', 'Businesses::edit');
         $routes->post('businesses', 'Businesses::listOwn');
         $routes->post('business/make-default', 'Businesses::makeDefault');
+        $routes->post('business/open', 'Businesses::open'); // on otternova_mart or not: its owners only
         $routes->post('business/switch', 'Businesses::switchTo');
         // the stores of a business: its active owners and managers only; see App\Controllers\Stores
         $routes->post('stores', 'Stores::list');

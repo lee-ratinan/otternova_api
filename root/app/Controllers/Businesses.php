@@ -175,6 +175,39 @@ class Businesses extends BaseController
     }
 
     /**
+     * POST /client/business/open { business_slug, is_business_open: "Y"|"N" }
+     * Open the business on otternova_mart (Y), or close it (N): closed, it is left out of the search, its shop pages
+     * say it is not open and no order can be placed. Its active owners only (403 for its managers and employees).
+     * { business_slug, is_business_open }
+     * @return ResponseInterface
+     */
+    public function open(): ResponseInterface
+    {
+        $endpoint = 'v1/client/business/open';
+        [$link, $error] = $this->ownLink($endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        if ($link['client_role'] !== BusinessClientLinkModel::ROLE_OWNER) {
+            return ApiResponse::error(lang('Business.ownerOnly'), 403);
+        }
+        $open = $this->jsonInput()['is_business_open'] ?? null;
+        if (! in_array($open, [BusinessMasterModel::OPEN, BusinessMasterModel::CLOSED], true)) {
+            return ApiResponse::error(lang('Business.invalidFields'), 422, ['is_business_open' => lang('Business.invalidOpen')]);
+        }
+        try {
+            model(BusinessMasterModel::class)->setOpen((int) $link['business_id'], $open, $this->actorId());
+        } catch (Throwable $e) {
+            log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Business.saveFailed'), 500);
+        }
+
+        return ApiResponse::success(['business_slug' => $link['business_slug'], 'is_business_open' => $open], 200,
+            lang($open === BusinessMasterModel::OPEN ? 'Business.opened' : 'Business.closed'));
+    }
+
+    /**
      * POST /client/business/switch { business_slug }
      * The business the signed-in client switches their app to, in the shape sign-in gives it as "business"
      * (see BusinessClientLinkModel::signInBusinessOf()), and beside it its names in other languages as translations

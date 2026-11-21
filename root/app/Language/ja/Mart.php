@@ -26,6 +26,7 @@ return [
     'dateToBeforeFrom'   => '最終開始日は最初の日付と同じか、それ以降にしてください。',
     'invalidCheckout'    => 'チェックアウトのリクエストが無効です。',
     'orderRefused'       => 'この内容では注文できませんでした。',
+    'shopClosed'       => 'このショップはまだ公開されていません。',
     'orderNotFound'      => 'その注文は存在しません。',
     'paymentReportInvalid' => '振込参照番号を入力するか、振込明細（JPEG、PNG、WebP、またはPDF）を添付してください。',
     'nothingDue'           => 'この注文にお支払いが必要な金額はありません。',

@@ -26,6 +26,7 @@ return [
     'dateToBeforeFrom'   => 'The last start date must be on or after the first.',
     'invalidCheckout'    => 'The checkout request is not valid.',
     'orderRefused'       => 'The order could not be placed as it is.',
+    'shopClosed'       => 'This shop is not open yet.',
     'orderNotFound'      => 'There is no such order.',
     'paymentReportInvalid' => 'Please give the transfer reference or attach the slip (JPEG, PNG, WebP or PDF).',
     'nothingDue'           => 'Nothing is due on this order.',

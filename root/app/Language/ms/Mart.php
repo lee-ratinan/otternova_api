@@ -26,6 +26,7 @@ return [
     'dateToBeforeFrom'   => 'Tarikh mula terakhir mestilah pada atau selepas tarikh pertama.',
     'invalidCheckout'    => 'Permintaan pembayaran tidak sah.',
     'orderRefused'       => 'Pesanan tidak dapat dibuat sebagaimana adanya.',
+    'shopClosed'       => 'Kedai ini belum dibuka.',
     'orderNotFound'      => 'Pesanan tersebut tidak wujud.',
     'paymentReportInvalid' => 'Sila berikan rujukan pindahan atau lampirkan slip (JPEG, PNG, WebP atau PDF).',
     'nothingDue'           => 'Tiada bayaran perlu dibuat untuk pesanan ini.',

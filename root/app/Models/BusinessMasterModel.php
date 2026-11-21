@@ -56,6 +56,10 @@ class BusinessMasterModel extends Model
     public const AGE_ADULTS_ONLY = 'Y';
     public const AGE_GENERAL     = 'N';
 
+    // is_business_open: whether it shows on otternova_mart; only its owners switch it (setOpen())
+    public const OPEN   = 'Y';
+    public const CLOSED = 'N';
+
     // tip_policy
     public const TIP_DISABLED   = 'D';   // tipping is not allowed through the system
     public const TIP_OFF_SYSTEM = 'OFF'; // tipping is welcome, but not collected at checkout
@@ -586,6 +590,28 @@ class BusinessMasterModel extends Model
         $this->inTransaction(function () use ($stored, $changes, $actorId, $log) {
             $this->db->table($this->table)->where('id', $stored['id'])->update($changes);
             $log->updated($actorId, 'Changed the order numbers of business ' . $stored['id'], $this->table, (int) $stored['id'], $stored, $changes);
+        });
+    }
+
+    /**
+     * Open the business on otternova_mart, or close it, logged in the same transaction; nothing when it is so already
+     * @param int    $businessId
+     * @param string $open       OPEN or CLOSED
+     * @param int    $actorId    auth_master.id of the owner switching it
+     * @return void
+     * @throws Throwable When a write fails; nothing is written then
+     */
+    public function setOpen(int $businessId, string $open, int $actorId): void
+    {
+        $log = new ActivityLog();
+        $this->inTransaction(function () use ($businessId, $open, $actorId, $log) {
+            $stored = $this->db->table($this->table)->select('id, is_business_open')->where('id', $businessId)->get()->getRowArray();
+            if ($stored === null || $stored['is_business_open'] === $open) {
+                return;
+            }
+            $this->db->table($this->table)->where('id', $businessId)->update(['is_business_open' => $open]);
+            $log->updated($actorId, ($open === self::OPEN ? 'Opened' : 'Closed') . ' business ' . $businessId . ' on the mart', $this->table,
+                $businessId, $stored, ['is_business_open' => $open]);
         });
     }
 }
