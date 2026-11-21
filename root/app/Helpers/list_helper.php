@@ -40,7 +40,12 @@ if (!function_exists("listSupportedLanguages")) {
     {
         return [
             "en-US" => "English (US)",
+            "id"    => "Bahasa Indonesia",
+            "ms"    => "Bahasa Malaysia",
             "th"    => "ภาษาไทย (Thai)",
+            "zh-SG" => "华语 (Huayu)",
+            "ja"    => "日本語 (Japanese)",
+            "zh-TW" => "國語 (Mandarin)",
         ];
     }
 }
