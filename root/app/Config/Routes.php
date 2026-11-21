@@ -59,6 +59,9 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('order-history/open', 'Mart::openHistory');
         $routes->post('order-history', 'Mart::history');
         $routes->post('order-history/close', 'Mart::closeHistory');
+        // the contact form of a business: a message to it, read in the Client app; see App\Controllers\MartMessages
+        $routes->get('message-token', 'MartMessages::token');
+        $routes->post('message', 'MartMessages::submit');
     });
 
     // Admin app: staff accounts only (a valid token with typ S)
@@ -223,6 +226,15 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('business/make-default', 'Businesses::makeDefault');
         $routes->post('business/open', 'Businesses::open'); // on otternova_mart or not: its owners only
         $routes->post('business/switch', 'Businesses::switchTo');
+        // the messages customers send a business through its contact form on the mart, and the header's unread
+        // badge: any of its active clients; replying from the platform is reserved; see App\Controllers\Messages
+        $routes->post('messages', 'Messages::list');
+        $routes->post('messages/unread-count', 'Messages::unreadCount');
+        $routes->post('message', 'Messages::show');
+        $routes->post('message/status', 'Messages::setStatus');
+        $routes->post('message/comment', 'Messages::addComment');
+        $routes->post('message/comment/delete', 'Messages::deleteComment');
+        $routes->post('message/reply', 'Messages::reply');
         // the stores of a business: its active owners and managers only; see App\Controllers\Stores
         $routes->post('stores', 'Stores::list');
         $routes->post('store/create', 'Stores::create');

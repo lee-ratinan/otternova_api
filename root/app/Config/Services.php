@@ -8,6 +8,7 @@ use App\Libraries\Ai\GeminiClient;
 use App\Libraries\Ai\RecordingAiClient;
 use App\Models\AiUsageLogModel;
 use App\Libraries\AuthContext;
+use App\Libraries\BusinessMessageGuard;
 use App\Libraries\ContactFormGuard;
 use App\Libraries\EmailService;
 use App\Libraries\GeoLocator;
@@ -82,6 +83,18 @@ class Services extends BaseService
         }
 
         return new ContactFormGuard(service('cache'), config(ContactForm::class), config(Auth::class)->jwtSecret);
+    }
+
+    /**
+     * The bot and flood checks of the contact form of each business on otternova_mart; use ->forBusiness($id)
+     */
+    public static function businessMessageGuard(bool $getShared = true): BusinessMessageGuard
+    {
+        if ($getShared) {
+            return static::getSharedInstance('businessMessageGuard');
+        }
+
+        return new BusinessMessageGuard(service('cache'), config(BusinessMessageForm::class), config(Auth::class)->jwtSecret);
     }
 
     /**

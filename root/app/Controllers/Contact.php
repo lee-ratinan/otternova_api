@@ -17,6 +17,8 @@ use Throwable;
  */
 class Contact extends BaseController
 {
+    use ContactInputTrait;
+
     /**
      * GET /contact-form-token
      * A single-use token for one submission of the form. The page fetches it when the form is shown and sends it
@@ -100,68 +102,31 @@ class Contact extends BaseController
      */
     private function validated(array $input, ContactForm $config): array
     {
-        $line    = fn (string $field): string => $this->text($input[$field] ?? null, true);
-        $name    = $line('name');
-        $email   = mb_strtolower($line('email'), 'UTF-8');
-        $phone   = $line('phone');
-        $subject = $line('subject');
-        $message = $this->text($input['message'] ?? null, false);
-        $locale  = is_string($input['locale'] ?? null) ? $input['locale'] : '';
+        [$sender, $errors]  = $this->senderFields($input, $config, 'Contact', true);
+        $subject            = $this->cleanText($input['subject'] ?? null, true);
+        [$message, $error]  = $this->messageField($input, $config, 'Contact');
+        $locale             = is_string($input['locale'] ?? null) ? $input['locale'] : '';
 
-        $errors = [];
-        if ($name === '') {
-            $errors['name'] = lang('Contact.nameRequired');
-        } elseif (mb_strlen($name, 'UTF-8') > $config->nameMaxLength) {
-            $errors['name'] = lang('Contact.nameTooLong', [$config->nameMaxLength]);
-        }
-        if (strlen($email) > $config->emailMaxLength || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $errors['email'] = lang('Contact.emailInvalid');
-        }
-        if ($phone !== '' && (strlen($phone) > $config->phoneMaxLength || ! preg_match('/^\+?[0-9 ().\-]+$/', $phone)
-            || preg_match_all('/[0-9]/', $phone) < 6)) {
-            $errors['phone'] = lang('Contact.phoneInvalid');
-        }
         if ($subject === '') {
             $errors['subject'] = lang('Contact.subjectRequired');
         } elseif (mb_strlen($subject, 'UTF-8') > $config->subjectMaxLength) {
             $errors['subject'] = lang('Contact.subjectTooLong', [$config->subjectMaxLength]);
         }
-        if ($message === '') {
-            $errors['message'] = lang('Contact.messageRequired');
-        } elseif (mb_strlen($message, 'UTF-8') > $config->messageMaxLength) {
-            $errors['message'] = lang('Contact.messageTooLong', [$config->messageMaxLength]);
+        if ($error !== null) {
+            $errors['message'] = $error;
         }
         if (! in_array($locale, config(App::class)->supportedLocales, true)) {
             $errors['locale'] = lang('Contact.localeInvalid');
         }
 
         return [[
-            'name'          => $name,
-            'email_address' => $email,
-            'phone_number'  => $phone === '' ? null : $phone,
+            'name'          => $sender['name'],
+            'email_address' => $sender['email'],
+            'phone_number'  => $sender['phone'] === '' ? null : $sender['phone'],
             'subject'       => $subject,
             'message'       => $message,
             'locale'        => $locale,
         ], $errors];
-    }
-
-    /**
-     * A text field as a trimmed UTF-8 string with no control characters; '' when missing, not a string or not UTF-8
-     * @param mixed $value
-     * @param bool  $singleLine Whitespace, line breaks included, collapses to single spaces
-     * @return string
-     */
-    private function text(mixed $value, bool $singleLine): string
-    {
-        if (! is_string($value) || ! mb_check_encoding($value, 'UTF-8')) {
-            return '';
-        }
-        if ($singleLine) {
-            return trim(preg_replace(['/[\p{Cc}\p{Cf}]+/u', '/\s+/u'], [' ', ' '], $value) ?? '');
-        }
-        $value = str_replace(["\r\n", "\r"], "\n", $value);
-
-        return trim(preg_replace('/[^\P{Cc}\n\t]+/u', '', $value) ?? '');
     }
 
     /**

@@ -24,9 +24,9 @@ class ContactFormGuard
     public const TOKEN_USED    = 'used';
 
     public function __construct(
-        private readonly CacheInterface $cache,
-        private readonly ContactForm $config,
-        private readonly string $secret,
+        protected readonly CacheInterface $cache,
+        protected readonly ContactForm $config,
+        protected readonly string $secret,
     ) {
     }
 
@@ -130,7 +130,7 @@ class ContactFormGuard
      * @param string $message Compared ignoring case and spacing
      * @return string
      */
-    private function duplicateKey(string $email, string $message): string
+    protected function duplicateKey(string $email, string $message): string
     {
         $normalised = mb_strtolower(preg_replace('/\s+/u', ' ', trim($message)) ?? '', 'UTF-8');
 
@@ -174,10 +174,20 @@ class ContactFormGuard
      * @param string $payload
      * @return string
      */
-    private function sign(string $payload): string
+    protected function sign(string $payload): string
     {
         // a key of its own, derived from the app secret, so a form token can never pass as anything else
-        return hash_hmac('sha256', $payload, hash_hmac('sha256', 'contact-form-token', $this->secret));
+        return hash_hmac('sha256', $payload, hash_hmac('sha256', $this->tokenPurpose(), $this->secret));
+    }
+
+    /**
+     * What the form tokens are for, which their signing key is derived from: a subclass gives its own, so its tokens
+     * and these never pass for each other
+     * @return string
+     */
+    protected function tokenPurpose(): string
+    {
+        return 'contact-form-token';
     }
 
     /**
@@ -185,7 +195,7 @@ class ContactFormGuard
      * @param string $value
      * @return int
      */
-    private function count(string $scope, string $value): int
+    protected function count(string $scope, string $value): int
     {
         $entry = $this->cache->get($this->key($scope, $value));
 
@@ -193,16 +203,17 @@ class ContactFormGuard
     }
 
     /**
-     * @param string $scope
-     * @param string $value
+     * @param string   $scope
+     * @param string   $value
+     * @param int|null $window Seconds the count runs for from the first one; Config\ContactForm::$throttleWindow when left out
      * @return void
      */
-    private function increment(string $scope, string $value): void
+    protected function increment(string $scope, string $value, ?int $window = null): void
     {
         $key   = $this->key($scope, $value);
         $entry = $this->cache->get($key);
         if (! is_array($entry) || $entry['until'] <= time()) {
-            $entry = ['count' => 0, 'until' => time() + $this->config->throttleWindow];
+            $entry = ['count' => 0, 'until' => time() + ($window ?? $this->config->throttleWindow)];
         }
         $entry['count']++;
         $this->cache->save($key, $entry, max(1, $entry['until'] - time()));
@@ -214,8 +225,17 @@ class ContactFormGuard
      * @param string $value
      * @return string
      */
-    private function key(string $scope, string $value): string
+    protected function key(string $scope, string $value): string
     {
-        return 'contact_' . $scope . '_' . hash('sha256', strtolower(trim($value)));
+        return $this->keyPrefix() . '_' . $scope . '_' . hash('sha256', strtolower(trim($value)));
+    }
+
+    /**
+     * The start of every cache key: a subclass gives its own, so its counts and these never mix
+     * @return string
+     */
+    protected function keyPrefix(): string
+    {
+        return 'contact';
     }
 }
