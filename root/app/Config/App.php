@@ -128,7 +128,7 @@ class App extends BaseConfig
      *
      * @var list<string>
      */
-    public array $supportedLocales = ['en-US', 'th'];
+    public array $supportedLocales = ['en-US', 'id', 'ja', 'ms', 'th', 'zh-SG', 'zh-TW'];
 
     /**
      * --------------------------------------------------------------------------

@@ -1,0 +1,22 @@
+<?php
+return [
+    'invalidUsedFor'    => '無法讀取請求。請重新載入頁面後再試。',
+    'usedForNotAllowed' => '您的帳號無法上傳此類圖片。',
+    'invalidImageName'  => '圖片名稱只能包含字母、數字、連字號與底線，最多 100 個字元。',
+    'invalidId'         => '無法讀取請求。請重新載入頁面後再試。',
+    'imageRequired'     => '請選擇要上傳的圖片。',
+    'tooLarge'          => '圖片太大。請選擇小於 {0} MB 的圖片。',
+    'invalidType'       => '請選擇 JPG、PNG 或 WebP 圖片。',
+    'targetNotFound'    => '找不到此圖片的資料。',
+    'notOwnRecord'      => '您只能變更自己的圖片。',
+    'nameTaken'         => '另一張圖片已使用此名稱。請使用其他名稱。',
+    'unreadable'        => '無法讀取圖片。請選擇其他圖片。',
+    'tooSmall'          => '圖片太小。請選擇至少 {0} × {1} 像素的圖片。',
+    'loadFailed'        => '無法載入此圖片的資料。請再試一次。',
+    'saveFailed'        => '無法儲存圖片。請再試一次。',
+    'deleteFailed'      => '無法刪除圖片。請再試一次。',
+    'noImage'           => '沒有可刪除的圖片。',
+    'uploaded'          => '圖片已上傳。',
+    'deleted'           => '圖片已刪除。',
+    'notFound'          => '找不到圖片。',
+];

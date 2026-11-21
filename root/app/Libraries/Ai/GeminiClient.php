@@ -62,13 +62,20 @@ class GeminiClient implements AiClient
             throw new AiException(AiException::BAD_RESPONSE, 'Gemini answered HTTP 200 with no JSON');
         }
 
+        $usage        = $data['usageMetadata'] ?? [];
+        $answeredBy   = (string) ($data['modelVersion'] ?? $model);
+        $inputTokens  = (int) ($usage['promptTokenCount'] ?? 0);
+        $outputTokens = (int) ($usage['candidatesTokenCount'] ?? 0) + (int) ($usage['thoughtsTokenCount'] ?? 0);
+
         if (isset($data['promptFeedback']['blockReason'])) {
-            throw new AiException(AiException::BLOCKED, 'Gemini blocked the prompt: ' . $data['promptFeedback']['blockReason']);
+            throw new AiException(AiException::BLOCKED, 'Gemini blocked the prompt: ' . $data['promptFeedback']['blockReason'],
+                null, $answeredBy, $inputTokens, $outputTokens);
         }
         $candidate    = $data['candidates'][0] ?? null;
         $finishReason = (string) ($candidate['finishReason'] ?? '');
         if (in_array($finishReason, self::BLOCKED_REASONS, true)) {
-            throw new AiException(AiException::BLOCKED, 'Gemini withheld the answer: ' . $finishReason);
+            throw new AiException(AiException::BLOCKED, 'Gemini withheld the answer: ' . $finishReason,
+                null, $answeredBy, $inputTokens, $outputTokens);
         }
         $text = '';
         foreach ($candidate['content']['parts'] ?? [] as $part) {
@@ -77,17 +84,7 @@ class GeminiClient implements AiClient
             }
         }
 
-        $usage = $data['usageMetadata'] ?? [];
-
-        return AiResult::fromText(
-            $request,
-            $text,
-            (string) ($data['modelVersion'] ?? $model),
-            (int) ($usage['promptTokenCount'] ?? 0),
-            (int) ($usage['candidatesTokenCount'] ?? 0) + (int) ($usage['thoughtsTokenCount'] ?? 0),
-            $finishReason,
-            $latencyMs,
-        );
+        return AiResult::fromText($request, $text, $answeredBy, $inputTokens, $outputTokens, $finishReason, $latencyMs);
     }
 
     /**

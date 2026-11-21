@@ -5,6 +5,8 @@ namespace Config;
 use App\Libraries\Ai\AiClient;
 use App\Libraries\Ai\FakeAiClient;
 use App\Libraries\Ai\GeminiClient;
+use App\Libraries\Ai\RecordingAiClient;
+use App\Models\AiUsageLogModel;
 use App\Libraries\AuthContext;
 use App\Libraries\ContactFormGuard;
 use App\Libraries\EmailService;
@@ -119,10 +121,11 @@ class Services extends BaseService
     }
 
     /**
-     * The AI client: FakeAiClient or GeminiClient, by ai.driver. Production refuses the fake (customers would get
-     * dummy answers) and the tests refuse Gemini (a test run would spend money).
+     * The AI client: FakeAiClient or GeminiClient, by ai.driver, wrapped in RecordingAiClient so every call is logged
+     * to ai_usage_log. Production refuses the fake (customers would get dummy answers) and the tests refuse Gemini
+     * (a test run would spend money).
      */
-    public static function ai(bool $getShared = true): AiClient
+    public static function ai(bool $getShared = true): RecordingAiClient
     {
         if ($getShared) {
             return static::getSharedInstance('ai');
@@ -130,6 +133,11 @@ class Services extends BaseService
 
         $config = config(Ai::class);
 
+        return new RecordingAiClient(self::aiDriver($config), model(AiUsageLogModel::class, false), $config->driver);
+    }
+
+    private static function aiDriver(Ai $config): AiClient
+    {
         return match ($config->driver) {
             Ai::DRIVER_FAKE => ENVIRONMENT === 'production'
                 ? throw new RuntimeException('ai.driver "fake" is not allowed in production')

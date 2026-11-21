@@ -1,0 +1,22 @@
+<?php
+return [
+    'invalidUsedFor'    => 'Permintaan tidak dapat dibaca. Sila muat semula halaman dan cuba lagi.',
+    'usedForNotAllowed' => 'Akaun anda tidak boleh memuat naik jenis imej ini.',
+    'invalidImageName'  => 'Nama imej hanya boleh mengandungi huruf, digit, sengkang dan garis bawah, sehingga 100 aksara.',
+    'invalidId'         => 'Permintaan tidak dapat dibaca. Sila muat semula halaman dan cuba lagi.',
+    'imageRequired'     => 'Sila pilih imej untuk dimuat naik.',
+    'tooLarge'          => 'Imej terlalu besar. Sila pilih imej di bawah {0} MB.',
+    'invalidType'       => 'Sila pilih imej JPG, PNG atau WebP.',
+    'targetNotFound'    => 'Rekod untuk imej ini tidak ditemui.',
+    'notOwnRecord'      => 'Anda hanya boleh menukar imej anda sendiri.',
+    'nameTaken'         => 'Imej lain sudah menggunakan nama ini. Sila gunakan nama lain.',
+    'unreadable'        => 'Imej tidak dapat dibaca. Sila pilih imej lain.',
+    'tooSmall'          => 'Imej terlalu kecil. Sila pilih imej sekurang-kurangnya {0} × {1} piksel.',
+    'loadFailed'        => 'Tidak dapat memuatkan rekod untuk imej ini. Sila cuba lagi.',
+    'saveFailed'        => 'Tidak dapat menyimpan imej. Sila cuba lagi.',
+    'deleteFailed'      => 'Tidak dapat memadam imej. Sila cuba lagi.',
+    'noImage'           => 'Tiada imej untuk dipadam.',
+    'uploaded'          => 'Imej dimuat naik.',
+    'deleted'           => 'Imej dipadam.',
+    'notFound'          => 'Imej tidak ditemui.',
+];

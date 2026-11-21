@@ -35,8 +35,19 @@ class AiException extends RuntimeException
     public const KINDS = [self::TIMEOUT, self::RATE_LIMITED, self::UNAVAILABLE, self::BLOCKED, self::BAD_RESPONSE,
         self::INVALID_REQUEST, self::NOT_CONFIGURED];
 
-    public function __construct(public readonly string $kind, string $message, ?Throwable $previous = null)
-    {
+    /**
+     * @param string|null $model        The model that answered, when an answer came back
+     * @param int         $inputTokens  Tokens billed for the prompt, when an answer came back but cannot be used
+     * @param int         $outputTokens Tokens billed for the answer, likewise
+     */
+    public function __construct(
+        public readonly string $kind,
+        string $message,
+        ?Throwable $previous = null,
+        public readonly ?string $model = null,
+        public readonly int $inputTokens = 0,
+        public readonly int $outputTokens = 0,
+    ) {
         parent::__construct($message, 0, $previous);
     }
 

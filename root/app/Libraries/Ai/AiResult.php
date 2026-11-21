@@ -32,7 +32,8 @@ final class AiResult
     /**
      * The result of the model's text for $request: decoded when the request wants JSON, which fails the same way
      * for every client
-     * @throws AiException (BAD_RESPONSE) when the request wants JSON and the text is not a JSON object or list
+     * @throws AiException (BAD_RESPONSE, carrying the tokens, which are billed all the same) when the request wants
+     *                     JSON and the text is not a JSON object or list, or when the text is empty
      */
     public static function fromText(AiRequest $request, string $text, string $model, int $inputTokens, int $outputTokens,
         string $finishReason, int $latencyMs): self
@@ -42,13 +43,13 @@ final class AiResult
             try {
                 $json = json_decode($text, true, 512, JSON_THROW_ON_ERROR);
             } catch (JsonException) {
-                throw new AiException(AiException::BAD_RESPONSE, 'The answer is not valid JSON');
+                throw new AiException(AiException::BAD_RESPONSE, 'The answer is not valid JSON', null, $model, $inputTokens, $outputTokens);
             }
             if (! is_array($json)) {
-                throw new AiException(AiException::BAD_RESPONSE, 'The answer is not a JSON object or list');
+                throw new AiException(AiException::BAD_RESPONSE, 'The answer is not a JSON object or list', null, $model, $inputTokens, $outputTokens);
             }
         } elseif (trim($text) === '') {
-            throw new AiException(AiException::BAD_RESPONSE, 'The answer is empty');
+            throw new AiException(AiException::BAD_RESPONSE, 'The answer is empty', null, $model, $inputTokens, $outputTokens);
         }
 
         return new self($text, $json, $model, $inputTokens, $outputTokens, $finishReason, $latencyMs);

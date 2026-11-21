@@ -1,0 +1,22 @@
+<?php
+return [
+    'invalidUsedFor'    => 'Permintaan tidak dapat dibaca. Silakan muat ulang halaman dan coba lagi.',
+    'usedForNotAllowed' => 'Akun Anda tidak dapat mengunggah jenis gambar ini.',
+    'invalidImageName'  => 'Nama gambar hanya boleh berisi huruf, angka, tanda hubung dan garis bawah, hingga 100 karakter.',
+    'invalidId'         => 'Permintaan tidak dapat dibaca. Silakan muat ulang halaman dan coba lagi.',
+    'imageRequired'     => 'Silakan pilih gambar untuk diunggah.',
+    'tooLarge'          => 'Gambar terlalu besar. Silakan pilih gambar di bawah {0} MB.',
+    'invalidType'       => 'Silakan pilih gambar JPG, PNG atau WebP.',
+    'targetNotFound'    => 'Data untuk gambar ini tidak ditemukan.',
+    'notOwnRecord'      => 'Anda hanya dapat mengubah gambar Anda sendiri.',
+    'nameTaken'         => 'Gambar lain sudah menggunakan nama ini. Silakan gunakan nama lain.',
+    'unreadable'        => 'Gambar tidak dapat dibaca. Silakan pilih gambar lain.',
+    'tooSmall'          => 'Gambar terlalu kecil. Silakan pilih gambar minimal {0} × {1} piksel.',
+    'loadFailed'        => 'Tidak dapat memuat data untuk gambar ini. Silakan coba lagi.',
+    'saveFailed'        => 'Tidak dapat menyimpan gambar. Silakan coba lagi.',
+    'deleteFailed'      => 'Tidak dapat menghapus gambar. Silakan coba lagi.',
+    'noImage'           => 'Tidak ada gambar untuk dihapus.',
+    'uploaded'          => 'Gambar diunggah.',
+    'deleted'           => 'Gambar dihapus.',
+    'notFound'          => 'Gambar tidak ditemukan.',
+];

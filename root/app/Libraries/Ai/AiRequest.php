@@ -17,6 +17,8 @@ final class AiRequest
      *                                                      JSON and AiResult::$json holds it decoded
      * @param float|null                $temperature       null: the model's default
      * @param int|null                  $maxOutputTokens   null: the model's default
+     * @param AiUsageContext|null       $context           Whose call and for what, for the usage log; required
+     *                                                      through service('ai'), which logs every call
      */
     public function __construct(
         public readonly string $feature,
@@ -25,6 +27,7 @@ final class AiRequest
         public readonly ?array $responseSchema = null,
         public readonly ?float $temperature = null,
         public readonly ?int $maxOutputTokens = null,
+        public readonly ?AiUsageContext $context = null,
     ) {
     }
 

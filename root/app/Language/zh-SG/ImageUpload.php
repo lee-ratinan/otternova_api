@@ -1,0 +1,22 @@
+<?php
+return [
+    'invalidUsedFor'    => '无法读取请求。请重新加载页面后再试。',
+    'usedForNotAllowed' => '您的账户无法上传此类图片。',
+    'invalidImageName'  => '图片名称只能包含字母、数字、连字符和下划线，最多 100 个字符。',
+    'invalidId'         => '无法读取请求。请重新加载页面后再试。',
+    'imageRequired'     => '请选择要上传的图片。',
+    'tooLarge'          => '图片太大。请选择小于 {0} MB 的图片。',
+    'invalidType'       => '请选择 JPG、PNG 或 WebP 图片。',
+    'targetNotFound'    => '找不到此图片的记录。',
+    'notOwnRecord'      => '您只能更改自己的图片。',
+    'nameTaken'         => '另一张图片已使用此名称。请使用其他名称。',
+    'unreadable'        => '无法读取图片。请选择其他图片。',
+    'tooSmall'          => '图片太小。请选择至少 {0} × {1} 像素的图片。',
+    'loadFailed'        => '无法加载此图片的记录。请再试一次。',
+    'saveFailed'        => '无法保存图片。请再试一次。',
+    'deleteFailed'      => '无法删除图片。请再试一次。',
+    'noImage'           => '没有可删除的图片。',
+    'uploaded'          => '图片已上传。',
+    'deleted'           => '图片已删除。',
+    'notFound'          => '找不到图片。',
+];
