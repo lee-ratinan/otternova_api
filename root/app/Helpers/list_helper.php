@@ -27,7 +27,8 @@ if (!function_exists("listSocialMediaKeys")) {
             "instagram" => "Instagram",
             "linkedin"  => "LinkedIn",
             "youtube"   => "Youtube",
-            "globe"     => "Website",
+            "line"      => "Line",
+            "tiktok"    => "Tiktok",
         ];
     }
 }

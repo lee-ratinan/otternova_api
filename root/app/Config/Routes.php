@@ -329,6 +329,13 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('website/save', 'Websites::save');
         $routes->post('website/logo-upload', 'Websites::logoUpload');
         $routes->post('website/logo-delete', 'Websites::logoDelete');
+        // the social media accounts of a business: its active owners and managers only; see App\Controllers\SocialLinks
+        $routes->post('social-links', 'SocialLinks::show');
+        $routes->post('social-links/save', 'SocialLinks::save');
+        // the tags of a business, for searching businesses: its active owners and managers only; see App\Controllers\Tags
+        $routes->post('tags', 'Tags::show');
+        $routes->post('tags/save', 'Tags::save');
+        $routes->post('tags/suggest', 'Tags::suggest');
         // the pages a business designs itself, their sections and images: its active owners and managers only;
         // see App\Controllers\Webpages
         $routes->post('webpages', 'Webpages::list');
