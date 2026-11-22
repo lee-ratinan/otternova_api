@@ -40,17 +40,21 @@ final class OrderMailer
                 return false;
             }
             $money = static fn (?string $amount): string => $order['currency'] . ' ' . number_format((float) $amount, 2);
+            // the plain text has a line per item; the HTML, a table row
             $items = [];
+            $rows  = [];
             foreach ($order['lines'] as $line) {
-                $what = $line['name'] . ($line['label'] !== '' ? ' (' . $line['label'] . ')' : '') . ' × ' . $line['quantity'];
-                if ($line['starts_at'] !== null) {
-                    $what .= ', ' . str_replace('T', ' ', substr($line['starts_at'], 0, 16)) . ($line['store'] !== null ? ' · ' . $line['store']['name'] : '');
-                }
-                $items[] = '• ' . $what . ': ' . $money($line['total']);
+                $name = $line['name'] . ($line['label'] !== '' ? ' (' . $line['label'] . ')' : '');
+                $when = $line['starts_at'] === null ? null
+                    : str_replace('T', ' ', substr($line['starts_at'], 0, 16)) . ($line['store'] !== null ? ' · ' . $line['store']['name'] : '');
+                $items[] = '• ' . $name . ' × ' . $line['quantity'] . ($when === null ? '' : ', ' . $when) . ': ' . $money($line['total']);
+                $rows[]  = ['item' => $name, 'detail' => $when, 'quantity' => $line['quantity'], 'amount' => $money($line['total'])];
             }
             // a line's total has its share of the discount off and its added tax in: the shipping is all the total adds
             if ((float) ($order['totals']['shipping'] ?? 0) > 0) {
                 $items[] = lang('Email.order_placed.shipping', [$money($order['totals']['shipping'])], $locale);
+                $rows[]  = ['item' => lang('Email.order_placed.shipping-label', [], $locale), 'detail' => null, 'quantity' => null,
+                    'amount' => $money($order['totals']['shipping'])];
             }
             $paid    = $row['financial_status'] !== 'pending' && $row['financial_status'] !== 'partially_paid';
             $payment = $order['payment'];
@@ -68,7 +72,7 @@ final class OrderMailer
                 'how'           => $how === '' ? lang('Email.order_placed.no-instruction', ['business_name' => $row['business_name']], $locale) : $how,
                 'link'          => rtrim((string) env('LINK_MART', ''), '/') . '/' . rawurlencode($row['business_slug']) . '/payment/'
                     . rawurlencode($row['order_number']) . '?key=' . rawurlencode($key),
-            ], $row['language_code']);
+            ], $row['language_code'], ['items' => $rows]);
         } catch (Throwable $e) {
             log_message('error', 'Order confirmation email of order {id}: {message}', ['id' => $orderId, 'message' => $e->getMessage()]);
 

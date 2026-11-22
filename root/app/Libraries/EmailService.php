@@ -8,7 +8,7 @@ use InvalidArgumentException;
  * Sends every kind of email the API sends. Each kind is a TYPE_* constant whose subject and body
  * come from the Email language file (Email.<type>.subject / Email.<type>.body). The body goes out as
  * HTML inside Views/email/template-v1.php (whose other text is Email.template.*), with the plain
- * text as the alternative part.
+ * text as the alternative part. A placeholder given as a table (see send()) is a table in the HTML.
  */
 class EmailService
 {
@@ -44,6 +44,12 @@ class EmailService
     /** Locale of the email being sent, for the template text (null: the request's locale) */
     private ?string $locale = null;
 
+    /** The tables of the email being sent, by placeholder (see send()) */
+    private array $tables = [];
+
+    /** The body of the email being sent with each table's placeholder as its token, for the HTML (null: no tables) */
+    private ?string $htmlBody = null;
+
     /**
      * @param string $type One of the TYPE_* constants
      * @param string $to
@@ -51,9 +57,12 @@ class EmailService
      * @param string|null $locale The recipient's language, such as their preferred_language; null for the request's
      *                            locale. See supportedLocale() for how it maps onto Config\App::$supportedLocales. A
      *                            line not translated into it yet falls back to Config\App::$defaultLocale
+     * @param array       $tables Placeholders of $data that the HTML shows as a table instead of their plain text, each a
+     *                            list of rows: ['item' => string, 'detail' => ?string, 'quantity' => int|string|null,
+     *                            'amount' => string]. The placeholder should be a paragraph of its own in the body
      * @return bool
      */
-    public function send(string $type, string $to, array $data = [], ?string $locale = null): bool
+    public function send(string $type, string $to, array $data = [], ?string $locale = null, array $tables = []): bool
     {
         if (! in_array($type, [self::TYPE_LOGIN_OTP, self::TYPE_ACCOUNT_ACTIVATION, self::TYPE_ACCOUNT_EXISTS, self::TYPE_PASSWORD_RESET, self::TYPE_BUSINESS_INVITATION,
             self::TYPE_ORDER_CANCELLED, self::TYPE_ORDER_CANCELLED_PAID, self::TYPE_ORDER_RESCHEDULED,
@@ -62,10 +71,19 @@ class EmailService
         }
 
         $this->locale = $this->supportedLocale($locale);
+        $this->tables = $tables;
         try {
+            $tokens         = [];
+            foreach (array_keys($tables) as $name) {
+                $tokens[$name] = self::tableToken($name);
+            }
+            $this->htmlBody = $tables === [] ? null : $this->line($type . '.body', array_merge($data, $tokens));
+
             return $this->deliver($to, $this->line($type . '.subject', $data), $this->line($type . '.body', $data));
         } finally {
-            $this->locale = null;
+            $this->locale   = null;
+            $this->tables   = [];
+            $this->htmlBody = null;
         }
     }
 
@@ -75,9 +93,10 @@ class EmailService
      * @param string      $subject
      * @param string      $body   Plain text; blank lines separate paragraphs
      * @param string|null $locale As in send()
+     * @param array       $tables As in send(): a paragraph that is only a table's token (see tableToken()) becomes that table
      * @return string
      */
-    public function render(string $subject, string $body, ?string $locale = null): string
+    public function render(string $subject, string $body, ?string $locale = null, array $tables = []): string
     {
         $previous     = $this->locale;
         $this->locale = $this->supportedLocale($locale);
@@ -87,7 +106,7 @@ class EmailService
             return strtr(view(self::TEMPLATE, [], ['saveData' => false]), [
                 '{{lang}}'                 => esc($this->locale ?? service('request')->getLocale()),
                 '{{subject}}'              => esc($subject),
-                '{{email_content}}'        => $this->bodyToHtml($body),
+                '{{email_content}}'        => $this->bodyToHtml($body, $tables),
                 '{{closing_message}}'      => esc($this->line('template.closing_message')),
                 '{{best_regards}}'         => esc($this->line('template.best_regards')),
                 '{{team_name}}'            => esc($this->line('template.team_name')),
@@ -149,22 +168,69 @@ class EmailService
     }
 
     /**
-     * Plain text to HTML paragraphs: escaped, blank lines start a new paragraph, single line breaks become <br>,
-     * and http(s) links become clickable
-     * @param string $body
+     * What stands for a table in the body that render() is given
+     * @param string $name The table's placeholder
      * @return string
      */
-    private function bodyToHtml(string $body): string
+    public static function tableToken(string $name): string
+    {
+        return '[[table:' . $name . ']]';
+    }
+
+    /**
+     * Plain text to HTML paragraphs: escaped, blank lines start a new paragraph, single line breaks become <br>,
+     * and http(s) links become clickable; a paragraph that is only a table's token is that table
+     * @param string $body
+     * @param array  $tables As in send()
+     * @return string
+     */
+    private function bodyToHtml(string $body, array $tables = []): string
     {
         $paragraphs = preg_split('/\R{2,}/', trim($body)) ?: [];
         $html       = '';
         foreach ($paragraphs as $paragraph) {
+            foreach ($tables as $name => $rows) {
+                if (trim($paragraph) === self::tableToken((string) $name)) {
+                    $html .= $this->tableToHtml($rows);
+
+                    continue 2;
+                }
+            }
             $text  = nl2br(esc($paragraph), false);
             $text  = preg_replace('~https?://[^\s<]+~', '<a href="$0" style="color: #c97232; word-break: break-all;">$0</a>', $text);
             $html .= '<p style="margin: 0 0 16px;">' . $text . "</p>\n";
         }
 
         return $html;
+    }
+
+    /**
+     * Rows as a table the width of the content: the item (its detail below it), the quantity and the amount
+     * @param array $rows As in send()
+     * @return string
+     */
+    private function tableToHtml(array $rows): string
+    {
+        $cell = 'padding: 10px 0; border-bottom: 1px solid #eeeeee; vertical-align: top;';
+        $html = '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+            . 'style="width: 100%; border-collapse: collapse; table-layout: auto; margin: 0 0 16px; font-size: 14px; line-height: 1.5;">' . "\n";
+        foreach ($rows as $row) {
+            $item   = esc((string) ($row['item'] ?? ''));
+            $detail = trim((string) ($row['detail'] ?? ''));
+            if ($detail !== '') {
+                $item .= '<br><span style="color: #888888; font-size: 13px;">' . esc($detail) . '</span>';
+            }
+            $quantity = (string) ($row['quantity'] ?? '');
+            $html    .= '<tr>'
+                . '<td class="email-divider" style="' . $cell . ' word-break: break-word;">' . $item . '</td>'
+                . '<td class="email-divider" style="' . $cell . ' padding-left: 12px; text-align: right; white-space: nowrap;">'
+                . ($quantity === '' ? '' : '× ' . esc($quantity)) . '</td>'
+                . '<td class="email-divider" style="' . $cell . ' padding-left: 12px; text-align: right; white-space: nowrap;">'
+                . esc((string) ($row['amount'] ?? '')) . '</td>'
+                . "</tr>\n";
+        }
+
+        return $html . "</table>\n";
     }
 
     /**
@@ -193,7 +259,7 @@ class EmailService
         $email->setTo($to);
         $email->setSubject($subject);
         $email->setMailType('html');
-        $email->setMessage($this->render($subject, $body, $this->locale));
+        $email->setMessage($this->render($subject, $this->htmlBody ?? $body, $this->locale, $this->tables));
         $email->setAltMessage($body);
 
         if (! $email->send(false)) {

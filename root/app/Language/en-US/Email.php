@@ -49,6 +49,7 @@ return [
         'body'           => "Hello {first_name},\n\nThank you for your order with {business_name}. Your order number is {order_number}.\n\n{items}\n\nTotal: {total}\n\nIt is not paid yet. Payment: {method}\n{how}\n\nYou can see your order, pay it and tell us once you have paid here:\n\n{link}\n\nUntil it is paid, your order may be cancelled.",
         'promptpay'      => 'Scan the PromptPay QR code on your order page, with the amount already in it.',
         'shipping'       => 'Shipping: {0}',
+        'shipping-label' => 'Shipping',
         'no-instruction' => '{business_name} will tell you how to pay.',
     ],
     'order_placed_paid'  => [

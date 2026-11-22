@@ -49,6 +49,7 @@ return [
         'body'           => "{first_name} 様\n\n{business_name}でご注文いただきありがとうございます。注文番号は {order_number} です。\n\n{items}\n\n合計：{total}\n\nまだお支払いが完了していません。お支払い方法：{method}\n{how}\n\nご注文の確認、お支払い、お支払い完了のご連絡はこちらから行えます。\n\n{link}\n\nお支払いが完了するまでは、ご注文がキャンセルされる場合があります。",
         'promptpay'      => '注文ページのPromptPay QRコードをスキャンしてください。金額はすでに入力されています。',
         'shipping'       => '配送：{0}',
+        'shipping-label' => '配送',
         'no-instruction' => 'お支払い方法は{business_name}からご案内します。',
     ],
     'order_placed_paid'  => [

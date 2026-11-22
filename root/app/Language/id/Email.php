@@ -49,6 +49,7 @@ return [
         'body'           => "Halo {first_name},\n\nTerima kasih atas pesanan Anda di {business_name}. Nomor pesanan Anda adalah {order_number}.\n\n{items}\n\nTotal: {total}\n\nPesanan ini belum dibayar. Pembayaran: {method}\n{how}\n\nAnda dapat melihat pesanan, membayarnya, dan memberi tahu kami setelah membayar di sini:\n\n{link}\n\nSelama belum dibayar, pesanan Anda dapat dibatalkan.",
         'promptpay'      => 'Pindai kode QR PromptPay di halaman pesanan Anda, jumlahnya sudah tercantum.',
         'shipping'       => 'Pengiriman: {0}',
+        'shipping-label' => 'Pengiriman',
         'no-instruction' => '{business_name} akan memberi tahu Anda cara membayar.',
     ],
     'order_placed_paid'  => [

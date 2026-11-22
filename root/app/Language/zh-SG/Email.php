@@ -49,6 +49,7 @@ return [
         'body'           => "{first_name} 您好，\n\n感谢您在 {business_name} 下单。您的订单号是 {order_number}。\n\n{items}\n\n总计：{total}\n\n此订单尚未付款。付款方式：{method}\n{how}\n\n您可以在此查看订单、付款，并在付款后通知我们：\n\n{link}\n\n在付款之前，您的订单可能会被取消。",
         'promptpay'      => '请扫描订单页面上的 PromptPay 二维码，金额已自动填入。',
         'shipping'       => '配送：{0}',
+        'shipping-label' => '配送',
         'no-instruction' => '{business_name} 会告诉您如何付款。',
     ],
     'order_placed_paid'  => [

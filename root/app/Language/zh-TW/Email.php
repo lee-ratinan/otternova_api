@@ -49,6 +49,7 @@ return [
         'body'           => "{first_name} 您好：\n\n感謝您在 {business_name} 下單。您的訂單編號是 {order_number}。\n\n{items}\n\n總計：{total}\n\n此訂單尚未付款。付款方式：{method}\n{how}\n\n您可以在此查看訂單、付款，並在付款後通知我們：\n\n{link}\n\n在付款之前，您的訂單可能會被取消。",
         'promptpay'      => '請掃描訂單頁面上的 PromptPay QR 碼，金額已自動帶入。',
         'shipping'       => '配送：{0}',
+        'shipping-label' => '配送',
         'no-instruction' => '{business_name} 會告訴您如何付款。',
     ],
     'order_placed_paid'  => [
