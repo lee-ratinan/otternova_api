@@ -141,6 +141,12 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('discount/update', 'Plans::saveDiscount');
     });
 
+    // Admin app's view of every business: any staff member, the tax ID to the Executive Office and Finance only; see App\Controllers\BusinessAdmin
+    $routes->group('staff/businesses', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
+        $routes->post('list', 'BusinessAdmin::list');
+        $routes->post('business', 'BusinessAdmin::business');
+    });
+
     // Admin app's view of every subscription and payment: Executive Office and Finance only; see App\Controllers\SubscriptionAdmin
     $routes->group('staff/subscriptions', ['filter' => ['jwt:S', 'department:EXE,FIN']], static function (RouteCollection $routes) {
         $routes->post('list', 'SubscriptionAdmin::list');

@@ -458,6 +458,10 @@ class SalesOrderModel extends Model
         return $this->inTransaction(function () use ($order, $changes, $actorId): bool {
             $this->db->table($this->table)->where('id', $order['id'])->update($changes);
             (new ActivityLog())->updated($actorId, 'Changed the statuses of order ' . $order['order_number'], $this->table, (int) $order['id'], $order, $changes);
+            if (isset($changes['fulfillment_status'])) {
+                // someone is getting it ready: the new order is handled for everyone told of it
+                (new Notifier())->markSubjectRead($this->table, (int) $order['id'], Notifier::ORDER_PLACED);
+            }
 
             return true;
         });
@@ -556,9 +560,7 @@ class SalesOrderModel extends Model
             $this->db->table(self::PAYMENTS)->where('id', $payment['id'])->update($changes);
             $log->updated(null, 'The customer reported paying order ' . $order['order_number'], self::PAYMENTS, (int) $payment['id'], $payment, $changes);
 
-            $stores = array_map('intval', array_column($this->db->table('order_line')->select('store_id')->where('order_id', $order['id'])->get()->getResultArray(), 'store_id'));
-            $stores = array_values(array_unique(array_filter([...$stores, $order['pickup_store_id'], $order['counter_store_id']])));
-            (new Notifier())->toStoreStaff((int) $order['business_id'], array_map('intval', $stores), Notifier::ORDER_PAYMENT_REPORTED, [
+            (new Notifier())->toStoreStaff((int) $order['business_id'], $this->storesOf($order), Notifier::ORDER_PAYMENT_REPORTED, [
                 'customer'     => trim($order['first_name'] . ' ' . $order['last_name']),
                 'order_number' => $order['order_number'],
                 'amount'       => $order['currency_code'] . ' ' . number_format((float) Money::format($payment['amount']), 2),
@@ -604,6 +606,14 @@ class SalesOrderModel extends Model
                 self::PAYMENTS, (int) $payment['id'], $payment, $changes);
             // checked: the report is handled for everyone told of it
             (new Notifier())->markSubjectRead(self::PAYMENTS, (int) $payment['id'], Notifier::ORDER_PAYMENT_REPORTED);
+            if ($status === self::TXN_FAILED && $payment['transaction_type'] === self::TYPE_PAYMENT) {
+                (new Notifier())->toStoreStaff((int) $order['business_id'], $this->storesOf($order), Notifier::ORDER_PAYMENT_FAILED, [
+                    'order_number' => $order['order_number'],
+                    'amount'       => $order['currency_code'] . ' ' . number_format((float) Money::format($payment['amount']), 2),
+                    'method'       => (string) $payment['payment_method_name'],
+                    'reason'       => $failureReason ?? 'lang:no_reason',
+                ], '/admin/sales/order/' . $order['public_id'], [self::PAYMENTS, (int) $payment['id']], $actorId);
+            }
             $this->refreshFinancial($order, $actorId);
             if ($status === self::TXN_SUCCEEDED) {
                 $this->moveRefundDue($order, $payment['transaction_type'], Money::toCents((string) Money::format($payment['amount'])), $actorId);
@@ -682,7 +692,11 @@ class SalesOrderModel extends Model
 
             // what the order took, given back
             $sessions = model(ServiceSessionModel::class);
+            $booked   = []; // [order_line, the people it held], read before the session is cancelled
             foreach ($this->db->table('order_line')->where('order_id', $orderId)->get()->getResultArray() as $line) {
+                if (in_array($line['line_kind'], ['A', 'G'], true) && $line['session_id'] !== null) {
+                    $booked[] = [$line, $this->staffOfSession((int) $line['session_id'])];
+                }
                 if ($line['line_kind'] === 'P' && $restock) {
                     $updated = $this->db->table('artifact_variant_inventory')->set('quantity', 'quantity + ' . (int) $line['quantity'], false)
                         ->where('variant_id', $line['variant_id'])->where('store_id', $line['store_id'])->update();
@@ -728,6 +742,18 @@ class SalesOrderModel extends Model
             (new Notifier())->toBusiness((int) $order['business_id'], [BusinessClientLinkModel::ROLE_OWNER, BusinessClientLinkModel::ROLE_MANAGER],
                 $money['refundable'] > 0 ? Notifier::ORDER_CANCELLED : Notifier::ORDER_CANCELLED_UNPAID, $params,
                 '/admin/sales/order/' . $order['public_id'], [$this->table, $orderId], $actorId);
+            (new Notifier())->markSubjectRead($this->table, $orderId, Notifier::ORDER_PLACED);
+            foreach ($booked as [$line, $staff]) {
+                $store = $this->storeClock((int) $line['store_id']);
+                (new Notifier())->toClients((int) $order['business_id'], $staff, Notifier::ORDER_BOOKING_CANCELLED, [
+                    'customer'     => trim($order['first_name'] . ' ' . $order['last_name']),
+                    'order_number' => $order['order_number'],
+                    'service'      => $line['artifact_name'],
+                    'when'         => self::localTime($line['starts_at'], $store['timezone']),
+                    'store'        => $store['name'],
+                    'reason'       => $reason,
+                ], '/admin/sales/order/' . $order['public_id'], ['service_session', (int) $line['session_id']], $actorId);
+            }
 
             return $this->db->table($this->table)->where('id', $orderId)->get()->getRowArray();
         });
@@ -902,6 +928,7 @@ class SalesOrderModel extends Model
                 }
             }
 
+            $before   = $this->staffOfSession($sessionId);
             $sessions = model(ServiceSessionModel::class);
             $session  = $this->db->table('service_session')->where('id', $sessionId)->get()->getRowArray();
             $slot     = $this->db->table(ServiceSessionModel::SLOTS)->where('session_id', $sessionId)->where('slot_status', ServiceSessionModel::SLOT_SCHEDULED)
@@ -918,6 +945,15 @@ class SalesOrderModel extends Model
             $changes = ['starts_at' => $start->format(self::DB_FORMAT), 'ends_at' => $end->format(self::DB_FORMAT)];
             $this->db->table('order_line')->where('id', $line['id'])->update($changes);
             (new ActivityLog())->updated($actorId, 'Moved line ' . $lineNumber . ' of order ' . $order['order_number'], 'order_line', (int) $line['id'], $line, $changes);
+            // the people of the old time and of the new one
+            (new Notifier())->toClients((int) $order['business_id'], array_merge($before, array_map('intval', $clients)), Notifier::ORDER_RESCHEDULED, [
+                'customer'     => trim($order['first_name'] . ' ' . $order['last_name']),
+                'order_number' => $order['order_number'],
+                'service'      => $line['artifact_name'],
+                'from'         => self::localTime($line['starts_at'], $store['timezone']),
+                'to'           => self::localTime($changes['starts_at'], $store['timezone']),
+                'store'        => $store['name'],
+            ], '/admin/sales/order/' . $order['public_id'], ['service_session', $sessionId], $actorId);
 
             return ['from' => $line['starts_at'], 'to' => $changes['starts_at'], 'timezone' => $store['timezone'], 'line' => $line];
         });
@@ -959,6 +995,47 @@ class SalesOrderModel extends Model
 
         return CancelPolicy::freeUntil($business, new DateTimeImmutable($line['starts_at'], new DateTimeZone('UTC')), new DateTimeZone($zone ?: 'UTC'))
             ->setTimezone(new DateTimeZone('UTC'));
+    }
+
+    /**
+     * The client_master ids of the people a session's scheduled slots hold
+     * @return list<int>
+     */
+    private function staffOfSession(int $sessionId): array
+    {
+        return array_values(array_unique(array_map('intval', array_column($this->db->table(ServiceSessionModel::STAFF . ' h')->select('h.client_id')
+            ->join(ServiceSessionModel::SLOTS . ' sl', 'sl.id = h.slot_id')->where('sl.session_id', $sessionId)
+            ->where('sl.slot_status', ServiceSessionModel::SLOT_SCHEDULED)->get()->getResultArray(), 'client_id'))));
+    }
+
+    /**
+     * The stores an order is of: those of its lines, its pickup store and the counter it was taken at
+     * @return list<int>
+     */
+    private function storesOf(array $order): array
+    {
+        $stores = array_column($this->db->table('order_line')->select('store_id')->where('order_id', $order['id'])->get()->getResultArray(), 'store_id');
+
+        return array_map('intval', array_values(array_unique(array_filter([...$stores, $order['pickup_store_id'], $order['counter_store_id']]))));
+    }
+
+    /**
+     * A store's name and timezone, for the times notifications show
+     * @return array{name: string, timezone: string}
+     */
+    private function storeClock(int $storeId): array
+    {
+        $row = $this->db->table('business_store')->select('store_name, store_timezone')->where('id', $storeId)->get()->getRowArray();
+
+        return ['name' => (string) ($row['store_name'] ?? ''), 'timezone' => ($row['store_timezone'] ?? '') ?: 'UTC'];
+    }
+
+    /**
+     * A UTC time on a store's clock, as notifications show it: "2026-11-22 14:30"
+     */
+    private static function localTime(string $at, string $timezone): string
+    {
+        return (new DateTimeImmutable($at, new DateTimeZone('UTC')))->setTimezone(new DateTimeZone($timezone ?: 'UTC'))->format('Y-m-d H:i');
     }
 
     /**

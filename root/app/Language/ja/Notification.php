@@ -38,6 +38,98 @@ return [
             'title'   => '注文がキャンセルされました',
             'message' => '注文 {order_number} は{by}によってキャンセルされました：{reason}。お支払いはありませんでした。',
         ],
+        'placed' => [
+            'title'   => '新しい注文: {order_number}',
+            'message' => '{customer}様が注文 {order_number}（{amount}）をしました。商品をご用意ください。お支払い: {payment}。',
+        ],
+        'rescheduled' => [
+            'title'   => '予約の変更: {service}',
+            'message' => '{customer}様の{store}での{service}（注文 {order_number}）が{from}から{to}に変更されました。',
+        ],
+        'booking_cancelled' => [
+            'title'   => '予約のキャンセル: {service}',
+            'message' => '{customer}様の{when}、{store}での{service}（注文 {order_number}）がキャンセルされました: {reason}。',
+        ],
+        'payment_failed' => [
+            'title'   => 'お支払いの失敗: {order_number}',
+            'message' => '注文 {order_number} の{method}による{amount}のお支払いが完了しませんでした: {reason}。お客様にご連絡ください。',
+        ],
+    ],
+
+    'invoice' => [
+        'issued' => [
+            'title'   => '新しい請求書: {invoice_no}',
+            'message' => '{business}の請求書 {invoice_no}（{amount}）が発行されました。{due}までにお支払いください。',
+        ],
+    ],
+
+    'subscription' => [
+        'suspended' => [
+            'title'   => 'サブスクリプションが停止されました',
+            'message' => '{business}のサブスクリプションが停止されました。再開するには、未払いの請求書をお支払いいただくか、お問い合わせください。',
+        ],
+        'expiring' => [
+            'title'   => 'サブスクリプションの期限が近づいています',
+            'message' => '停止中の{business}のサブスクリプションは{expires}に期限切れとなり、未払いの請求書は無効になります。継続するにはお支払いください。',
+        ],
+        'cancelled' => [
+            'title'   => 'サブスクリプションがキャンセルされました',
+            'message' => '{business}のサブスクリプションがキャンセルされました。',
+        ],
+    ],
+
+    'withholding' => [
+        'requested' => [
+            'title'   => '確認が必要な源泉徴収の申請',
+            'message' => '{business}が{rule}に基づく源泉徴収を申請しました。申請を確認してください。',
+        ],
+        'approved' => [
+            'title'   => '源泉徴収が承認されました',
+            'message' => '{business}は{rule}に基づいて源泉徴収できるようになりました。今後の請求書で計算されます。',
+        ],
+        'rejected' => [
+            'title'   => '源泉徴収が承認されませんでした',
+            'message' => '{business}の源泉徴収の申請は承認されませんでした。ご不明な点はお問い合わせください。',
+        ],
+    ],
+
+    'certificate' => [
+        'submitted' => [
+            'title'   => '確認が必要な証明書: {invoice_no}',
+            'message' => '{business}が請求書 {invoice_no} の源泉徴収証明書（{amount}）を送信しました。確認してください。',
+        ],
+        'accepted' => [
+            'title'   => '証明書が受理されました',
+            'message' => '請求書 {invoice_no} の源泉徴収証明書が受理されました。ありがとうございます。',
+        ],
+        'rejected' => [
+            'title'   => '証明書が却下されました',
+            'message' => '請求書 {invoice_no} の源泉徴収証明書が却下されました: {reason}。再度送信してください。',
+        ],
+    ],
+
+    'invitation' => [
+        'accepted' => [
+            'title'   => '{name}さんが参加しました',
+            'message' => '{name}さんが招待を承諾し、{role}として参加しました。',
+        ],
+    ],
+
+    'review' => [
+        'submitted' => [
+            'title'   => '新しいレビュー: {artifact}',
+            'message' => '{customer}様が{artifact}に星{rating}つを付けました。レビューを承認するか非表示にしてください。',
+        ],
+    ],
+
+    // order.payment_failed with no reason recorded
+    'no_reason' => '理由の記載なし',
+
+    // a person's role in a business, for invitation.accepted
+    'client_role' => [
+        'O' => 'オーナー',
+        'M' => 'マネージャー',
+        'E' => 'スタッフ',
     ],
 
     // a booking's payment, for the people serving it

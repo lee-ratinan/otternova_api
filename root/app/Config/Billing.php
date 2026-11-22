@@ -16,6 +16,9 @@ class Billing extends BaseConfig
     /** Days a subscription stays suspended, from suspended_at, before it expires */
     public int $suspendedDays = 30;
 
+    /** Days before a suspended subscription expires that its owners are told (subscription.expiring), once */
+    public int $expiryWarningDays = 7;
+
     /** Hours a first invoice stays payable before it is voided and its discount redemption given back */
     public int $invoiceHoldHours = 24;
 

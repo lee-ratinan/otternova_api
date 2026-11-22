@@ -38,6 +38,98 @@ return [
             'title'   => '订单已取消',
             'message' => '订单 {order_number} 已被 {by} 取消：{reason}。此订单尚未付款。',
         ],
+        'placed' => [
+            'title'   => '新订单：{order_number}',
+            'message' => '{customer} 下了订单 {order_number}，金额 {amount}。请准备商品。付款：{payment}。',
+        ],
+        'rescheduled' => [
+            'title'   => '预约已改期：{service}',
+            'message' => '{customer} 在 {store} 的 {service}（订单 {order_number}）已从 {from} 改到 {to}。',
+        ],
+        'booking_cancelled' => [
+            'title'   => '预约已取消：{service}',
+            'message' => '{customer} 于 {when} 在 {store} 的 {service}（订单 {order_number}）已取消：{reason}。',
+        ],
+        'payment_failed' => [
+            'title'   => '付款失败：{order_number}',
+            'message' => '订单 {order_number} 通过 {method} 支付的 {amount} 未成功：{reason}。请跟进顾客。',
+        ],
+    ],
+
+    'invoice' => [
+        'issued' => [
+            'title'   => '新发票：{invoice_no}',
+            'message' => '{business} 的发票 {invoice_no}（{amount}）已开出。请在 {due} 前付款。',
+        ],
+    ],
+
+    'subscription' => [
+        'suspended' => [
+            'title'   => '订阅已暂停',
+            'message' => '{business} 的订阅已暂停。请支付到期的发票或联系我们以重新启用。',
+        ],
+        'expiring' => [
+            'title'   => '订阅即将到期',
+            'message' => '{business} 已暂停的订阅将于 {expires} 到期，未付的发票将作废。请付款以继续使用。',
+        ],
+        'cancelled' => [
+            'title'   => '订阅已取消',
+            'message' => '{business} 的订阅已取消。',
+        ],
+    ],
+
+    'withholding' => [
+        'requested' => [
+            'title'   => '待审核的预扣税申请',
+            'message' => '{business} 申请按 {rule} 预扣税。请审核该申请。',
+        ],
+        'approved' => [
+            'title'   => '预扣税已批准',
+            'message' => '{business} 现在可以按 {rule} 预扣税，今后的发票将计算预扣税。',
+        ],
+        'rejected' => [
+            'title'   => '预扣税未获批准',
+            'message' => '{business} 的预扣税申请未获批准。如有疑问请联系我们。',
+        ],
+    ],
+
+    'certificate' => [
+        'submitted' => [
+            'title'   => '待核对的证明：{invoice_no}',
+            'message' => '{business} 已提交发票 {invoice_no} 的预扣税证明（{amount}）。请核对。',
+        ],
+        'accepted' => [
+            'title'   => '证明已接受',
+            'message' => '发票 {invoice_no} 的预扣税证明已被接受。谢谢。',
+        ],
+        'rejected' => [
+            'title'   => '证明被拒绝',
+            'message' => '发票 {invoice_no} 的预扣税证明被拒绝：{reason}。请重新提交。',
+        ],
+    ],
+
+    'invitation' => [
+        'accepted' => [
+            'title'   => '{name} 已加入',
+            'message' => '{name} 已接受您的邀请，以{role}身份加入。',
+        ],
+    ],
+
+    'review' => [
+        'submitted' => [
+            'title'   => '新评价：{artifact}',
+            'message' => '{customer} 给 {artifact} 打了 {rating} 星。请批准或隐藏该评价。',
+        ],
+    ],
+
+    // order.payment_failed with no reason recorded
+    'no_reason' => '未说明原因',
+
+    // a person's role in a business, for invitation.accepted
+    'client_role' => [
+        'O' => '业主',
+        'M' => '经理',
+        'E' => '员工',
     ],
 
     // a booking's payment, for the people serving it

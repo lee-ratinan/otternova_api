@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Libraries\ActivityLog;
+use App\Libraries\Notifier;
 use CodeIgniter\Model;
 use RuntimeException;
 use Throwable;
@@ -144,7 +145,7 @@ class BusinessInvitationModel extends Model
         return $this->inTransaction(function () use ($invitation, $createAccount, $log) {
             $result  = $createAccount === null ? null : $createAccount();
             $account = $this->db->table('auth_master a')
-                ->select('a.id AS auth_id, c.id AS client_id')
+                ->select('a.id AS auth_id, a.full_name, c.id AS client_id')
                 ->join('client_master c', 'c.auth_id = a.id')
                 ->where('LOWER(a.email_address) = ' . $this->db->escape($invitation['email_address']), null, false)
                 ->where('a.account_type', AuthMasterModel::TYPE_CLIENT)
@@ -161,8 +162,13 @@ class BusinessInvitationModel extends Model
                 $log->deleted($authId, 'Accepted business invitation', $this->table, (int) $row['id'], $row);
             }
             // already active there (e.g. added by an owner meanwhile): nothing more to do
-            model(BusinessClientLinkModel::class)->link((int) $invitation['business_id'], (int) $account['client_id'],
+            $linked = model(BusinessClientLinkModel::class)->link((int) $invitation['business_id'], (int) $account['client_id'],
                 $invitation['client_role'], gmdate('Y-m-d'), $authId, $invitation['owner_notes']);
+            if ($linked) {
+                (new Notifier())->toBusiness((int) $invitation['business_id'], [BusinessClientLinkModel::ROLE_OWNER], Notifier::INVITATION_ACCEPTED,
+                    ['name' => (string) $account['full_name'], 'role' => 'lang:client_role.' . $invitation['client_role']],
+                    '/admin/employees', ['client_master', (int) $account['client_id']], $authId);
+            }
 
             return $result ?? true;
         });

@@ -472,15 +472,10 @@ class SubscriptionBilling
      */
     private function notifyPayment(string $eventType, array $invoice, int $transactionId, int $actorId, array $params = []): void
     {
-        $business = $this->db->table('subscription_master s')
-            ->select('b.id, b.business_name')
-            ->join('business_master b', 'b.id = s.business_id', 'inner')
-            ->where('s.id', $invoice['subscription_id'])
-            ->get()->getRowArray();
-        $amount  = $invoice['amount_payable'] ?? $invoice['amount_due'];
+        $business = $this->businessOf((int) $invoice['subscription_id']);
         $params += [
             'business'   => (string) ($business['business_name'] ?? ''),
-            'amount'     => $invoice['currency_code'] . ' ' . number_format((float) $amount, 2),
+            'amount'     => self::amountOf($invoice),
             'invoice_no' => $invoice['invoice_no'],
         ];
         $subject  = ['payment_transaction', $transactionId];
@@ -494,6 +489,90 @@ class SubscriptionBilling
         if ($business !== null) {
             $notifier->toBusiness((int) $business['id'], [BusinessClientLinkModel::ROLE_OWNER], $eventType, $params, '/admin/plans', $subject, $actorId);
         }
+    }
+
+    /**
+     * The business of a subscription
+     * @return array{id: int|string, business_name: string, country_code: string}|null
+     */
+    private function businessOf(int $subscriptionId): ?array
+    {
+        return $this->db->table('subscription_master s')
+            ->select('b.id, b.business_name, b.country_code')
+            ->join('business_master b', 'b.id = s.business_id', 'inner')
+            ->where('s.id', $subscriptionId)
+            ->get()->getRowArray();
+    }
+
+    /**
+     * A business by its id
+     * @return array{id: int|string, business_name: string, country_code: string}|null
+     */
+    private function businessById(int $businessId): ?array
+    {
+        return $this->db->table('business_master')->select('id, business_name, country_code')->where('id', $businessId)->get()->getRowArray();
+    }
+
+    /**
+     * Notify the business's owners, in the Client app's plans page, with its name as {business}
+     * @param array|null         $business With id and business_name; nothing is sent when null
+     * @param string             $eventType Notifier::EVENTS
+     * @param array              $params    More placeholders
+     * @param array{string, int} $subject
+     * @param int|null           $actorId   Not notified
+     */
+    private function toOwners(?array $business, string $eventType, array $params, array $subject, ?int $actorId): void
+    {
+        if ($business === null) {
+            return;
+        }
+        (new Notifier())->toBusiness((int) $business['id'], [BusinessClientLinkModel::ROLE_OWNER], $eventType,
+            ['business' => (string) $business['business_name']] + $params, '/admin/plans', $subject, $actorId);
+    }
+
+    /**
+     * Tell the owners a renewal or top-up invoice was issued, with its due day on the business's clock
+     * @param array $invoice Stored row
+     */
+    private function notifyIssued(array $invoice): void
+    {
+        $business = $this->businessOf((int) $invoice['subscription_id']);
+        if ($business === null) {
+            return;
+        }
+        $this->toOwners($business, Notifier::INVOICE_ISSUED, [
+            'invoice_no' => $invoice['invoice_no'],
+            'amount'     => self::amountOf($invoice),
+            'due'        => self::localDate($invoice['due_at'], $business['country_code']),
+        ], ['subscription_invoice', (int) $invoice['id']], null);
+    }
+
+    /**
+     * What an invoice asks to be paid, as notifications show it: "THB 1,070.00"
+     */
+    private static function amountOf(array $invoice): string
+    {
+        return $invoice['currency_code'] . ' ' . number_format((float) ($invoice['amount_payable'] ?? $invoice['amount_due']), 2);
+    }
+
+    /**
+     * The day of a UTC time on the clock of a business in $countryCode, Y-m-d
+     */
+    private static function localDate(string $at, string $countryCode): string
+    {
+        return (new DateTimeImmutable($at, new DateTimeZone('UTC')))->setTimezone(new DateTimeZone(self::timezoneOf($countryCode)))->format('Y-m-d');
+    }
+
+    /**
+     * Whether the owners were already told that the subscription is about to expire, since it was last suspended
+     */
+    private function warnedOfExpiry(int $subscriptionId): bool
+    {
+        $notes     = $this->db->table('notification_master')->where('subject_table', 'subscription_master')->where('subject_id', $subscriptionId);
+        $suspended = (int) ($notes->selectMax('id', 'id')->where('event_type', Notifier::SUBSCRIPTION_SUSPENDED)->get()->getRow()->id ?? 0);
+
+        return $this->db->table('notification_master')->where('subject_table', 'subscription_master')->where('subject_id', $subscriptionId)
+            ->where('event_type', Notifier::SUBSCRIPTION_EXPIRING)->where('id >', $suspended)->countAllResults() > 0;
     }
 
     /**
@@ -515,8 +594,12 @@ class SubscriptionBilling
                 if ($current !== SubscriptionMasterModel::STATUS_ACTIVE) {
                     throw new BillingException('SubscriptionAdmin.cannotSuspend', 409);
                 }
-                $this->inTransaction(fn () => $this->change('subscription_master', $subscription,
-                    ['subscription_status' => $status, 'suspended_at' => $now], $actorId, 'Suspended subscription'));
+                $this->inTransaction(function () use ($subscription, $status, $now, $actorId) {
+                    if ($this->change('subscription_master', $subscription, ['subscription_status' => $status, 'suspended_at' => $now], $actorId, 'Suspended subscription')) {
+                        $this->toOwners($this->businessOf((int) $subscription['id']), Notifier::SUBSCRIPTION_SUSPENDED, [],
+                            ['subscription_master', (int) $subscription['id']], $actorId);
+                    }
+                });
 
                 return;
 
@@ -524,8 +607,12 @@ class SubscriptionBilling
                 if ($current !== SubscriptionMasterModel::STATUS_SUSPENDED || $subscription['current_period_end'] === null || $subscription['current_period_end'] <= $now) {
                     throw new BillingException('SubscriptionAdmin.cannotReactivate', 409);
                 }
-                $this->inTransaction(fn () => $this->change('subscription_master', $subscription,
-                    ['subscription_status' => $status, 'suspended_at' => null], $actorId, 'Reactivated subscription'));
+                $this->inTransaction(function () use ($subscription, $status, $actorId) {
+                    if ($this->change('subscription_master', $subscription, ['subscription_status' => $status, 'suspended_at' => null], $actorId, 'Reactivated subscription')) {
+                        // no longer suspended: its suspension and expiry notices are handled
+                        (new Notifier())->markSubjectRead('subscription_master', (int) $subscription['id']);
+                    }
+                });
 
                 return;
 
@@ -576,6 +663,8 @@ class SubscriptionBilling
             if (! $done) {
                 throw new BillingException('Subscriptions.withholdingAlreadyRequested', 409);
             }
+            (new Notifier())->toDepartments(self::PAYMENT_DEPARTMENTS, Notifier::WITHHOLDING_REQUESTED,
+                ['business' => (string) ($this->businessById((int) $business['id'])['business_name'] ?? ''), 'rule' => $ruleCode], '/admin/clients/withholding', ['business_master', (int) $business['id']], $actorId);
         });
     }
 
@@ -598,6 +687,8 @@ class SubscriptionBilling
             if (! $done) {
                 throw new BillingException('Subscriptions.withholdingNotRequested', 409);
             }
+            // taken back: nothing is left for the staff to review
+            (new Notifier())->markSubjectRead('business_master', (int) $business['id'], Notifier::WITHHOLDING_REQUESTED);
             $this->refreshWithholding((int) $business['id'], $actorId);
         });
     }
@@ -628,6 +719,10 @@ class SubscriptionBilling
             if (! $this->change('business_master', $business, $changes, $actorId, $summary, ['wht_status' => BusinessMasterModel::WHT_REQUESTED])) {
                 throw new BillingException('SubscriptionAdmin.withholdingNotRequested', 409);
             }
+            $subject = ['business_master', (int) $business['id']];
+            (new Notifier())->markSubjectRead($subject[0], $subject[1], Notifier::WITHHOLDING_REQUESTED);
+            $this->toOwners($this->businessById($subject[1]), $decision === BusinessMasterModel::WHT_APPROVED ? Notifier::WITHHOLDING_APPROVED : Notifier::WITHHOLDING_REJECTED,
+                ['rule' => (string) $business['wht_rule_code']], $subject, $actorId);
             $this->refreshWithholding((int) $business['id'], $actorId);
         });
     }
@@ -673,6 +768,12 @@ class SubscriptionBilling
             ], $actorId, $summary);
             $stored = $this->db->table('withholding_tax_certificate')->where('id', $id)->get()->getRowArray();
             $this->change('withholding_tax_certificate', $stored, ['file_path' => $placeFile($id)], $actorId, $summary);
+            $business = $this->businessOf((int) $invoice['subscription_id']);
+            (new Notifier())->toDepartments(self::PAYMENT_DEPARTMENTS, Notifier::CERTIFICATE_SUBMITTED, [
+                'business'   => (string) ($business['business_name'] ?? ''),
+                'invoice_no' => $invoice['invoice_no'],
+                'amount'     => $invoice['currency_code'] . ' ' . number_format((float) $fields['wht_amount'], 2),
+            ], '/admin/clients/withholding', ['withholding_tax_certificate', $id], $actorId);
 
             return $id;
         });
@@ -704,6 +805,7 @@ class SubscriptionBilling
             $this->reviewCertificate($certificate, WithholdingTaxCertificateModel::STATUS_ACCEPTED, null, $actorId);
             $this->change('subscription_invoice', $invoice, ['wht_cert_status' => SubscriptionInvoiceModel::CERT_ACCEPTED], $actorId,
                 'Accepted the withholding tax certificate of invoice ' . $invoice['invoice_no']);
+            $this->notifyCertificate(Notifier::CERTIFICATE_ACCEPTED, $certificate, $invoice, [], $actorId);
             if ($topUp === null) {
                 return null;
             }
@@ -738,7 +840,19 @@ class SubscriptionBilling
             $back = $this->topUpOf((int) $invoice['id']) === null ? SubscriptionInvoiceModel::CERT_WAITING : SubscriptionInvoiceModel::CERT_TOPPED_UP;
             $this->change('subscription_invoice', $invoice, ['wht_cert_status' => $back], $actorId,
                 'Rejected the withholding tax certificate of invoice ' . $invoice['invoice_no']);
+            $this->notifyCertificate(Notifier::CERTIFICATE_REJECTED, $certificate, $invoice, ['reason' => $reason], $actorId);
         });
+    }
+
+    /**
+     * A certificate reviewed: the staff's notices of it are handled, and the owners are told
+     * @param string $eventType Notifier::CERTIFICATE_ACCEPTED or CERTIFICATE_REJECTED
+     */
+    private function notifyCertificate(string $eventType, array $certificate, array $invoice, array $params, int $actorId): void
+    {
+        $subject = ['withholding_tax_certificate', (int) $certificate['id']];
+        (new Notifier())->markSubjectRead($subject[0], $subject[1], Notifier::CERTIFICATE_SUBMITTED);
+        $this->toOwners($this->businessOf((int) $invoice['subscription_id']), $eventType, ['invoice_no' => $invoice['invoice_no']] + $params, $subject, $actorId);
     }
 
     // ---- the scheduled run ----
@@ -751,7 +865,8 @@ class SubscriptionBilling
      * 3. An active subscription gets its renewal invoice Config\Billing::$renewalInvoiceDays before its period ends,
      *    at the price in effect when the next period starts, of next_plan_version_id's series if set, else its own.
      * 4. An active subscription unpaid Config\Billing::$graceDays after its period ended is suspended (S).
-     * 5. A subscription suspended for Config\Billing::$suspendedDays expires (X) and its invoices are voided.
+     * 5. A subscription suspended for Config\Billing::$suspendedDays expires (X) and its invoices are voided; one
+     *    that will in Config\Billing::$expiryWarningDays has its owners told so, once for each suspension.
      * 6. A paid yearly invoice still waiting for its withholding tax certificate after wht_cert_due_at has the tax
      *    billed as a top-up invoice (its wht_cert_status becomes T). A monthly one needs nothing here: the business
      *    cannot pay its next period invoice until the certificate is sent (see assertPayable()).
@@ -810,8 +925,12 @@ class SubscriptionBilling
             if ($this->hasPaymentUnderReview((int) $row['id'])) {
                 return false;
             }
-            $this->inTransaction(fn () => $this->change('subscription_master', $row, ['subscription_status' => SubscriptionMasterModel::STATUS_SUSPENDED, 'suspended_at' => $now],
-                null, 'Suspended subscription unpaid after the grace days', ['subscription_status' => SubscriptionMasterModel::STATUS_ACTIVE]));
+            $this->inTransaction(function () use ($row, $now) {
+                if ($this->change('subscription_master', $row, ['subscription_status' => SubscriptionMasterModel::STATUS_SUSPENDED, 'suspended_at' => $now],
+                    null, 'Suspended subscription unpaid after the grace days', ['subscription_status' => SubscriptionMasterModel::STATUS_ACTIVE])) {
+                    $this->toOwners($this->businessOf((int) $row['id']), Notifier::SUBSCRIPTION_SUSPENDED, [], ['subscription_master', (int) $row['id']], null);
+                }
+            });
         });
 
         // 5. suspended for too long
@@ -819,6 +938,26 @@ class SubscriptionBilling
             ->where('suspended_at <=', self::subTime($now, 'P' . $config->suspendedDays . 'D'))
             ->get()->getResultArray();
         $each($expiring, 'expired', fn (array $row) => $this->endNow($row, null, SubscriptionMasterModel::STATUS_EXPIRED));
+
+        // 5a. about to expire: the owners are told once, $expiryWarningDays before
+        $soon = $live(SubscriptionMasterModel::STATUS_SUSPENDED)
+            ->where('suspended_at <=', self::subTime($now, 'P' . max(0, $config->suspendedDays - $config->expiryWarningDays) . 'D'))
+            ->get()->getResultArray();
+        foreach ($soon as $row) {
+            try {
+                if ($this->warnedOfExpiry((int) $row['id'])) {
+                    continue;
+                }
+                $business = $this->businessOf((int) $row['id']);
+                if ($business !== null) {
+                    $this->toOwners($business, Notifier::SUBSCRIPTION_EXPIRING,
+                        ['expires' => self::localDate(self::addTime($row['suspended_at'], 'P' . $config->suspendedDays . 'D'), $business['country_code'])],
+                        ['subscription_master', (int) $row['id']], null);
+                }
+            } catch (Throwable $e) {
+                log_message('error', 'billing:run subscription {id}: {message}', ['id' => $row['id'], 'message' => $e->getMessage()]);
+            }
+        }
 
         // 6. yearly invoices whose withholding tax certificate did not come
         $overdue = $this->db->table('subscription_invoice i')->select('i.*')
@@ -850,7 +989,7 @@ class SubscriptionBilling
                 throw new BillingException('Subscriptions.certificateUnderReview', 409); // a certificate came meanwhile
             }
             $amount = Money::format($invoice['wht_amount']);
-            $this->insertInvoice([
+            $this->notifyIssued($this->insertInvoice([
                 'invoice_type'      => SubscriptionInvoiceModel::TYPE_TOP_UP,
                 'parent_invoice_id' => (int) $invoice['id'],
                 'subscription_id'   => (int) $invoice['subscription_id'],
@@ -861,7 +1000,7 @@ class SubscriptionBilling
                 'amount_due'        => $amount,
                 'amount_payable'    => $amount,
                 'due_at'            => $dueAt,
-            ], null);
+            ], null));
         });
     }
 
@@ -885,7 +1024,8 @@ class SubscriptionBilling
 
             return false;
         }
-        $this->inTransaction(fn () => $this->createInvoice((int) $subscription['id'], $version, self::addTime($subscription['current_period_end'], 'P' . $graceDays . 'D'), null));
+        $this->inTransaction(fn () => $this->notifyIssued(
+            $this->createInvoice((int) $subscription['id'], $version, self::addTime($subscription['current_period_end'], 'P' . $graceDays . 'D'), null)));
 
         return true;
     }
@@ -1210,6 +1350,7 @@ class SubscriptionBilling
                 throw new BillingException('SubscriptionAdmin.invoiceNotPending', 409);
             }
             $this->freezeReceipt((int) $invoice['id']);
+            (new Notifier())->markSubjectRead('subscription_invoice', (int) $invoice['id'], Notifier::INVOICE_ISSUED);
 
             return;
         }
@@ -1267,6 +1408,12 @@ class SubscriptionBilling
             $changes['next_plan_version_id'] = null;
         }
         $this->change('subscription_master', $subscription, $changes, $actorId, 'Started period of invoice ' . $invoice['invoice_no']);
+        // paid: its invoice notice is handled, and a suspended one's suspension and expiry notices too
+        $notifier = new Notifier();
+        $notifier->markSubjectRead('subscription_invoice', (int) $invoice['id'], Notifier::INVOICE_ISSUED);
+        if ($status === SubscriptionMasterModel::STATUS_SUSPENDED) {
+            $notifier->markSubjectRead('subscription_master', (int) $subscription['id']);
+        }
     }
 
     /**
@@ -1326,9 +1473,15 @@ class SubscriptionBilling
                 if ($invoice['discount_id'] !== null) {
                     model(DiscountMasterModel::class)->release((int) $invoice['discount_id']);
                 }
+                (new Notifier())->markSubjectRead('subscription_invoice', (int) $invoice['id'], Notifier::INVOICE_ISSUED);
             }
             if (! $this->change('subscription_master', $subscription, $changes, $actorId, $summary, ['subscription_status' => $subscription['subscription_status']])) {
                 throw new BillingException('SubscriptionAdmin.alreadyEnded', 409);
+            }
+            $subject = ['subscription_master', (int) $subscription['id']];
+            (new Notifier())->markSubjectRead($subject[0], $subject[1]);
+            if ($changes['subscription_status'] === SubscriptionMasterModel::STATUS_CANCELLED) {
+                $this->toOwners($this->businessOf($subject[1]), Notifier::SUBSCRIPTION_CANCELLED, [], $subject, $actorId);
             }
         });
     }

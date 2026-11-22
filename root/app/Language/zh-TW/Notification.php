@@ -38,6 +38,98 @@ return [
             'title'   => '訂單已取消',
             'message' => '訂單 {order_number} 已由 {by} 取消：{reason}。此訂單尚未付款。',
         ],
+        'placed' => [
+            'title'   => '新訂單：{order_number}',
+            'message' => '{customer} 下了訂單 {order_number}，金額 {amount}。請準備商品。付款：{payment}。',
+        ],
+        'rescheduled' => [
+            'title'   => '預約已改期：{service}',
+            'message' => '{customer} 在 {store} 的 {service}（訂單 {order_number}）已從 {from} 改到 {to}。',
+        ],
+        'booking_cancelled' => [
+            'title'   => '預約已取消：{service}',
+            'message' => '{customer} 於 {when} 在 {store} 的 {service}（訂單 {order_number}）已取消：{reason}。',
+        ],
+        'payment_failed' => [
+            'title'   => '付款失敗：{order_number}',
+            'message' => '訂單 {order_number} 透過 {method} 支付的 {amount} 未成功：{reason}。請與顧客聯繫。',
+        ],
+    ],
+
+    'invoice' => [
+        'issued' => [
+            'title'   => '新帳單：{invoice_no}',
+            'message' => '{business} 的帳單 {invoice_no}（{amount}）已開立。請在 {due} 前付款。',
+        ],
+    ],
+
+    'subscription' => [
+        'suspended' => [
+            'title'   => '訂閱已暫停',
+            'message' => '{business} 的訂閱已暫停。請支付到期的帳單或聯絡我們以重新啟用。',
+        ],
+        'expiring' => [
+            'title'   => '訂閱即將到期',
+            'message' => '{business} 已暫停的訂閱將於 {expires} 到期，未付的帳單將作廢。請付款以繼續使用。',
+        ],
+        'cancelled' => [
+            'title'   => '訂閱已取消',
+            'message' => '{business} 的訂閱已取消。',
+        ],
+    ],
+
+    'withholding' => [
+        'requested' => [
+            'title'   => '待審核的扣繳申請',
+            'message' => '{business} 申請依 {rule} 扣繳稅款。請審核該申請。',
+        ],
+        'approved' => [
+            'title'   => '扣繳已核准',
+            'message' => '{business} 現在可以依 {rule} 扣繳稅款，今後的帳單將計算扣繳。',
+        ],
+        'rejected' => [
+            'title'   => '扣繳未獲核准',
+            'message' => '{business} 的扣繳申請未獲核准。如有疑問請聯絡我們。',
+        ],
+    ],
+
+    'certificate' => [
+        'submitted' => [
+            'title'   => '待核對的憑單：{invoice_no}',
+            'message' => '{business} 已提交帳單 {invoice_no} 的扣繳憑單（{amount}）。請核對。',
+        ],
+        'accepted' => [
+            'title'   => '憑單已接受',
+            'message' => '帳單 {invoice_no} 的扣繳憑單已被接受。謝謝。',
+        ],
+        'rejected' => [
+            'title'   => '憑單被退回',
+            'message' => '帳單 {invoice_no} 的扣繳憑單被退回：{reason}。請重新提交。',
+        ],
+    ],
+
+    'invitation' => [
+        'accepted' => [
+            'title'   => '{name} 已加入',
+            'message' => '{name} 已接受您的邀請，以{role}身分加入。',
+        ],
+    ],
+
+    'review' => [
+        'submitted' => [
+            'title'   => '新評價：{artifact}',
+            'message' => '{customer} 給 {artifact} {rating} 顆星。請核准或隱藏該評價。',
+        ],
+    ],
+
+    // order.payment_failed with no reason recorded
+    'no_reason' => '未說明原因',
+
+    // a person's role in a business, for invitation.accepted
+    'client_role' => [
+        'O' => '負責人',
+        'M' => '經理',
+        'E' => '員工',
     ],
 
     // a booking's payment, for the people serving it

@@ -27,6 +27,24 @@ class Notifier
     public const ORDER_BOOKED           = 'order.booked';           // to the people booked: a private appointment took their time
     public const ORDER_SEATS_BOOKED     = 'order.seats_booked';     // to the people of a group session: more of its seats are taken
     public const ORDER_PAYMENT_REPORTED = 'order.payment_reported'; // to the store's people: a customer says they paid, to check
+    public const ORDER_PLACED           = 'order.placed';           // to the store's people: a mart order with products to get ready
+    public const ORDER_RESCHEDULED      = 'order.rescheduled';      // to the people of the old and new time: an appointment moved
+    public const ORDER_BOOKING_CANCELLED = 'order.booking_cancelled'; // to the people booked: the appointment or seats are off
+    public const ORDER_PAYMENT_FAILED   = 'order.payment_failed';   // to the store's people: a payment did not go through
+
+    public const INVOICE_ISSUED          = 'invoice.issued';          // to the owners: a renewal or top-up invoice to pay
+    public const SUBSCRIPTION_SUSPENDED  = 'subscription.suspended';  // to the owners
+    public const SUBSCRIPTION_EXPIRING   = 'subscription.expiring';   // to the owners: a suspended one is about to expire
+    public const SUBSCRIPTION_CANCELLED  = 'subscription.cancelled';  // to the owners
+    public const WITHHOLDING_REQUESTED   = 'withholding.requested';   // to EXE and FIN: a request to review
+    public const WITHHOLDING_APPROVED    = 'withholding.approved';    // to the owners
+    public const WITHHOLDING_REJECTED    = 'withholding.rejected';    // to the owners
+    public const CERTIFICATE_SUBMITTED   = 'certificate.submitted';   // to EXE and FIN: a withholding tax certificate to check
+    public const CERTIFICATE_ACCEPTED    = 'certificate.accepted';    // to the owners
+    public const CERTIFICATE_REJECTED    = 'certificate.rejected';    // to the owners
+
+    public const INVITATION_ACCEPTED = 'invitation.accepted'; // to the owners: someone invited has joined
+    public const REVIEW_SUBMITTED    = 'review.submitted';    // to the owners and managers: a review to approve or hide
 
     /**
      * Every event type, with its Bootstrap icon and tone. The tone is info, success, warning or danger, the
@@ -41,6 +59,22 @@ class Notifier
         self::ORDER_BOOKED           => ['icon' => 'bi-calendar-check', 'tone' => 'success'],
         self::ORDER_SEATS_BOOKED     => ['icon' => 'bi-people', 'tone' => 'success'],
         self::ORDER_PAYMENT_REPORTED => ['icon' => 'bi-cash-coin', 'tone' => 'warning'],
+        self::ORDER_PLACED           => ['icon' => 'bi-bag-check', 'tone' => 'success'],
+        self::ORDER_RESCHEDULED      => ['icon' => 'bi-calendar-event', 'tone' => 'info'],
+        self::ORDER_BOOKING_CANCELLED => ['icon' => 'bi-calendar-x', 'tone' => 'warning'],
+        self::ORDER_PAYMENT_FAILED   => ['icon' => 'bi-exclamation-triangle', 'tone' => 'danger'],
+        self::INVOICE_ISSUED         => ['icon' => 'bi-receipt', 'tone' => 'info'],
+        self::SUBSCRIPTION_SUSPENDED => ['icon' => 'bi-pause-circle', 'tone' => 'danger'],
+        self::SUBSCRIPTION_EXPIRING  => ['icon' => 'bi-hourglass-split', 'tone' => 'warning'],
+        self::SUBSCRIPTION_CANCELLED => ['icon' => 'bi-x-circle', 'tone' => 'info'],
+        self::WITHHOLDING_REQUESTED  => ['icon' => 'bi-file-earmark-text', 'tone' => 'warning'],
+        self::WITHHOLDING_APPROVED   => ['icon' => 'bi-check-circle', 'tone' => 'success'],
+        self::WITHHOLDING_REJECTED   => ['icon' => 'bi-x-circle', 'tone' => 'danger'],
+        self::CERTIFICATE_SUBMITTED  => ['icon' => 'bi-file-earmark-check', 'tone' => 'warning'],
+        self::CERTIFICATE_ACCEPTED   => ['icon' => 'bi-check-circle', 'tone' => 'success'],
+        self::CERTIFICATE_REJECTED   => ['icon' => 'bi-x-circle', 'tone' => 'danger'],
+        self::INVITATION_ACCEPTED    => ['icon' => 'bi-person-plus', 'tone' => 'success'],
+        self::REVIEW_SUBMITTED       => ['icon' => 'bi-star', 'tone' => 'info'],
     ];
 
     /** Shown for an event_type no longer in EVENTS */

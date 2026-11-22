@@ -85,6 +85,9 @@ class BusinessMasterModel extends Model
     public const WHT_REQUESTED = 'R';
     public const WHT_APPROVED  = 'A';
 
+    /** The subscription_status filter of listForStaff() for a business that never subscribed */
+    public const NO_SUBSCRIPTION = 'NONE';
+
     /** tax_branch_code: digits only, such as 00000 for a Thai head office */
     public const TAX_BRANCH_PATTERN = '/^\d{1,10}$/';
 
@@ -399,6 +402,89 @@ class BusinessMasterModel extends Model
         }
 
         return ['records_total' => $total, 'rows' => $rows];
+    }
+
+    /**
+     * One page of every business for the staff, newest first, with the status of its latest subscription
+     * (subscription_status and plan_code are null when it never subscribed). tax_id is never in it.
+     * @param int                   $start
+     * @param int                   $length
+     * @param string                $search  Matched in the business's name, slug and contact email
+     * @param array<string, string> $filters is_business_open (Y, N), wht_status (N, R, A), country_code, and
+     *                                       subscription_status (P, A, S, C, X, or NO_SUBSCRIPTION)
+     * @return array{records_total: int, records_filtered: int, rows: list<array>}
+     */
+    public function listForStaff(int $start, int $length, string $search, array $filters): array
+    {
+        $total   = $this->db->table($this->table)->countAllResults();
+        $builder = $this->staffBuilder()
+            ->select('b.business_slug, b.business_name, t.type_code, b.contact_email_address, b.country_code, b.currency_code')
+            ->select('b.is_business_open, b.wht_status, s.subscription_status, p.plan_code, b.created_at');
+        foreach (['is_business_open', 'wht_status', 'country_code'] as $field) {
+            if (isset($filters[$field])) {
+                $builder->where('b.' . $field, $filters[$field]);
+            }
+        }
+        if (isset($filters['subscription_status'])) {
+            if ($filters['subscription_status'] === self::NO_SUBSCRIPTION) {
+                $builder->where('s.id', null);
+            } else {
+                $builder->where('s.subscription_status', $filters['subscription_status']);
+            }
+        }
+        if ($search !== '') {
+            $char = $this->db->likeEscapeChar;
+            $term = str_replace([$char, '%', '_'], [$char . $char, $char . '%', $char . '_'], $search);
+            $builder->groupStart()
+                ->like('b.business_name', $term, 'both', null, true)
+                ->orLike('b.business_slug', $term, 'both', null, true)
+                ->orLike('b.contact_email_address', $term, 'both', null, true)
+                ->groupEnd();
+        }
+        $filtered = $builder->countAllResults(false);
+        $rows     = $builder->orderBy('b.id', 'DESC')->limit($length, $start)->get()->getResultArray();
+
+        return ['records_total' => $total, 'records_filtered' => $filtered, 'rows' => $rows];
+    }
+
+    /**
+     * One business for the staff, by its slug: its business_master columns but the internal ids, with its type, who
+     * reviewed its withholding, its names in other languages and its latest subscription. tax_id is decrypted when
+     * $withTaxId, and null otherwise.
+     * @param string $slug
+     * @param bool   $withTaxId
+     * @return array|null
+     */
+    public function findForStaff(string $slug, bool $withTaxId): ?array
+    {
+        $row = $this->staffBuilder()
+            ->select('b.*, t.type_code, r.full_name AS wht_reviewed_by_name')
+            ->select('s.public_id AS subscription_public_id, s.subscription_status, p.plan_code')
+            ->join('auth_master r', 'r.id = b.wht_reviewed_by', 'left')
+            ->where('b.business_slug', $slug)
+            ->get()
+            ->getRowArray();
+        if ($row === null) {
+            return null;
+        }
+        $row['tax_id']       = $withTaxId ? (new FieldEncryption())->decryptRow($this->table, ['tax_id' => $row['tax_id']])['tax_id'] : null;
+        $row['translations'] = $this->namesOf((int) $row['id']);
+        unset($row['id'], $row['business_type_id'], $row['wht_reviewed_by']);
+
+        return self::withDecimals($row);
+    }
+
+    /**
+     * business_master b with its type t and its latest subscription s, on plan version v of plan p
+     * @return \CodeIgniter\Database\BaseBuilder
+     */
+    private function staffBuilder()
+    {
+        return $this->db->table($this->table . ' b')
+            ->join('business_type t', 't.id = b.business_type_id', 'inner')
+            ->join('subscription_master s', 's.id = (SELECT MAX(s2.id) FROM subscription_master s2 WHERE s2.business_id = b.id)', 'left', false)
+            ->join('plan_version v', 'v.id = s.plan_version_id', 'left')
+            ->join('plan_master p', 'p.id = v.plan_id', 'left');
     }
 
     /**

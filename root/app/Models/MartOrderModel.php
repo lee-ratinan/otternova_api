@@ -304,6 +304,9 @@ class MartOrderModel extends Model
             }
 
             $this->notifyBooked($row + ['id' => $orderId], $priced, $counter['actor'] ?? null);
+            if ($counter === null) {
+                $this->notifyPlaced($row + ['id' => $orderId], $priced);
+            }
 
             return ['id' => $orderId, 'public_id' => $publicId, 'order_number' => $orderNumber, 'key' => $key];
         });
@@ -524,6 +527,37 @@ class MartOrderModel extends Model
         $row ??= $this->findByPublicId($reference);
 
         return $row === null || (int) $row['business_id'] !== $businessId || $key === '' || ! hash_equals($row['access_key'], hash('sha256', $key)) ? null : $row;
+    }
+
+    /**
+     * Tell the people of the stores a mart order takes products from (and of its pickup store) that it has products
+     * to get ready, in place()'s transaction, with whether it is paid as notifyBooked() says it; not an order taken at
+     * the counter, nor one of services only
+     * @param array $order  order_master as written, with its id
+     * @param array $priced priced()
+     */
+    private function notifyPlaced(array $order, array $priced): void
+    {
+        $stores = [];
+        foreach ($priced['lines'] as $line) {
+            if ($line['kind'] === self::KIND_PRODUCT) {
+                $stores[] = (int) $line['store_id'];
+            }
+        }
+        if ($stores === []) {
+            return; // services only: the people booked are told by notifyBooked()
+        }
+        if ($order['pickup_store_id'] !== null) {
+            $stores[] = (int) $order['pickup_store_id'];
+        }
+        $state = $order['financial_status'] !== SalesOrderModel::FINANCIAL_PENDING ? 'paid'
+            : ($order['payment_method_code'] === 'cash' ? 'at_store' : 'awaiting');
+        (new Notifier())->toStoreStaff((int) $order['business_id'], $stores, Notifier::ORDER_PLACED, [
+            'customer'     => trim($order['first_name'] . ' ' . $order['last_name']),
+            'order_number' => $order['order_number'],
+            'amount'       => $order['currency_code'] . ' ' . number_format((float) $order['total_amount'], 2),
+            'payment'      => 'lang:payment_state.' . $state,
+        ], '/admin/sales/order/' . $order['public_id'], [$this->table, (int) $order['id']]);
     }
 
     /**

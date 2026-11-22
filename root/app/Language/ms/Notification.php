@@ -38,6 +38,98 @@ return [
             'title'   => 'Pesanan dibatalkan',
             'message' => 'Pesanan {order_number} telah dibatalkan oleh {by}: {reason}. Ia belum dibayar.',
         ],
+        'placed' => [
+            'title'   => 'Pesanan baharu: {order_number}',
+            'message' => '{customer} membuat pesanan {order_number} sebanyak {amount}. Sila sediakan produknya. Pembayaran: {payment}.',
+        ],
+        'rescheduled' => [
+            'title'   => 'Tempahan dipindahkan: {service}',
+            'message' => '{service} {customer} di {store} (pesanan {order_number}) telah dipindahkan dari {from} ke {to}.',
+        ],
+        'booking_cancelled' => [
+            'title'   => 'Tempahan dibatalkan: {service}',
+            'message' => '{service} {customer} pada {when} di {store} (pesanan {order_number}) telah dibatalkan: {reason}.',
+        ],
+        'payment_failed' => [
+            'title'   => 'Pembayaran gagal: {order_number}',
+            'message' => 'Pembayaran {amount} melalui {method} untuk pesanan {order_number} tidak berjaya: {reason}. Sila hubungi pelanggan.',
+        ],
+    ],
+
+    'invoice' => [
+        'issued' => [
+            'title'   => 'Invois baharu: {invoice_no}',
+            'message' => 'Invois {invoice_no} sebanyak {amount} untuk {business} telah dikeluarkan. Sila bayar sebelum {due}.',
+        ],
+    ],
+
+    'subscription' => [
+        'suspended' => [
+            'title'   => 'Langganan digantung',
+            'message' => 'Langganan {business} telah digantung. Sila bayar invois yang perlu dibayar, atau hubungi kami, untuk mengaktifkannya semula.',
+        ],
+        'expiring' => [
+            'title'   => 'Langganan akan tamat',
+            'message' => 'Langganan {business} yang digantung akan tamat pada {expires} dan invois yang belum dibayar akan dibatalkan. Sila bayar untuk meneruskannya.',
+        ],
+        'cancelled' => [
+            'title'   => 'Langganan dibatalkan',
+            'message' => 'Langganan {business} telah dibatalkan.',
+        ],
+    ],
+
+    'withholding' => [
+        'requested' => [
+            'title'   => 'Cukai pegangan untuk disemak',
+            'message' => '{business} memohon untuk memotong cukai pegangan di bawah {rule}. Sila semak permohonan itu.',
+        ],
+        'approved' => [
+            'title'   => 'Cukai pegangan diluluskan',
+            'message' => '{business} kini boleh memotong cukai pegangan di bawah {rule}. Ia akan dikira pada invois anda mulai sekarang.',
+        ],
+        'rejected' => [
+            'title'   => 'Cukai pegangan tidak diluluskan',
+            'message' => 'Permohonan cukai pegangan {business} tidak diluluskan. Sila hubungi kami jika ada sebarang pertanyaan.',
+        ],
+    ],
+
+    'certificate' => [
+        'submitted' => [
+            'title'   => 'Sijil untuk disemak: {invoice_no}',
+            'message' => '{business} telah menghantar sijil cukai pegangan sebanyak {amount} untuk invois {invoice_no}. Sila semak.',
+        ],
+        'accepted' => [
+            'title'   => 'Sijil diterima',
+            'message' => 'Sijil cukai pegangan untuk invois {invoice_no} telah diterima. Terima kasih.',
+        ],
+        'rejected' => [
+            'title'   => 'Sijil ditolak',
+            'message' => 'Sijil cukai pegangan untuk invois {invoice_no} telah ditolak: {reason}. Sila hantar semula.',
+        ],
+    ],
+
+    'invitation' => [
+        'accepted' => [
+            'title'   => '{name} telah menyertai',
+            'message' => '{name} menerima jemputan anda dan menyertai sebagai {role}.',
+        ],
+    ],
+
+    'review' => [
+        'submitted' => [
+            'title'   => 'Ulasan baharu: {artifact}',
+            'message' => '{customer} memberi {artifact} {rating} bintang. Sila luluskan atau sembunyikan ulasan itu.',
+        ],
+    ],
+
+    // order.payment_failed with no reason recorded
+    'no_reason' => 'tiada sebab diberikan',
+
+    // a person's role in a business, for invitation.accepted
+    'client_role' => [
+        'O' => 'pemilik',
+        'M' => 'pengurus',
+        'E' => 'pekerja',
     ],
 
     // a booking's payment, for the people serving it
