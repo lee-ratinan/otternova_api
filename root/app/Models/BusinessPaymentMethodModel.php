@@ -17,6 +17,9 @@ use Throwable;
  * Names: a store's customers see the business-wide methods and the store's own together, so no two of those may
  * share a name: a business-wide method's name is unique within the business, a store's within its store and the
  * business-wide ones. Two stores may each have a "Bank transfer".
+ *
+ * allow_shipping N keeps a method off the orders whose products are shipped (home delivery H, a locker or pickup point
+ * L), as cash, which the customer can only pay at a store (App\Models\MartOrderModel checks it).
  */
 class BusinessPaymentMethodModel extends Model
 {
@@ -49,6 +52,7 @@ class BusinessPaymentMethodModel extends Model
         'settings_json',
         'secret_json',
         'is_active',
+        'allow_shipping',
         'sort_order',
     ];
 
@@ -61,14 +65,15 @@ class BusinessPaymentMethodModel extends Model
 
     // the codes and settings are checked by ruleErrors(), against Config\BusinessPayment
     protected $validationRules = [
-        'business_id'  => 'required|is_natural_no_zero',
-        'store_id'     => 'permit_empty|is_natural_no_zero',
-        'method_code'  => 'required|max_length[30]',
-        'handler_code' => 'required|max_length[30]',
-        'method_name'  => 'required|max_length[100]',
-        'instruction'  => 'permit_empty|max_length[2000]',
-        'is_active'    => 'required|in_list[Y,N]',
-        'sort_order'   => 'required|is_natural|less_than_equal_to[255]',
+        'business_id'    => 'required|is_natural_no_zero',
+        'store_id'       => 'permit_empty|is_natural_no_zero',
+        'method_code'    => 'required|max_length[30]',
+        'handler_code'   => 'required|max_length[30]',
+        'method_name'    => 'required|max_length[100]',
+        'instruction'    => 'permit_empty|max_length[2000]',
+        'is_active'      => 'required|in_list[Y,N]',
+        'allow_shipping' => 'required|in_list[Y,N]',
+        'sort_order'     => 'required|is_natural|less_than_equal_to[255]',
     ];
     protected $skipValidation       = false;
     protected $cleanValidationRules = true;
@@ -157,7 +162,7 @@ class BusinessPaymentMethodModel extends Model
     public function listOfBusiness(int $businessId, ?int $storeId = null): array
     {
         $builder = $this->db->table($this->table . ' m')
-            ->select('m.id, m.public_id, s.public_id AS store_public_id, m.method_code, m.handler_code, m.method_name, m.instruction, m.settings_json, m.is_active, m.sort_order')
+            ->select('m.id, m.public_id, s.public_id AS store_public_id, m.method_code, m.handler_code, m.method_name, m.instruction, m.settings_json, m.is_active, m.allow_shipping, m.sort_order')
             ->join('business_store s', 's.id = m.store_id', 'left')
             ->where('m.business_id', $businessId);
         if ($storeId !== null) {
@@ -181,6 +186,7 @@ class BusinessPaymentMethodModel extends Model
                 'instruction'     => $row['instruction'],
                 'settings'        => (object) self::settingsOf($row), // {} rather than [] when there are none
                 'is_active'       => $row['is_active'],
+                'allow_shipping'  => $row['allow_shipping'],
                 'sort_order'      => (int) $row['sort_order'],
                 'translations'    => $translations[(int) $row['id']] ?? [],
             ];

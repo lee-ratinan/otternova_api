@@ -33,7 +33,7 @@ class PaymentMethods extends BaseController
      * The payment methods of that business by sort_order and name, or with store_public_id those offered at that store
      * (the business-wide ones and its own). For each: public_id, store_public_id (null for every store), method_code,
      * handler_code, confirmation (A by the provider, M by staff), method_name, instruction, settings, is_active,
-     * sort_order and translations (language_code => {method_name, instruction}).
+     * allow_shipping, sort_order and translations (language_code => {method_name, instruction}).
      * With "options", what create and edit take: methods (the method_code values) and handlers
      * (handler_code => {methods, confirmation, instruction_required, settings: the keys it needs}).
      * @return ResponseInterface
@@ -83,11 +83,13 @@ class PaymentMethods extends BaseController
 
     /**
      * POST /client/payment-method/create { business_slug, payment_method: {store_public_id, method_code, handler_code,
-     * method_name, instruction, settings: {...}, is_active, sort_order}, translations: {language_code: {method_name,
-     * instruction}} }
+     * method_name, instruction, settings: {...}, is_active, allow_shipping, sort_order}, translations: {language_code:
+     * {method_name, instruction}} }
      * Creates a payment method of that business. store_public_id left out or null: offered at every store.
      * method_code and handler_code must go together (Config\BusinessPayment); the handler instruction needs an
      * instruction, promptpay_qr a settings.promptpay_id. is_active is Y (the default) or N; sort_order 0 to 255 (0).
+     * allow_shipping is Y (the default) or N: N keeps the method off orders shipped home (H) or to a locker or pickup
+     * point (L), as cash, which is paid at a store.
      * "translations" is optional; each key must be a language of listLanguages(), and a language with an instruction
      * needs its method_name too.
      * @return ResponseInterface
@@ -152,13 +154,14 @@ class PaymentMethods extends BaseController
         // a field left out of an edit keeps its value; left out of a create, it takes its default
         $value = static fn (string $field, mixed $default) => array_key_exists($field, $in) ? $in[$field] : ($stored[$field] ?? $default);
         $method = [
-            'business_id'  => (int) $business['id'],
-            'method_code'  => strtolower(self::text($value('method_code', ''))),
-            'handler_code' => strtolower(self::text($value('handler_code', ''))),
-            'method_name'  => self::text($value('method_name', '')),
-            'instruction'  => self::text($value('instruction', null)),
-            'is_active'    => strtoupper(self::text($value('is_active', 'Y'))),
-            'sort_order'   => self::text($value('sort_order', 0)),
+            'business_id'    => (int) $business['id'],
+            'method_code'    => strtolower(self::text($value('method_code', ''))),
+            'handler_code'   => strtolower(self::text($value('handler_code', ''))),
+            'method_name'    => self::text($value('method_name', '')),
+            'instruction'    => self::text($value('instruction', null)),
+            'is_active'      => strtoupper(self::text($value('is_active', 'Y'))),
+            'allow_shipping' => strtoupper(self::text($value('allow_shipping', 'Y'))),
+            'sort_order'     => self::text($value('sort_order', 0)),
         ];
         $method['instruction'] = $method['instruction'] === '' ? null : $method['instruction'];
 

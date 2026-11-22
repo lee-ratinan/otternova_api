@@ -33,6 +33,10 @@ use Throwable;
  * pickup only from the store picked up at. A variant no store keeps count of (no artifact_variant_inventory row) is
  * never short.
  *
+ * A payment method with allow_shipping N (cash, paid at a store) cannot pay for an order shipped home (H) or to a
+ * locker or pickup point (L): quote() lists it unavailable, and place() refuses it (payment: not_for_shipping). At
+ * the counter it can, the customer being there to pay.
+ *
  * Money is counted in cents. The discount is shared out over the lines it applies to by their subtotals (the last
  * takes what rounding leaves); a line's tax is on its subtotal less its share: included in it (I), added to it (E),
  * or none (X). Shipping fees are neither discounted nor taxed.
@@ -83,7 +87,9 @@ class MartOrderModel extends Model
      *   unavailable (why not: stock or weight), pickup_stores: [{public_id, name, address}] (S offered at every store)}],
      *   shipping: {public_id, type, name, fee, pickup_store} or null, shipping_error,
      *   discount: {code, description, amount} or null, discount_error: {code, amount} or null,
-     *   payment_methods: [{public_id, method_code, handler_code, name, instruction}], payment (public_id or null),
+     *   payment_methods: [{public_id, method_code, handler_code, name, instruction, available (false: not for the
+     *   shipping chosen)}], payment (public_id or null, never an unavailable one), payment_error (not_for_shipping:
+     *   the one chosen is not for the shipping chosen) or null,
      *   totals: {subtotal, discount, shipping, tax_included, tax_added, total} }
      *   Amounts are strings, 1234.50; the lines with a problem count in no total.
      */
@@ -122,7 +128,7 @@ class MartOrderModel extends Model
             }
             $payment = $priced['payment'];
             if ($payment === null) {
-                throw $refuse('payment', ['payment' => 'required']);
+                throw $refuse('payment', ['payment' => $priced['payment_error'] ?? 'required']);
             }
             $errors = self::deliveryErrors($priced['shipping'], $delivery);
             foreach ($priced['lines'] as $index => $line) {
@@ -809,7 +815,18 @@ class MartOrderModel extends Model
         if ($business['currency_code'] !== 'THB') {
             $payments = array_values(array_filter($payments, static fn (array $p): bool => $p['handler_code'] !== 'promptpay_qr'));
         }
-        $payment = current(array_filter($payments, static fn (array $p): bool => $p['public_id'] === ($choice['payment'] ?? ''))) ?: null;
+        // a shipped order (H, L) cannot be paid by a method kept to the store (allow_shipping N), unless taken at the counter
+        $shipped = $counter === null && in_array($shipping['type'] ?? null, ['H', 'L'], true);
+        foreach ($payments as &$p) {
+            $p['available'] = ! $shipped || $p['allow_shipping'];
+        }
+        unset($p);
+        $payment      = current(array_filter($payments, static fn (array $p): bool => $p['public_id'] === ($choice['payment'] ?? ''))) ?: null;
+        $paymentError = null;
+        if ($payment !== null && ! $payment['available']) {
+            $payment      = null;
+            $paymentError = 'not_for_shipping';
+        }
 
         return [
             'currency'         => $business['currency_code'],
@@ -824,6 +841,7 @@ class MartOrderModel extends Model
             'discount_error'   => $discountError,
             'payment_methods'  => $payments,
             'payment'          => $payment,
+            'payment_error'    => $paymentError,
             'totals'           => $totals,
         ];
     }
@@ -1160,7 +1178,7 @@ class MartOrderModel extends Model
 
     /**
      * The active payment methods of every store, and of $storeId when given; or the one with $id
-     * @return list<array{id: int, public_id: string, method_code: string, handler_code: string, name: string, instruction: string|null, settings: array}>
+     * @return list<array{id: int, public_id: string, method_code: string, handler_code: string, name: string, instruction: string|null, settings: array, allow_shipping: bool}>
      */
     private function paymentMethods(int $businessId, ?int $storeId, string $language, ?int $id = null): array
     {
@@ -1179,13 +1197,14 @@ class MartOrderModel extends Model
         }
 
         return array_map(static fn (array $row): array => [
-            'id'           => (int) $row['id'],
-            'public_id'    => $row['public_id'],
-            'method_code'  => $row['method_code'],
-            'handler_code' => $row['handler_code'],
-            'name'         => (string) ($row['t_name'] ?? '') !== '' ? $row['t_name'] : $row['method_name'],
-            'instruction'  => (string) ($row['t_instruction'] ?? '') !== '' ? $row['t_instruction'] : $row['instruction'],
-            'settings'     => is_array($settings = json_decode((string) $row['settings_json'], true)) ? $settings : [],
+            'id'             => (int) $row['id'],
+            'public_id'      => $row['public_id'],
+            'method_code'    => $row['method_code'],
+            'handler_code'   => $row['handler_code'],
+            'name'           => (string) ($row['t_name'] ?? '') !== '' ? $row['t_name'] : $row['method_name'],
+            'instruction'    => (string) ($row['t_instruction'] ?? '') !== '' ? $row['t_instruction'] : $row['instruction'],
+            'settings'       => is_array($settings = json_decode((string) $row['settings_json'], true)) ? $settings : [],
+            'allow_shipping' => $row['allow_shipping'] !== 'N',
         ], $builder->orderBy('m.sort_order')->orderBy('m.id')->get()->getResultArray());
     }
 
@@ -1309,9 +1328,10 @@ class MartOrderModel extends Model
                 'amount' => $money($priced['discount']['amount'])],
             'discount_error'  => $priced['discount_error'],
             'payment_methods' => array_map(static fn (array $p): array => ['public_id' => $p['public_id'], 'method_code' => $p['method_code'],
-                'handler_code' => $p['handler_code'], 'name' => $p['name'], 'instruction' => $p['instruction']], $priced['payment_methods']),
-            'payment' => $priced['payment']['public_id'] ?? null,
-            'totals'  => array_map($money, $priced['totals']),
+                'handler_code' => $p['handler_code'], 'name' => $p['name'], 'instruction' => $p['instruction'], 'available' => $p['available']], $priced['payment_methods']),
+            'payment'       => $priced['payment']['public_id'] ?? null,
+            'payment_error' => $priced['payment_error'],
+            'totals'        => array_map($money, $priced['totals']),
         ];
     }
 
