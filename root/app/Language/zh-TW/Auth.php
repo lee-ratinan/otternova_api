@@ -3,7 +3,7 @@ return [
     'missingCredentials'    => '請輸入您的電子郵件地址與密碼。',
     'invalidCredentials'    => '電子郵件地址或密碼不正確。',
     'accountNotActive'      => '您的帳號未啟用。請聯絡客服。',
-    'accountPending'        => '您的帳號尚未啟用。請開啟我們寄到您電子郵件的啟用連結。',
+    'accountPending'        => '您的帳號尚未啟用。請開啟我們寄到您電子郵件的啟用連結。如果找不到，請檢查垃圾郵件資料夾，或使用「忘記密碼」取得新連結，該連結也會啟用您的帳號。',
     'tooManyAttempts'       => '登入嘗試次數過多。請稍候幾分鐘再試。',
     'otpInvalidFormat'      => '請輸入電子郵件中的 6 位數驗證碼。',
     'otpIncorrect'          => '驗證碼不正確。請再試一次。',

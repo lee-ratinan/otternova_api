@@ -3,7 +3,7 @@ return [
     'missingCredentials'    => 'Silakan masukkan alamat email dan kata sandi Anda.',
     'invalidCredentials'    => 'Alamat email atau kata sandi salah.',
     'accountNotActive'      => 'Akun Anda tidak aktif. Silakan hubungi dukungan.',
-    'accountPending'        => 'Akun Anda belum diaktifkan. Silakan buka tautan aktivasi yang kami kirimkan ke email Anda.',
+    'accountPending'        => 'Akun Anda belum diaktifkan. Silakan buka tautan aktivasi yang kami kirimkan ke email Anda. Jika tidak menemukannya, periksa folder spam, atau gunakan Lupa Kata Sandi untuk mendapatkan tautan baru yang sekaligus mengaktifkan akun Anda.',
     'tooManyAttempts'       => 'Terlalu banyak percobaan masuk. Silakan tunggu beberapa menit dan coba lagi.',
     'otpInvalidFormat'      => 'Silakan masukkan kode 6 digit dari email Anda.',
     'otpIncorrect'          => 'Kode salah. Silakan coba lagi.',

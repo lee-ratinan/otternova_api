@@ -3,7 +3,7 @@ return [
     'missingCredentials'    => 'Please enter your email address and password.',
     'invalidCredentials'    => 'The email address or password is incorrect.',
     'accountNotActive'      => 'Your account is not active. Please contact support.',
-    'accountPending'        => 'Your account is not activated yet. Please open the activation link we emailed you.',
+    'accountPending'        => 'Your account is not activated yet. Please open the activation link we emailed you. If you cannot find it, check your spam folder, or use Forgot Password to get a new link that also activates your account.',
     'tooManyAttempts'       => 'Too many sign-in attempts. Please wait a few minutes and try again.',
     'otpInvalidFormat'      => 'Please enter the 6-digit code from your email.',
     'otpIncorrect'          => 'The code is incorrect. Please try again.',

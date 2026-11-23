@@ -3,7 +3,7 @@ return [
     'missingCredentials'    => 'Sila masukkan alamat e-mel dan kata laluan anda.',
     'invalidCredentials'    => 'Alamat e-mel atau kata laluan tidak betul.',
     'accountNotActive'      => 'Akaun anda tidak aktif. Sila hubungi sokongan.',
-    'accountPending'        => 'Akaun anda belum diaktifkan. Sila buka pautan pengaktifan yang kami hantar melalui e-mel.',
+    'accountPending'        => 'Akaun anda belum diaktifkan. Sila buka pautan pengaktifan yang kami hantar melalui e-mel. Jika tidak menjumpainya, semak folder spam, atau gunakan Lupa Kata Laluan untuk mendapatkan pautan baharu yang turut mengaktifkan akaun anda.',
     'tooManyAttempts'       => 'Terlalu banyak cubaan log masuk. Sila tunggu beberapa minit dan cuba lagi.',
     'otpInvalidFormat'      => 'Sila masukkan kod 6 digit daripada e-mel anda.',
     'otpIncorrect'          => 'Kod tidak betul. Sila cuba lagi.',

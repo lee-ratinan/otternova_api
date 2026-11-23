@@ -3,7 +3,7 @@ return [
     'missingCredentials'    => '请输入您的电邮地址和密码。',
     'invalidCredentials'    => '电邮地址或密码不正确。',
     'accountNotActive'      => '您的账户未启用。请联系客服。',
-    'accountPending'        => '您的账户尚未激活。请打开我们发送到您电邮的激活链接。',
+    'accountPending'        => '您的账户尚未激活。请打开我们发送到您电邮的激活链接。如果找不到，请检查垃圾邮件文件夹，或使用“忘记密码”获取新链接，该链接也会激活您的账户。',
     'tooManyAttempts'       => '登录尝试次数过多。请稍等几分钟后再试。',
     'otpInvalidFormat'      => '请输入电邮中的 6 位数验证码。',
     'otpIncorrect'          => '验证码不正确。请再试一次。',
