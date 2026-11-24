@@ -8,8 +8,9 @@ use CodeIgniter\HTTP\ResponseInterface;
 use Throwable;
 
 /**
- * The log_activity log for the Admin app, behind the jwt:S and department:EXE filters: the log holds the changes to
- * every table, the ledger and the accounts included, so it is the Executive Office's only. Every time is UTC.
+ * The log_activity log for the Admin app, behind the jwt:S and department:EXE,ENG filters: the log holds the changes
+ * to every table, the ledger and the accounts included, so it is the Executive Office's, and Engineering's to look
+ * into problems. Every time is UTC.
  */
 class ActivityLogs extends BaseController
 {

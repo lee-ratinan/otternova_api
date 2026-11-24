@@ -2,13 +2,16 @@
 
 namespace App\Libraries;
 
+use App\Models\EmailLogModel;
 use InvalidArgumentException;
+use Throwable;
 
 /**
  * Sends every kind of email the API sends. Each kind is a TYPE_* constant whose subject and body
  * come from the Email language file (Email.<type>.subject / Email.<type>.body). The body goes out as
  * HTML inside Views/email/template-v1.php (whose other text is Email.template.*), with the plain
  * text as the alternative part. A placeholder given as a table (see send()) is a table in the HTML.
+ * Every email that deliver() handles is written to email_log (App\Models\EmailLogModel), sent or not.
  */
 class EmailService
 {
@@ -41,6 +44,9 @@ class EmailService
 
     private const TEMPLATE = 'email/template-v1';
 
+    /** Type of the email being sent, for email_log */
+    private ?string $type = null;
+
     /** Locale of the email being sent, for the template text (null: the request's locale) */
     private ?string $locale = null;
 
@@ -70,6 +76,7 @@ class EmailService
             throw new InvalidArgumentException('Unknown email type: ' . $type);
         }
 
+        $this->type   = $type;
         $this->locale = $this->supportedLocale($locale);
         $this->tables = $tables;
         try {
@@ -81,6 +88,7 @@ class EmailService
 
             return $this->deliver($to, $this->line($type . '.subject', $data), $this->line($type . '.body', $data));
         } finally {
+            $this->type     = null;
             $this->locale   = null;
             $this->tables   = [];
             $this->htmlBody = null;
@@ -246,9 +254,11 @@ class EmailService
         $recipient = $this->recipientFor($to);
         if ($recipient === null) {
             log_message('info', "Email to {to}: {subject}\n{body}", ['to' => $to, 'subject' => $subject, 'body' => $body]);
+            $this->logEmail($to, null, $subject, EmailLogModel::STATUS_SUPPRESSED);
 
             return true;
         }
+        $intended = $to;
         if ($recipient !== $to) {
             log_message('info', 'Email to {to} redirected to {recipient}', ['to' => $to, 'recipient' => $recipient]);
             $to = $recipient;
@@ -264,13 +274,33 @@ class EmailService
 
         if (! $email->send(false)) {
             log_message('error', 'Email to {to} failed: {subject}', ['to' => $to, 'subject' => $subject]);
+            $this->logEmail($intended, $to, $subject, EmailLogModel::STATUS_FAILED, $email->printDebugger([]));
+            $email->clear();
 
             return false;
         }
         $email->clear();
         log_message('info', 'Email sent to {to}: {subject}', ['to' => $to, 'subject' => $subject]);
+        $this->logEmail($intended, $to, $subject, EmailLogModel::STATUS_SENT);
 
         return true;
+    }
+
+    /**
+     * Writes the email to email_log. A log that cannot be written never stops the email: it is reported instead.
+     * @param string      $recipient   The address it was for
+     * @param string|null $deliveredTo Where it really went (null: nowhere)
+     * @param string      $subject
+     * @param string      $status      EmailLogModel::STATUS_*
+     * @param string|null $error       Why it failed
+     */
+    protected function logEmail(string $recipient, ?string $deliveredTo, string $subject, string $status, ?string $error = null): void
+    {
+        try {
+            model(EmailLogModel::class)->record($this->type ?? 'unknown', $recipient, $deliveredTo, $this->locale, $subject, $status, $error);
+        } catch (Throwable $e) {
+            log_message('error', 'email_log not written for {to}: {message}', ['to' => $recipient, 'message' => $e->getMessage()]);
+        }
     }
 
     /**

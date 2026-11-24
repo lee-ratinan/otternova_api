@@ -210,10 +210,16 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('receipt/(:segment)', 'Documents::staffReceipt/$1');
     });
 
-    // Admin app's activity log: the Executive Office only, as it holds every table's changes; see App\Controllers\ActivityLogs
-    $routes->group('staff/logs', ['filter' => ['jwt:S', 'department:EXE']], static function (RouteCollection $routes) {
+    // Admin app's activity log: the Executive Office, as it holds every table's changes, and Engineering to look into problems; see App\Controllers\ActivityLogs
+    $routes->group('staff/logs', ['filter' => ['jwt:S', 'department:EXE,ENG']], static function (RouteCollection $routes) {
         $routes->post('activities', 'ActivityLogs::activities');
         $routes->post('tables', 'ActivityLogs::tables');
+    });
+
+    // Admin app's email log: the Executive Office, Client Experience for customers' questions, and Engineering to look into problems; see App\Controllers\EmailLogs
+    $routes->group('staff/logs', ['filter' => ['jwt:S', 'department:EXE,CXD,ENG']], static function (RouteCollection $routes) {
+        $routes->post('emails', 'EmailLogs::emails');
+        $routes->post('email-types', 'EmailLogs::types');
     });
 
     // Client app's subscription of a business: its active owners only; see App\Controllers\Subscriptions
