@@ -11,6 +11,7 @@ use App\Libraries\AuthContext;
 use App\Libraries\BusinessMessageGuard;
 use App\Libraries\ContactFormGuard;
 use App\Libraries\EmailService;
+use App\Libraries\ExchangeRates;
 use App\Libraries\GeoLocator;
 use App\Libraries\ImageProcessor;
 use App\Libraries\JwtService;
@@ -53,6 +54,18 @@ class Services extends BaseService
         }
 
         return new JwtService(config(Auth::class));
+    }
+
+    /**
+     * The day's exchange rate for a ledger entry; see App\Libraries\ExchangeRates
+     */
+    public static function exchangeRates(bool $getShared = true): ExchangeRates
+    {
+        if ($getShared) {
+            return static::getSharedInstance('exchangeRates');
+        }
+
+        return new ExchangeRates(db_connect(), config(\Config\ExchangeRate::class));
     }
 
     public static function emailService(bool $getShared = true): EmailService

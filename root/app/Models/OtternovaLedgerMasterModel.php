@@ -16,7 +16,10 @@ class OtternovaLedgerMasterModel extends Model
     use FieldConfigurationTrait;
     use LedgerWriteTrait;
 
-    /** Columns /staff/ledger/entry/update writes; receipt_file_path is set by the receipt upload, created_by on insert */
+    /**
+     * Columns /staff/ledger/entry/update writes; receipt_file_path is set by the receipt upload, created_by on insert,
+     * base_amount from the amounts and base_rate (see Ledger::baseAmount() of the API)
+     */
     public const FORM_FIELDS   = [
         'transaction_date',
         'transaction_detail',
@@ -26,14 +29,20 @@ class OtternovaLedgerMasterModel extends Model
         'transaction_amount',
         'billed_currency_code',
         'billed_amount',
+        'base_rate',
+        'tax_code_id',
+        'tax_base_amount',
         'from_account_id',
         'to_account_id',
         'counterparty_id',
     ];
-    public const FORM_NULLABLE = ['reference_number', 'counterparty_id'];
+    public const FORM_NULLABLE = ['reference_number', 'base_rate', 'tax_code_id', 'tax_base_amount', 'counterparty_id'];
+
+    /** A rate typed in: up to 9 digits before the point and 10 after, as DECIMAL(20,10) holds */
+    public const RATE_PATTERN = '/^\d{1,9}(\.\d{1,10})?$/';
 
     /** Filters of the entry list: filter name => what it matches */
-    public const LIST_FILTERS = ['date_from', 'date_to', 'account_id', 'category_id', 'counterparty_id'];
+    public const LIST_FILTERS = ['date_from', 'date_to', 'account_id', 'category_id', 'counterparty_id', 'journal_id'];
 
     /** Up to 15 digits before the point and 4 after, as DECIMAL(19,4) holds */
     public const AMOUNT_PATTERN = '/^\d{1,15}(\.\d{1,4})?$/';
@@ -46,6 +55,8 @@ class OtternovaLedgerMasterModel extends Model
     protected $protectFields    = true;
     protected $allowedFields    = [
         ...self::FORM_FIELDS,
+        'base_amount',
+        'journal_id',
         'receipt_file_path',
         'created_by',
     ];
@@ -70,6 +81,9 @@ class OtternovaLedgerMasterModel extends Model
         'transaction_amount'        => 'required|regex_match[/^\d{1,15}(\.\d{1,4})?$/]|greater_than[0]',
         'billed_currency_code'      => 'required|regex_match[/^[A-Z]{3}$/]',
         'billed_amount'             => 'required|regex_match[/^\d{1,15}(\.\d{1,4})?$/]',
+        'base_rate'                 => 'permit_empty|regex_match[/^\d{1,9}(\.\d{1,10})?$/]|greater_than[0]',
+        'tax_code_id'               => 'permit_empty|is_natural_no_zero|is_not_unique[otternova_ledger_tax_code.id]',
+        'tax_base_amount'           => 'permit_empty|regex_match[/^\d{1,15}(\.\d{1,4})?$/]',
         'from_account_id'           => 'required|is_natural_no_zero|is_not_unique[otternova_ledger_account.id]',
         'to_account_id'             => 'required|is_natural_no_zero|is_not_unique[otternova_ledger_account.id]|differs[from_account_id]',
         'counterparty_id'           => 'permit_empty|is_natural_no_zero|is_not_unique[otternova_ledger_counterparty.id]',
@@ -95,6 +109,9 @@ class OtternovaLedgerMasterModel extends Model
             'transaction_amount'        => ['type' => 'number', 'step' => '0.0001'],
             'billed_currency_code'      => ['type' => 'select', 'options' => listCurrencies(), 'searchable' => false],
             'billed_amount'             => ['type' => 'number', 'step' => '0.0001'],
+            'base_rate'                 => ['type' => 'number', 'step' => '0.0000000001'],
+            'tax_code_id'               => ['type' => 'select'],
+            'tax_base_amount'           => ['type' => 'number', 'step' => '0.0001'],
             'from_account_id'           => ['type' => 'select'],
             'to_account_id'             => ['type' => 'select'],
             'counterparty_id'           => ['type' => 'select'],
@@ -190,7 +207,9 @@ class OtternovaLedgerMasterModel extends Model
         return $this->db->table($this->table . ' e')
             ->select('e.public_id, e.transaction_date, e.transaction_detail, e.reference_number')
             ->select('c.public_id AS category_public_id, c.category_code, c.category_name')
-            ->select('e.transaction_currency_code, e.transaction_amount, e.billed_currency_code, e.billed_amount')
+            ->select('e.transaction_currency_code, e.transaction_amount, e.billed_currency_code, e.billed_amount, e.base_rate, e.base_amount')
+            ->select('n.public_id AS entity_public_id, n.entity_name, n.base_currency_code')
+            ->select('x.public_id AS tax_code_public_id, x.tax_code, x.tax_kind, x.rate AS tax_rate, e.tax_base_amount, e.journal_id, e.source_key')
             ->select('f.public_id AS from_account_public_id, f.account_name AS from_account_name, f.account_type AS from_account_type')
             ->select('t.public_id AS to_account_public_id, t.account_name AS to_account_name, t.account_type AS to_account_type')
             ->select('p.public_id AS counterparty_public_id, p.counterparty_name, e.receipt_file_path, e.created_by, a.full_name AS created_by_name')
@@ -198,6 +217,8 @@ class OtternovaLedgerMasterModel extends Model
             ->join('otternova_ledger_category c', 'c.id = e.category_id', 'inner')
             ->join('otternova_ledger_account f', 'f.id = e.from_account_id', 'inner')
             ->join('otternova_ledger_account t', 't.id = e.to_account_id', 'inner')
+            ->join('otternova_ledger_entity n', 'n.id = f.entity_id', 'left')
+            ->join('otternova_ledger_tax_code x', 'x.id = e.tax_code_id', 'left')
             ->join('otternova_ledger_counterparty p', 'p.id = e.counterparty_id', 'left')
             ->join('auth_master a', 'a.id = e.created_by', 'left');
     }

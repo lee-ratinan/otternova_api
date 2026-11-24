@@ -13,8 +13,8 @@ class OtternovaLedgerCounterpartyModel extends Model
     use LedgerWriteTrait;
 
     /** Columns /staff/ledger/counterparty/update writes */
-    public const FORM_FIELDS   = ['counterparty_name', 'counterparty_description'];
-    public const FORM_NULLABLE = ['counterparty_description'];
+    public const FORM_FIELDS   = ['counterparty_name', 'counterparty_description', 'tax_id', 'tax_branch'];
+    public const FORM_NULLABLE = ['counterparty_description', 'tax_id', 'tax_branch'];
 
     protected $table            = 'otternova_ledger_counterparty';
     protected $primaryKey       = 'id';
@@ -34,6 +34,8 @@ class OtternovaLedgerCounterpartyModel extends Model
         'id'                       => 'permit_empty|is_natural_no_zero',
         'counterparty_name'        => 'required|max_length[255]',
         'counterparty_description' => 'permit_empty|max_length[65535]',
+        'tax_id'                   => 'permit_empty|max_length[32]',
+        'tax_branch'               => 'permit_empty|max_length[16]',
     ];
 
     /** public_id: CHAR(8), see PublicIdTrait */
@@ -53,6 +55,8 @@ class OtternovaLedgerCounterpartyModel extends Model
         $fields = [
             'counterparty_name'        => ['type' => 'text'],
             'counterparty_description' => ['type' => 'textarea', 'rows' => 3, 'orderable' => false],
+            'tax_id'                   => ['type' => 'text'],
+            'tax_branch'               => ['type' => 'text', 'orderable' => false],
         ];
 
         return $this->buildConfiguration('OtternovaLedgerCounterparty', $fields);
@@ -65,7 +69,7 @@ class OtternovaLedgerCounterpartyModel extends Model
     public function listForLookup(): array
     {
         return $this->db->table($this->table)
-            ->select('public_id, counterparty_name, counterparty_description')
+            ->select('public_id, counterparty_name, counterparty_description, tax_id, tax_branch')
             ->orderBy('counterparty_name', 'ASC')
             ->orderBy('id', 'ASC')
             ->get()

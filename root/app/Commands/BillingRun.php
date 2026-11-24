@@ -2,6 +2,7 @@
 
 namespace App\Commands;
 
+use App\Libraries\LedgerPosting;
 use App\Libraries\SubscriptionBilling;
 use CodeIgniter\CLI\BaseCommand;
 use CodeIgniter\CLI\CLI;
@@ -10,7 +11,8 @@ use Throwable;
 /**
  * php spark billing:run — the scheduled work of the subscriptions (see SubscriptionBilling::runSchedule()): voids
  * unpaid first invoices, ends cancellations at the period end, makes renewal invoices, suspends what is unpaid after
- * the grace days and expires what has been suspended too long. Safe to run again at any time; run it every hour:
+ * the grace days and expires what has been suspended too long, then posts the billing to the ledger (see
+ * LedgerPosting). Safe to run again at any time; run it every hour:
  *   0 * * * * cd /path/to/root && php spark billing:run >> writable/logs/billing-run.log 2>&1
  */
 class BillingRun extends BaseCommand
@@ -33,6 +35,16 @@ class BillingRun extends BaseCommand
             CLI::error('billing:run failed: ' . $e->getMessage());
 
             return EXIT_ERROR;
+        }
+
+        // the ledger is posted apart: a failure there never fails the billing
+        try {
+            $posting = (new LedgerPosting(db_connect()))->sync();
+            $counts += ['ledger_posted' => $posting['posted'], 'ledger_waiting' => $posting['waiting']];
+            $counts['failed'] += $posting['failed'];
+        } catch (Throwable $e) {
+            log_message('error', 'billing:run ledger posting: {message}', ['message' => $e->getMessage()]);
+            CLI::error('billing:run ledger posting failed: ' . $e->getMessage());
         }
 
         $summary = [];

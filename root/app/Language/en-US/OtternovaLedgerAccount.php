@@ -1,6 +1,7 @@
 <?php
 return [
     'fields' => [
+        'entity_id'     => 'Entity',
         'account_name'  => 'Account Name',
         'account_type'  => 'Account Type',
         'currency_code' => 'Currency',

@@ -17,8 +17,15 @@ class OtternovaLedgerAccountModel extends Model
     public const TYPE_EXTERNAL = 'X';
 
     /** Columns /staff/ledger/account/update writes */
-    public const FORM_FIELDS   = ['account_name', 'account_type', 'currency_code', 'account_class'];
-    public const FORM_NULLABLE = ['account_class'];
+    public const FORM_FIELDS   = ['entity_id', 'account_name', 'account_type', 'currency_code', 'account_class'];
+    public const FORM_NULLABLE = [];
+
+    // account_class: what the account is on the financial statements
+    public const CLASS_ASSET     = 'A';
+    public const CLASS_LIABILITY = 'L';
+    public const CLASS_EQUITY    = 'E';
+    public const CLASS_REVENUE   = 'R';
+    public const CLASS_EXPENSE   = 'X';
 
     protected $table            = 'otternova_ledger_account';
     protected $primaryKey       = 'id';
@@ -36,10 +43,11 @@ class OtternovaLedgerAccountModel extends Model
 
     protected $validationRules = [
         'id'            => 'permit_empty|is_natural_no_zero',
+        'entity_id'     => 'required|is_natural_no_zero|is_not_unique[otternova_ledger_entity.id]',
         'account_name'  => 'required|max_length[255]|is_unique[otternova_ledger_account.account_name,id,{id}]',
         'account_type'  => 'required|in_list[I,X]',
         'currency_code' => 'required|regex_match[/^[A-Z]{3}$/]', // any ISO 4217 code: bills come in currencies OtterNova does not sell in
-        'account_class' => 'permit_empty|in_list[A,L,E,R,X]',
+        'account_class' => 'required|in_list[A,L,E,R,X]', // the column is NULL only for accounts made before the reports
     ];
 
     /** public_id: CHAR(4), see PublicIdTrait */
@@ -57,6 +65,7 @@ class OtternovaLedgerAccountModel extends Model
     public function getConfiguration(): array
     {
         $fields = [
+            'entity_id'     => ['type' => 'select'],
             'account_name'  => ['type' => 'text'],
             'account_type'  => ['type' => 'select'],
             'currency_code' => ['type' => 'select', 'options' => listCurrencies(), 'searchable' => false],
@@ -71,15 +80,16 @@ class OtternovaLedgerAccountModel extends Model
     }
 
     /**
-     * Every account, by name, for the ledger's account list and dropdowns
-     * @return list<array{public_id: string, account_name: string, account_type: string, currency_code: string, account_class: string|null}>
+     * Every account, by name, for the ledger's account list and dropdowns, with the entity it belongs to
+     * @return list<array{public_id: string, entity_public_id: string|null, entity_name: string|null, account_name: string, account_type: string, currency_code: string, account_class: string|null}>
      */
     public function listForLookup(): array
     {
-        return $this->db->table($this->table)
-            ->select('public_id, account_name, account_type, currency_code, account_class')
-            ->orderBy('account_name', 'ASC')
-            ->orderBy('id', 'ASC')
+        return $this->db->table($this->table . ' a')
+            ->select('a.public_id, n.public_id AS entity_public_id, n.entity_name, a.account_name, a.account_type, a.currency_code, a.account_class')
+            ->join('otternova_ledger_entity n', 'n.id = a.entity_id', 'left')
+            ->orderBy('a.account_name', 'ASC')
+            ->orderBy('a.id', 'ASC')
             ->get()
             ->getResultArray();
     }

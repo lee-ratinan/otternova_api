@@ -123,6 +123,27 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('category/update', 'Ledger::saveCategory');
         $routes->post('counterparties', 'Ledger::counterparties');
         $routes->post('counterparty/update', 'Ledger::saveCounterparty');
+        $routes->post('entities', 'Ledger::entities');
+        $routes->post('entity/update', 'Ledger::saveEntity');
+        $routes->post('report/trial-balance', 'Ledger::trialBalance');
+        $routes->post('report/profit-loss', 'Ledger::profitLoss');
+        $routes->post('report/balance-sheet', 'Ledger::balanceSheet');
+        $routes->post('report/general-ledger', 'Ledger::generalLedger');
+        $routes->post('report/vat', 'Ledger::vatReport');
+        $routes->post('report/wht', 'Ledger::whtReport');
+        $routes->post('report/revenue-register', 'Ledger::revenueRegister');
+        $routes->post('report/expense-register', 'Ledger::expenseRegister');
+        $routes->post('report/vat-threshold', 'Ledger::vatThreshold');
+        $routes->post('tax-codes', 'Ledger::taxCodes');
+        $routes->post('tax-code/update', 'Ledger::saveTaxCode');
+        $routes->post('posting-rules', 'Ledger::postingRules');
+        $routes->post('posting-rule/update', 'Ledger::savePostingRule');
+        $routes->post('posting/status', 'Ledger::postingStatus');
+        $routes->post('posting/sync', 'Ledger::syncPosting');
+        $routes->post('periods', 'Ledger::periods');
+        $routes->post('period/close', 'Ledger::closePeriod');
+        $routes->post('period/reopen', 'Ledger::reopenPeriod');
+        $routes->post('period/snapshot', 'Ledger::periodSnapshot');
     });
 
     // Admin app's plans, prices, payment methods and discount codes: Executive Office and Finance only; see App\Controllers\Plans
