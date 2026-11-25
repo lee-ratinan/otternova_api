@@ -2,9 +2,14 @@
 
 namespace App\Controllers;
 
+use App\Libraries\Ai\AiAllowance;
+use App\Libraries\Ai\AiException;
+use App\Libraries\Ai\AiRequest;
+use App\Libraries\Ai\AiUsageContext;
 use App\Libraries\ApiResponse;
 use App\Libraries\UploadedImage;
 use App\Libraries\WebpagePreview;
+use App\Models\BusinessMasterModel;
 use App\Models\BusinessWebsiteModel;
 use App\Models\SubscriptionMasterModel;
 use App\Models\WebpageImageModel;
@@ -52,6 +57,13 @@ class Webpages extends BaseController
         'meta_title'       => 70,
         'meta_description' => 160,
     ];
+
+    /**
+     * The AI feature that rewrites every text of a page's sections in each of the website's languages
+     * (AiRequest::$feature, and what ai_usage_log counts its attempts by); each page gets
+     * Config\PlanLimits::AI_CREDIT_TEXT_ATTEMPTS of them in Config\PlanLimits::$aiCreditWindowDays (rolling)
+     */
+    public const FEATURE_TEXT_REFINEMENT = 'webpage_text_refinement';
 
     /** A page_slug the client sets: lowercase letters and digits, single hyphens between them */
     public const SLUG_PATTERN = '/^[a-z0-9]+(?:-[a-z0-9]+)*$/';
@@ -107,7 +119,9 @@ class Webpages extends BaseController
 
     /**
      * POST /client/webpage { business_slug, page_public_id }
-     * @return ResponseInterface The page, with its sections
+     * @return ResponseInterface The page, with its sections; with text_refinement { max, count, can_add, window_days }:
+     *                           the page's AI refinements of its texts (refineTexts()) in the last window_days days
+     *                           against the plan's allowance
      */
     public function show(): ResponseInterface
     {
@@ -121,7 +135,7 @@ class Webpages extends BaseController
             return $page;
         }
         try {
-            return ApiResponse::success($this->pageDetail($page));
+            return ApiResponse::success($this->pageDetail($page) + ['text_refinement' => $this->refinementCap($page)]);
         } catch (Throwable $e) {
             return $this->failed($endpoint, $e, 'Webpage.loadFailed');
         }
@@ -432,6 +446,93 @@ class Webpages extends BaseController
         } catch (Throwable $e) {
             return $this->failed($endpoint, $e, 'Webpage.loadFailed');
         }
+    }
+
+    /**
+     * POST /client/webpage/refine-texts { business_slug, page_public_id, sections: [{ section_public_id, design_code,
+     * texts: { slot_code: text } }] }
+     * Asks the AI (feature FEATURE_TEXT_REFINEMENT) to rewrite every text of the page, better and in each of the
+     * website's languages, in the voice of the business (business_mood_and_tone). The texts are the default language's,
+     * as the editor has them now: every section of the page once, each with every text slot of its design (one of the
+     * section's type) filled in; anything less is refused with 422 (Webpage.refineIncomplete). Nothing is saved: the
+     * editor shows the new texts, and the owner saves each section.
+     * Every call is logged to ai_usage_log (by service('ai')); a refinement that comes back counts as one attempt of the
+     * page, and once it has had Config\PlanLimits::AI_CREDIT_TEXT_ATTEMPTS of them in the last
+     * Config\PlanLimits::$aiCreditWindowDays days, the next is refused with 409. A failed call is not an attempt.
+     * @return ResponseInterface { sections: { section_public_id: { language_code: { slot_code: text } } },
+     *                           text_refinement: { max, count, can_add, window_days } }
+     */
+    public function refineTexts(): ResponseInterface
+    {
+        $endpoint = 'v1/client/webpage/refine-texts';
+        [$business, $input, $error] = $this->managed($endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+        $businessId = (int) $business['id'];
+        $page       = $this->page($businessId, $input['page_public_id'] ?? null, $endpoint);
+        if ($page instanceof ResponseInterface) {
+            return $page;
+        }
+        try {
+            $context  = $this->context($businessId);
+            $stored   = model(WebpageSectionModel::class)->sectionsOf((int) $page['id']);
+            $names    = model(WebpageMasterModel::class)->namesOf([(int) $page['id']])[(int) $page['id']] ?? [];
+            $voice    = model(BusinessMasterModel::class)->select('business_name, business_mood_and_tone')->find($businessId) ?? [];
+            $cap      = $this->refinementCap($page, $context['plan']);
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'Webpage.loadFailed');
+        }
+        if ($context['languages'] === []) {
+            return ApiResponse::error(lang('Webpage.websiteRequired'), 409);
+        }
+
+        $sections = $this->refinementSources($input['sections'] ?? null, $stored);
+        if ($sections === null) {
+            return ApiResponse::error(lang('Webpage.refineIncomplete'), 422);
+        }
+        if (! $cap['can_add']) {
+            return ApiResponse::error($cap['max'] === 0
+                ? lang('Webpage.refineNotIncluded', [ucfirst($context['plan'])])
+                : lang('Webpage.refineLimitReached', [$cap['max'], ucfirst($context['plan']), $cap['window_days']]), 409);
+        }
+
+        $isHome   = $page['page_slug'] === WebpageMasterModel::HOME_SLUG;
+        $pageName = $isHome ? $this->homeNameIn($context['languages'][0]) : (string) ($names[$context['languages'][0]]['page_name'] ?? '');
+        $request  = $this->refinementRequest($page, $businessId, $voice, $pageName, $sections, $context['languages']);
+        try {
+            $result = service('ai')->generate($request);
+        } catch (AiException $e) {
+            log_message('error', $endpoint . ': AI {kind}: {message}', ['kind' => $e->kind, 'message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang($e->isRetryable() ? 'Webpage.refineBusy' : 'Webpage.refineFailed'), $e->isRetryable() ? 503 : 502);
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'Webpage.refineFailed');
+        }
+
+        // only the sections, languages and slots asked for, each cleaned and cut to its slot's max
+        $out = [];
+        foreach ($sections as $publicId => $section) {
+            foreach ($context['languages'] as $code) {
+                foreach ($section['design']['texts'] as $slotCode => $slot) {
+                    $text = $result->json[$publicId][$code][$slotCode] ?? null;
+                    if (! is_string($text)) {
+                        continue;
+                    }
+                    $text = mb_substr($this->cleanText($text, ! empty($slot['multiline'])), 0, $slot['max']);
+                    if ($text !== '') {
+                        $out[$publicId][$code][$slotCode] = $text;
+                    }
+                }
+            }
+        }
+        if ($out === []) {
+            log_message('error', $endpoint . ': the AI answered with none of the texts asked for');
+
+            return ApiResponse::error(lang('Webpage.refineFailed'), 502);
+        }
+
+        return ApiResponse::success(['sections' => $out, 'text_refinement' => AiAllowance::afterOne($cap)], 200, lang('Webpage.refined'));
     }
 
     /**
@@ -894,6 +995,117 @@ class Webpages extends BaseController
         $lines = array_map(static fn (string $line): string => trim(preg_replace('/[^\S\n]+/u', ' ', $line) ?? ''), explode("\n", str_replace(["\r\n", "\r"], "\n", $text)));
 
         return trim(preg_replace('/\n{3,}/', "\n\n", implode("\n", $lines)) ?? '');
+    }
+
+    /**
+     * The page's AI refinements of its texts in the allowance's window, against its plan's
+     * (Config\PlanLimits::AI_CREDIT_TEXT_ATTEMPTS)
+     * @param array       $page The stored row
+     * @param string|null $plan plan_code of the business; looked up when null
+     * @return array{max: int, count: int, can_add: bool, window_days: int}
+     */
+    private function refinementCap(array $page, ?string $plan = null): array
+    {
+        $plan ??= model(SubscriptionMasterModel::class)->planOfBusiness((int) $page['business_id'])['plan_code'];
+
+        return AiAllowance::of(AiUsageContext::forWebpage((int) $page['business_id'], (int) $page['id']), self::FEATURE_TEXT_REFINEMENT, $plan);
+    }
+
+    /**
+     * The request's sections to refine, when they are the page's sections, each once, with a design of its type and
+     * every text slot of that design filled in
+     * @param mixed $value  The request's "sections"
+     * @param array $stored WebpageSectionModel::sectionsOf() of the page
+     * @return array<string, array{section_type: string, design: array, texts: array<string, string>}>|null By
+     *                      section public_id, in the page's order; null when they are not all there and filled
+     */
+    private function refinementSources(mixed $value, array $stored): ?array
+    {
+        if ($stored === [] || ! is_array($value) || ! array_is_list($value)) {
+            return null;
+        }
+        $given = [];
+        foreach ($value as $section) {
+            $publicId = is_array($section) ? ($section['section_public_id'] ?? null) : null;
+            if (! is_string($publicId) || isset($given[$publicId])) {
+                return null;
+            }
+            $given[$publicId] = $section;
+        }
+        $designs = config(WebpageDesigns::class);
+        $out     = [];
+        foreach ($stored as $section) {
+            $in     = $given[$section['public_id']] ?? null;
+            $design = $in === null ? null : $designs->design($in['design_code'] ?? null);
+            if ($design === null || $design['section_type'] !== $section['section_type'] || ! is_array($in['texts'] ?? null)) {
+                return null;
+            }
+            $texts = [];
+            foreach ($design['texts'] as $slotCode => $slot) {
+                $text = $in['texts'][$slotCode] ?? null;
+                $text = is_string($text) ? $this->cleanText($text, ! empty($slot['multiline'])) : '';
+                if ($text === '' || mb_strlen($text) > $slot['max']) {
+                    return null;
+                }
+                $texts[$slotCode] = $text;
+            }
+            $out[$section['public_id']] = ['section_type' => $section['section_type'], 'design' => $design, 'texts' => $texts];
+        }
+
+        return count($given) === count($out) ? $out : null;
+    }
+
+    /**
+     * The question to the AI of refineTexts(): an answer of { section_public_id: { language_code: { slot_code: text } } },
+     * as JSON
+     * @param array        $page      The stored row
+     * @param array        $voice     The business's business_name and business_mood_and_tone
+     * @param array        $sections  refinementSources()
+     * @param list<string> $languages The website's, the default first
+     */
+    private function refinementRequest(array $page, int $businessId, array $voice, string $pageName, array $sections, array $languages): AiRequest
+    {
+        $known      = listLanguages();
+        $properties = [];
+        $lines      = [];
+        foreach ($sections as $publicId => $section) {
+            $slots = [];
+            $lines[] = 'Section ' . $publicId . ' (' . str_replace('_', ' ', $section['section_type']) . '):';
+            foreach ($section['design']['texts'] as $slotCode => $slot) {
+                $slots[$slotCode] = ['type' => 'string', 'maxLength' => $slot['max']];
+                $lines[]          = '- ' . $slotCode . ' (at most ' . $slot['max'] . ' characters'
+                    . (empty($slot['multiline']) ? ', one line' : ', line breaks allowed') . '): ' . $section['texts'][$slotCode];
+            }
+            $perLanguage = [];
+            foreach ($languages as $code) {
+                $perLanguage[$code] = ['type' => 'object', 'properties' => $slots, 'required' => array_keys($slots)];
+            }
+            $properties[$publicId] = ['type' => 'object', 'properties' => $perLanguage, 'required' => $languages];
+            $lines[]               = '';
+        }
+        $languageList = array_map(static fn (string $code): string => '- ' . $code . ': ' . ($known[$code] ?? $code), $languages);
+        $mood         = trim((string) ($voice['business_mood_and_tone'] ?? ''));
+
+        $prompt = 'Business: ' . trim((string) ($voice['business_name'] ?? '')) . "\n"
+            . 'Mood and feel of the business: ' . ($mood === '' ? '(not given: warm, clear and professional)' : $mood) . "\n"
+            . 'Web page: ' . $pageName . "\n\n"
+            . 'The texts of the page, section by section, in ' . ($known[$languages[0]] ?? $languages[0]) . ":\n" . implode("\n", $lines) . "\n"
+            . "Write every text of every section, refined, in each of these languages, keyed by section, then language code, then text:\n"
+            . implode("\n", $languageList);
+
+        return new AiRequest(
+            feature: self::FEATURE_TEXT_REFINEMENT,
+            prompt: $prompt,
+            systemInstruction: 'You are a copywriter for a small business. Improve the texts of one page of its website: '
+                . 'clearer, more appealing and in the mood and feel of the business, so the sections read well together, '
+                . 'keeping every fact as given and adding none (no prices, offers or claims that are not in them). Keep '
+                . 'each text to its purpose (a headline stays a headline, a button label a short call to action) and '
+                . 'within its length. Write it naturally in each language asked for, as a native speaker would, not word '
+                . 'for word; plain text, no markdown.',
+            responseSchema: ['type' => 'object', 'properties' => $properties, 'required' => array_keys($properties)],
+            temperature: 0.7,
+            context: AiUsageContext::forWebpage($businessId, (int) $page['id'], $this->actorId()),
+        );
     }
 
     /**

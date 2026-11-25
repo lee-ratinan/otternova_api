@@ -20,8 +20,9 @@ use CodeIgniter\Config\BaseConfig;
  * - WEBPAGES:  webpage_master rows of the business, its home page included; 0 means no pages of its own design
  * - IMAGE_PER_ARTIFACT: artifact_image rows per 1 artifact_master
  * - IMAGE_PER_WEBPAGE: webpage_image rows per 1 webpage_master, all its sections together
- * Monthly allowances, not caps on rows: how many times a month the business may ask the AI to generate, counted
- * separately for each field it generates into:
+ * Allowances, not caps on rows: how many times in $aiCreditWindowDays (60 days, rolling) the business may ask the AI
+ * to generate, counted separately for each field it generates into; an attempt is free again that many days after
+ * it was used:
  * - AI_CREDIT_TEXT_ATTEMPTS: text generations (a name, a description) per field
  * - AI_CREDIT_IMG_ATTEMPTS:  image generations per field
  * The features are on (true) or off (false):
@@ -46,6 +47,9 @@ class PlanLimits extends BaseConfig
 
     /** The cap that counts artifacts of each artifact_master.artifact_type */
     public const ARTIFACT_TYPE_CAPS = ['P' => self::PRODUCTS, 'S' => self::SERVICES];
+
+    /** The days the AI_CREDIT_* allowances are counted over, back from now (planLimits.aiCreditWindowDays in .env) */
+    public int $aiCreditWindowDays = 60;
 
     /** The plan whose limits a plan_code with no entry gets */
     public string $fallbackPlan = 'free';

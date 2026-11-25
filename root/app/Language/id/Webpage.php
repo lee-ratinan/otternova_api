@@ -51,4 +51,10 @@ return [
     'sectionDeleted'      => 'Bagian dihapus.',
     'uploaded'            => 'Gambar diunggah.',
     'imageDeleted'        => 'Gambar dihapus.',
+    'refineIncomplete'    => 'Silakan isi setiap teks di setiap bagian halaman, dalam bahasa utama, sebelum menyempurnakannya dengan AI.',
+    'refineNotIncluded'   => 'Paket {0} tidak mencakup penulisan dengan AI. Silakan tingkatkan paket Anda untuk menggunakannya.',
+    'refineLimitReached'  => 'Paket {1} mengizinkan {0} penyempurnaan AI per halaman web setiap {2} hari. Silakan tingkatkan paket Anda untuk lebih banyak.',
+    'refineBusy'          => 'AI sedang sibuk. Silakan coba lagi sebentar lagi.',
+    'refineFailed'        => 'Tidak dapat menyempurnakan teks halaman. Silakan coba lagi.',
+    'refined'             => 'Teks telah disempurnakan. Silakan periksa setiap bagian, lalu simpan.',
 ];

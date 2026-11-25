@@ -47,10 +47,13 @@ class RecordingAiClient implements AiClient
         return $this->inner;
     }
 
-    /** How many attempts (successes) a target's feature has used on this client's driver */
-    public function attemptsUsed(AiUsageContext $context, string $feature): int
+    /**
+     * How many attempts (successes) a target's feature has used on this client's driver
+     * @param string|null $since Only those from then on (UTC 'Y-m-d H:i:s'), as for an allowance over a window; null: all
+     */
+    public function attemptsUsed(AiUsageContext $context, string $feature, ?string $since = null): int
     {
-        return $this->log->successCount($context, $feature, $this->driver);
+        return $this->log->successCount($context, $feature, $this->driver, $since);
     }
 
     private function write(AiRequest $request, AiUsageContext $context, ?AiResult $result, ?AiException $error, int $started): void

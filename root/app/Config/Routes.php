@@ -394,6 +394,8 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('webpage/reorder', 'Webpages::reorder');
         $routes->post('webpage/section/save', 'Webpages::saveSection');
         $routes->post('webpage/section/delete', 'Webpages::deleteSection');
+        // rewrites every text of the page with the AI, within the plan's allowance
+        $routes->post('webpage/refine-texts', 'Webpages::refineTexts');
         $routes->post('webpage/image-upload', 'Webpages::uploadImage');
         $routes->post('webpage/image-delete', 'Webpages::deleteImage');
         // the people of a business and their accounts: its active owners only; see App\Controllers\Employees
@@ -420,6 +422,8 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('artifact', 'Artifacts::show');
         $routes->post('artifact/create', 'Artifacts::create');
         $routes->post('artifact/edit', 'Artifacts::edit');
+        // rewrites the description in other languages with the AI, within the plan's monthly allowance
+        $routes->post('artifact/refine-description', 'Artifacts::refineDescription');
         $routes->post('artifact-categories', 'ArtifactCategories::list');
         $routes->post('artifact-category/create', 'ArtifactCategories::create');
         $routes->post('artifact-category/edit', 'ArtifactCategories::edit');

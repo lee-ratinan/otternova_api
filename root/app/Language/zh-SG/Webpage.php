@@ -51,4 +51,10 @@ return [
     'sectionDeleted'      => '区块已删除。',
     'uploaded'            => '图片已上传。',
     'imageDeleted'        => '图片已删除。',
+    'refineIncomplete'    => '请先用默认语言填写页面每个部分的所有文字，再用 AI 改进。',
+    'refineNotIncluded'   => '{0} 配套不包括 AI 撰写。请升级配套以使用此功能。',
+    'refineLimitReached'  => '{1} 配套每 {2} 天可为每个网页用 AI 改进 {0} 次。请升级配套以获得更多次数。',
+    'refineBusy'          => 'AI 目前繁忙，请稍后再试。',
+    'refineFailed'        => '无法改进页面文字，请再试一次。',
+    'refined'             => '文字已改进。请检查每个部分后再保存。',
 ];

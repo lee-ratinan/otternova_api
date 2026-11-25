@@ -95,13 +95,18 @@ class AiUsageLogModel extends Model
     /**
      * How many times this target's feature has succeeded on this driver: the attempts used. For a business-wide
      * context (no artifact, no page), the business's own business-wide calls.
+     * @param string|null $since Only those from then on (inclusive, UTC 'Y-m-d H:i:s'), as for an allowance over a window;
+     *                           null counts them all
      */
-    public function successCount(AiUsageContext $context, string $feature, string $driver = 'gemini'): int
+    public function successCount(AiUsageContext $context, string $feature, string $driver = 'gemini', ?string $since = null): int
     {
         $builder = $this->builder()
             ->where('feature', $feature)
             ->where('driver', $driver)
             ->where('status', self::STATUS_SUCCEEDED);
+        if ($since !== null) {
+            $builder->where('created_at >=', $since);
+        }
         if ($context->artifactId !== null) {
             $builder->where('artifact_id', $context->artifactId);
         } elseif ($context->webpageId !== null) {

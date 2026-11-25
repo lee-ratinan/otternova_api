@@ -47,4 +47,11 @@ return [
     'artifactIdRequired'      => '請選擇一個商品或服務。',
     'notFound'                => '找不到商品或服務。',
     'managersOnly'            => '只有這間商家的負責人與經理才能管理其商品與服務。',
+    'refineSourceRequired'    => '請先用任一語言寫下描述，再讓 AI 改進。',
+    'refineLanguagesRequired' => '請選擇要撰寫描述的語言。',
+    'refineNotIncluded'       => '{0} 方案不包含 AI 撰寫。請升級方案以使用此功能。',
+    'refineLimitReached'      => '{1} 方案每 {2} 天可為每項商品或服務用 AI 改進描述 {0} 次。請升級方案以取得更多次數。',
+    'refineBusy'              => 'AI 目前忙碌中，請稍後再試。',
+    'refineFailed'            => '無法改進描述，請再試一次。',
+    'refined'                 => '描述已改進。請檢查後再儲存。',
 ];

@@ -47,4 +47,11 @@ return [
     'artifactIdRequired'      => '请选择一个产品或服务。',
     'notFound'                => '找不到产品或服务。',
     'managersOnly'            => '只有这家企业的业主和经理才能管理其产品和服务。',
+    'refineSourceRequired'    => '请先用任一语言写下描述，再让 AI 改进。',
+    'refineLanguagesRequired' => '请选择要撰写描述的语言。',
+    'refineNotIncluded'       => '{0} 配套不包括 AI 撰写。请升级配套以使用此功能。',
+    'refineLimitReached'      => '{1} 配套每 {2} 天可为每项产品或服务用 AI 改进描述 {0} 次。请升级配套以获得更多次数。',
+    'refineBusy'              => 'AI 目前繁忙，请稍后再试。',
+    'refineFailed'            => '无法改进描述，请再试一次。',
+    'refined'                 => '描述已改进。请检查后再保存。',
 ];

@@ -47,4 +47,11 @@ return [
     'artifactIdRequired'      => 'Sila pilih produk atau perkhidmatan.',
     'notFound'                => 'Produk atau perkhidmatan tidak ditemui.',
     'managersOnly'            => 'Hanya pemilik dan pengurus perniagaan ini boleh mengurus produk dan perkhidmatannya.',
+    'refineSourceRequired'    => 'Sila tulis penerangan dahulu, dalam salah satu bahasa, untuk diperhalusi oleh AI.',
+    'refineLanguagesRequired' => 'Sila pilih bahasa untuk menulis penerangan.',
+    'refineNotIncluded'       => 'Pelan {0} tidak termasuk penulisan AI. Sila naik taraf pelan anda untuk menggunakannya.',
+    'refineLimitReached'      => 'Pelan {1} membenarkan {0} penghalusan penerangan dengan AI bagi setiap produk atau perkhidmatan setiap {2} hari. Sila naik taraf pelan anda untuk lebih banyak.',
+    'refineBusy'              => 'AI sedang sibuk. Sila cuba lagi sebentar lagi.',
+    'refineFailed'            => 'Tidak dapat memperhalusi penerangan. Sila cuba lagi.',
+    'refined'                 => 'Penerangan telah diperhalusi. Sila semak, kemudian simpan.',
 ];

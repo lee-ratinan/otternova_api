@@ -51,4 +51,10 @@ return [
     'sectionDeleted'      => 'Section deleted.',
     'uploaded'            => 'Picture uploaded.',
     'imageDeleted'        => 'Picture deleted.',
+    'refineIncomplete'    => 'Please fill in every text of every section of the page, in the default language, before refining it with AI.',
+    'refineNotIncluded'   => 'The {0} plan does not include AI writing. Please upgrade your plan to use it.',
+    'refineLimitReached'  => 'The {1} plan allows {0} AI refinements per web page every {2} days. Please upgrade your plan for more.',
+    'refineBusy'          => 'The AI is busy right now. Please try again in a moment.',
+    'refineFailed'        => 'Could not refine the texts of the page. Please try again.',
+    'refined'             => 'Texts refined. Please review each section, then save it.',
 ];

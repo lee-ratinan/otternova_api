@@ -47,4 +47,11 @@ return [
     'artifactIdRequired'      => 'Please choose a product or service.',
     'notFound'                => 'Product or service not found.',
     'managersOnly'            => 'Only the owners and managers of this business can manage its products and services.',
+    'refineSourceRequired'    => 'Please write a description first, in one of the languages, for the AI to refine.',
+    'refineLanguagesRequired' => 'Please choose the languages to write the description in.',
+    'refineNotIncluded'       => 'The {0} plan does not include AI writing. Please upgrade your plan to use it.',
+    'refineLimitReached'      => 'The {1} plan allows {0} AI refinements of the description per product or service every {2} days. Please upgrade your plan for more.',
+    'refineBusy'              => 'The AI is busy right now. Please try again in a moment.',
+    'refineFailed'            => 'Could not refine the description. Please try again.',
+    'refined'                 => 'Description refined. Please review it, then save.',
 ];

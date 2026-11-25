@@ -2,11 +2,16 @@
 
 namespace App\Controllers;
 
+use App\Libraries\Ai\AiAllowance;
+use App\Libraries\Ai\AiException;
+use App\Libraries\Ai\AiRequest;
+use App\Libraries\Ai\AiUsageContext;
 use App\Libraries\ApiResponse;
 use App\Libraries\BookingWindow;
 use App\Models\ArtifactAttributeModel;
 use App\Models\ArtifactCategoryModel;
 use App\Models\ArtifactMasterModel;
+use App\Models\BusinessMasterModel;
 use App\Models\SubscriptionMasterModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
@@ -27,6 +32,13 @@ class Artifacts extends BaseController
 {
     use ManagedBusinessTrait;
     use TranslationInputTrait;
+
+    /**
+     * The AI feature that rewrites an artifact's description in its other languages (AiRequest::$feature, and what
+     * ai_usage_log counts its attempts by); each artifact gets Config\PlanLimits::AI_CREDIT_TEXT_ATTEMPTS of them in
+     * Config\PlanLimits::$aiCreditWindowDays (rolling)
+     */
+    public const FEATURE_DESCRIPTION_REFINEMENT = 'artifact_description_refinement';
 
     /** The most variants an artifact may have */
     private const MAX_VARIANTS = 100;
@@ -107,9 +119,11 @@ class Artifacts extends BaseController
     /**
      * POST /client/artifact { public_id }
      * The artifact with its translations, variants and images; with its business's plan_code and caps:
-     * { images: { max, count, can_add }, variants: { max, count, can_add } }, where max is the plan's cap
-     * (Config\PlanLimits::IMAGE_PER_ARTIFACT, VARIANTS), count what the artifact has and can_add false once count
-     * reaches max, so an upload or a new variant would be refused
+     * { images: { max, count, can_add }, variants: { max, count, can_add }, description_refinement: {...} }, where max
+     * is the plan's cap (Config\PlanLimits::IMAGE_PER_ARTIFACT, VARIANTS, AI_CREDIT_TEXT_ATTEMPTS), count what the
+     * artifact has (for description_refinement, the refinements it has had in the last window_days days, with
+     * window_days) and can_add false once count
+     * reaches max, so an upload, a new variant or a refinement would be refused
      * @return ResponseInterface
      */
     public function show(): ResponseInterface
@@ -135,8 +149,107 @@ class Artifacts extends BaseController
             $count       = count($detail[$what]);
             $caps[$what] = ['max' => $max, 'count' => $count, 'can_add' => $count < $max];
         }
+        try {
+            $caps['description_refinement'] = $this->refinementCap($stored, $plan);
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'Artifact.loadFailed');
+        }
 
         return ApiResponse::success($detail + ['plan_code' => $plan, 'caps' => $caps]);
+    }
+
+    /**
+     * POST /client/artifact/refine-description { public_id, artifact_name, source_description, languages: [code, ...] }
+     * Asks the AI (feature FEATURE_DESCRIPTION_REFINEMENT) to rewrite source_description, one of the artifact's
+     * descriptions as the form has it now, better and in each of the languages, in the voice of the business
+     * (business_mood_and_tone). artifact_name is the name on the form; left empty, the stored one. Nothing is saved:
+     * the form shows the new descriptions, and the owner saves them.
+     * Every call is logged to ai_usage_log (by service('ai')); a refinement that comes back counts as one attempt of
+     * the artifact for Config\PlanLimits::$aiCreditWindowDays, and once it has had AI_CREDIT_TEXT_ATTEMPTS of them in
+     * that many days, the next is
+     * refused with 409. A failed call is not an attempt.
+     * @return ResponseInterface { descriptions: { language_code: text }, description_refinement: { max, count, can_add, window_days } }
+     */
+    public function refineDescription(): ResponseInterface
+    {
+        $endpoint = 'v1/client/artifact/refine-description';
+        $input    = $this->jsonInput();
+        if ($input === null) {
+            return ApiResponse::error(lang('Artifact.invalidRequest'), 422);
+        }
+        [$stored, $error] = $this->managedArtifact($input, $endpoint);
+        if ($error !== null) {
+            return $error;
+        }
+
+        $errors = [];
+        $source = is_string($input['source_description'] ?? null) ? trim($input['source_description']) : '';
+        if ($source === '') {
+            $errors['source_description'] = lang('Artifact.refineSourceRequired');
+        } elseif (mb_strlen($source) > self::DESCRIPTION_MAX_LENGTH) {
+            $errors['source_description'] = lang('Artifact.tooLong', [self::DESCRIPTION_MAX_LENGTH]);
+        }
+        $name = is_string($input['artifact_name'] ?? null) ? trim($input['artifact_name']) : '';
+        if (mb_strlen($name) > self::NAME_MAX_LENGTH) {
+            $errors['artifact_name'] = lang('Artifact.tooLong', [self::NAME_MAX_LENGTH]);
+        }
+        helper('list');
+        $known     = listLanguages();
+        $languages = $input['languages'] ?? null;
+        if (! is_array($languages) || ! array_is_list($languages) || $languages === []
+            || array_filter($languages, static fn ($code): bool => is_string($code) && isset($known[$code])) !== $languages) {
+            $errors['languages'] = lang('Artifact.refineLanguagesRequired');
+        } else {
+            $languages = array_values(array_unique($languages));
+        }
+        if ($errors !== []) {
+            return ApiResponse::error(lang('Artifact.invalidFields'), 422, $errors);
+        }
+        if ($name === '') {
+            $name = (string) $stored['artifact_name'];
+        }
+
+        try {
+            $plan     = model(SubscriptionMasterModel::class)->planOfBusiness((int) $stored['business_id'])['plan_code'];
+            $cap      = $this->refinementCap($stored, $plan);
+            $business = model(BusinessMasterModel::class)->select('business_name, business_mood_and_tone')->find((int) $stored['business_id']);
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'Artifact.loadFailed');
+        }
+        if (! $cap['can_add']) {
+            return ApiResponse::error($cap['max'] === 0
+                ? lang('Artifact.refineNotIncluded', [ucfirst($plan)])
+                : lang('Artifact.refineLimitReached', [$cap['max'], ucfirst($plan), $cap['window_days']]), 409);
+        }
+
+        $request = $this->refinementRequest($stored, $business ?? [], $name, $source, array_intersect_key($known, array_flip($languages)));
+        try {
+            $result = service('ai')->generate($request);
+        } catch (AiException $e) {
+            log_message('error', $endpoint . ': AI {kind}: {message}', ['kind' => $e->kind, 'message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang($e->isRetryable() ? 'Artifact.refineBusy' : 'Artifact.refineFailed'), $e->isRetryable() ? 503 : 502);
+        } catch (Throwable $e) {
+            return $this->failed($endpoint, $e, 'Artifact.refineFailed');
+        }
+
+        $descriptions = [];
+        foreach ($languages as $language) {
+            $text = $result->json[$language] ?? null;
+            if (is_string($text) && trim($text) !== '') {
+                $descriptions[$language] = mb_substr(trim($text), 0, self::DESCRIPTION_MAX_LENGTH);
+            }
+        }
+        if ($descriptions === []) {
+            log_message('error', $endpoint . ': the AI answered with none of the languages asked for');
+
+            return ApiResponse::error(lang('Artifact.refineFailed'), 502);
+        }
+
+        return ApiResponse::success([
+            'descriptions'           => $descriptions,
+            'description_refinement' => AiAllowance::afterOne($cap),
+        ], 200, lang('Artifact.refined'));
     }
 
     /**
@@ -633,6 +746,56 @@ class Artifacts extends BaseController
     private static function money(int $cents): string
     {
         return intdiv($cents, 100) . '.' . str_pad((string) ($cents % 100), 2, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * The artifact's description refinements in the last Config\PlanLimits::$aiCreditWindowDays days against its
+     * plan's allowance (Config\PlanLimits::AI_CREDIT_TEXT_ATTEMPTS); each comes back that many days after it was used
+     * @param array  $artifact as stored
+     * @param string $plan     plan_code of its business
+     * @return array{max: int, count: int, can_add: bool, window_days: int}
+     */
+    private function refinementCap(array $artifact, string $plan): array
+    {
+        return AiAllowance::of(AiUsageContext::forArtifact((int) $artifact['business_id'], (int) $artifact['id']),
+            self::FEATURE_DESCRIPTION_REFINEMENT, $plan);
+    }
+
+    /**
+     * The question to the AI of refineDescription(): an answer of one description per language, as JSON
+     * @param array                 $artifact  as stored
+     * @param array                 $business  its business_name and business_mood_and_tone
+     * @param array<string, string> $languages language_code => its name
+     */
+    private function refinementRequest(array $artifact, array $business, string $name, string $source, array $languages): AiRequest
+    {
+        $properties = [];
+        $list       = [];
+        foreach ($languages as $code => $languageName) {
+            $properties[$code] = ['type' => 'string', 'description' => 'The description in ' . $languageName];
+            $list[]            = '- ' . $code . ': ' . $languageName;
+        }
+        $type = $artifact['artifact_type'] === ArtifactMasterModel::TYPE_SERVICE ? 'service' : 'product';
+        $mood = trim((string) ($business['business_mood_and_tone'] ?? ''));
+
+        $prompt = 'Business: ' . trim((string) ($business['business_name'] ?? '')) . "\n"
+            . 'Mood and feel of the business: ' . ($mood === '' ? '(not given: warm, clear and professional)' : $mood) . "\n"
+            . 'Name of the ' . $type . ': ' . $name . "\n\n"
+            . "Description to refine:\n" . $source . "\n\n"
+            . "Write the refined description in each of these languages, keyed by language code:\n" . implode("\n", $list);
+
+        return new AiRequest(
+            feature: self::FEATURE_DESCRIPTION_REFINEMENT,
+            prompt: $prompt,
+            systemInstruction: 'You are a copywriter for a small business. Improve the description of one of its '
+                . 'products or services: clearer, more appealing and in the mood and feel of the business, keeping every '
+                . 'fact as given and adding none (no prices, offers or claims that are not in it). Write it naturally in '
+                . 'each language asked for, as a native speaker would, not word for word; plain text, no markdown, at '
+                . 'most ' . self::DESCRIPTION_MAX_LENGTH . ' characters each.',
+            responseSchema: ['type' => 'object', 'properties' => $properties, 'required' => array_keys($languages)],
+            temperature: 0.7,
+            context: AiUsageContext::forArtifact((int) $artifact['business_id'], (int) $artifact['id'], $this->actorId()),
+        );
     }
 
     /**

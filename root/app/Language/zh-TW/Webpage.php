@@ -51,4 +51,10 @@ return [
     'sectionDeleted'      => '區塊已刪除。',
     'uploaded'            => '圖片已上傳。',
     'imageDeleted'        => '圖片已刪除。',
+    'refineIncomplete'    => '請先用預設語言填寫頁面每個區塊的所有文字，再用 AI 改進。',
+    'refineNotIncluded'   => '{0} 方案不包含 AI 撰寫。請升級方案以使用此功能。',
+    'refineLimitReached'  => '{1} 方案每 {2} 天可為每個網頁用 AI 改進 {0} 次。請升級方案以取得更多次數。',
+    'refineBusy'          => 'AI 目前忙碌中，請稍後再試。',
+    'refineFailed'        => '無法改進頁面文字，請再試一次。',
+    'refined'             => '文字已改進。請檢查每個區塊後再儲存。',
 ];
