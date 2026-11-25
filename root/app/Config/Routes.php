@@ -25,6 +25,10 @@ $routes->group('v1', static function (RouteCollection $routes) {
     $routes->post('activate-client-account', 'Auth::activateClientAccount');
     $routes->post('client-invitation', 'Auth::clientInvitation');
 
+    // The Terms of Service and Privacy Policy in effect: no sign-in needed; see App\Controllers\Legal
+    $routes->match(['GET', 'POST'], 'legal/current', 'Legal::current');
+    $routes->match(['GET', 'POST'], 'legal/document', 'Legal::document'); // the website's page of one document and its versions
+
     // Forgotten password, for either app: no sign-in needed; see App\Controllers\Auth
     $routes->post('request-password-reset', 'Auth::requestPasswordReset');
     $routes->post('check-password-reset', 'Auth::checkPasswordReset');
@@ -210,6 +214,18 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('receipt/(:segment)', 'Documents::staffReceipt/$1');
     });
 
+    // Admin app's Terms of Service and Privacy Policy: the versions and who accepted them for the Executive Office and
+    // Client Experience; publishing or cancelling a version for the Executive Office only; see App\Controllers\LegalAdmin
+    $routes->group('staff/legal', ['filter' => ['jwt:S', 'department:EXE,CXD']], static function (RouteCollection $routes) {
+        $routes->post('versions', 'LegalAdmin::versions');
+        $routes->post('version', 'LegalAdmin::version');
+        $routes->post('acceptances', 'LegalAdmin::acceptances');
+    });
+    $routes->group('staff/legal', ['filter' => ['jwt:S', 'department:EXE']], static function (RouteCollection $routes) {
+        $routes->post('version/create', 'LegalAdmin::create');
+        $routes->post('version/cancel', 'LegalAdmin::cancel');
+    });
+
     // Admin app's activity log: the Executive Office, as it holds every table's changes, and Engineering to look into problems; see App\Controllers\ActivityLogs
     $routes->group('staff/logs', ['filter' => ['jwt:S', 'department:EXE,ENG']], static function (RouteCollection $routes) {
         $routes->post('activities', 'ActivityLogs::activities');
@@ -250,6 +266,9 @@ $routes->group('v1', static function (RouteCollection $routes) {
     $routes->group('client', ['filter' => 'jwt:C'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');
         $routes->post('change-password', 'Auth::changePassword');
+        // the Terms of Service and Privacy Policy versions the client has still to accept; see App\Controllers\Legal
+        $routes->post('legal/pending', 'Legal::pending');
+        $routes->post('legal/accept', 'Legal::accept');
         $routes->post('account', 'Accounts::showOwn');
         $routes->post('account/update', 'Accounts::saveOwn');
         $routes->post('business-types', 'Businesses::listActiveTypes');

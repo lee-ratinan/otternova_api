@@ -347,17 +347,19 @@ class AuthAccountModel extends AuthMasterModel
      * @param array $account   Checked auth_master columns, uid and password_hash included
      * @param array $profile   Checked client_master columns, without auth_id
      * @param int   $expiresAt When the activation link expires, Unix seconds
+     * @param callable|null $alsoWrite Called with the new auth_master.id inside the same transaction, for rows that
+     *                                 must not exist without the account (its legal_acceptance rows)
      * @return string The token for the activation link
      * @throws Throwable When a write fails (such as the email address being taken meanwhile); nothing is written then
      */
-    public function createPendingClient(array $account, array $profile, int $expiresAt): string
+    public function createPendingClient(array $account, array $profile, int $expiresAt, ?callable $alsoWrite = null): string
     {
         $table   = self::FORM_PROFILES[self::TYPE_CLIENT]['table'];
         $log     = new ActivityLog();
         $account = ['account_type' => self::TYPE_CLIENT, 'account_status' => self::STATUS_PENDING] + $account;
         $crypt   = new FieldEncryption();
 
-        return $this->withPublicId(fn (string $publicId) => $this->inTransaction(function () use ($account, $profile, $expiresAt, $table, $log, $crypt, $publicId) {
+        return $this->withPublicId(fn (string $publicId) => $this->inTransaction(function () use ($account, $profile, $expiresAt, $alsoWrite, $table, $log, $crypt, $publicId) {
             $account = ['public_id' => $publicId] + $account;
             $this->db->table($this->table)->insert($account);
             $id = (int) $this->db->insertID();
@@ -366,6 +368,9 @@ class AuthAccountModel extends AuthMasterModel
             $row = $profile + ['auth_id' => $id];
             $this->db->table($table)->insert($crypt->encryptRow($table, $row));
             $log->inserted($id, 'Created client profile of ' . $account['uid'], $table, (int) $this->db->insertID(), $row);
+            if ($alsoWrite !== null) {
+                $alsoWrite($id);
+            }
 
             return model(AuthActivationModel::class)->insertActivation($id, $expiresAt, $log);
         }));

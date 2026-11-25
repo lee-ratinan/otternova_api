@@ -13,6 +13,7 @@ use App\Models\AuthTokenDenylistModel;
 use App\Models\BusinessClientLinkModel;
 use App\Models\BusinessInvitationModel;
 use App\Models\ClientMasterModel;
+use App\Models\LegalDocumentModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\Auth as AuthConfig;
@@ -219,6 +220,9 @@ class Auth extends BaseController
      * address must be the invited one: the account is then linked to that business with the invitation's role and
      * notes in the same transaction that creates it (or, when the address has a client account already, that one is).
      * An invitation that is unknown or expired is refused with 410.
+     * "legal_versions" lists the public_id of every current Terms of Service and Privacy Policy version the sign-up
+     * page showed (v1/legal/current); a new account's acceptance of them is recorded with it. When they are not the
+     * current ones (a newer version took effect since the page was shown), the sign-up is refused with 409.
      * @return ResponseInterface
      */
     public function createClientAccount(): ResponseInterface
@@ -254,6 +258,11 @@ class Auth extends BaseController
         if ($errors !== []) {
             return ApiResponse::error(lang('Auth.signUpInvalid'), 422, $errors);
         }
+        $legal    = model(LegalDocumentModel::class);
+        $versions = $legal->matchCurrent(LegalDocumentModel::AUDIENCE_BUSINESS, $input['legal_versions'] ?? []);
+        if ($versions === null) {
+            return ApiResponse::error(lang('Auth.legalOutdated'), 409, ['terms' => lang('Auth.legalOutdated')]);
+        }
 
         $ip       = $this->request->getIPAddress();
         $throttle = service('loginThrottle');
@@ -276,8 +285,12 @@ class Auth extends BaseController
             ];
             // the rest of client_master keeps its defaults; the client fills in the profile later
             $profile = ['legal_first_name' => mb_substr($fullName, 0, self::FIRST_NAME_MAX_LENGTH, 'UTF-8')];
+            $context   = $invitation === null ? LegalDocumentModel::CONTEXT_SIGN_UP : LegalDocumentModel::CONTEXT_INVITATION;
+            $locale    = $this->request->getLocale();
+            $userAgent = $this->request->getHeaderLine('User-Agent');
+            $accept    = static fn (int $authId) => $legal->recordAcceptances($versions, ['auth_id' => $authId], $locale, $context, $ip, $userAgent);
             try {
-                $create = fn () => $accounts->createPendingClient($account, $profile, $expiresAt);
+                $create = fn () => $accounts->createPendingClient($account, $profile, $expiresAt, $accept);
                 $token  = $invitation === null ? $create() : model(BusinessInvitationModel::class)->accept($invitation, $create);
             } catch (Throwable $e) {
                 // most likely the same address signed up at the same moment; that one carries on with its own link
@@ -724,6 +737,8 @@ class Auth extends BaseController
      * A client also gets "business": the business selected on sign-in (BusinessClientLinkModel::signInBusinessOf()),
      * null when they are active in none. Its business.plan_code is the plan it is on now (free unless its subscription
      * is active) and business.subscription_status its live subscription's (P, A, S) or null.
+     * A client also gets "legal_pending": the Terms of Service and Privacy Policy versions they must accept before
+     * going on (LegalDocumentModel::pendingForAccount()), empty when none; the Client app holds them at that page.
      * @param array $account
      * @return ResponseInterface
      */
@@ -733,7 +748,10 @@ class Auth extends BaseController
         if ($account['account_type'] === AuthAccountModel::TYPE_CLIENT) {
             try {
                 $client   = model(ClientMasterModel::class)->findByAuthId((int) $account['id']);
-                $business = ['business' => $client === null ? null : model(BusinessClientLinkModel::class)->signInBusinessOf((int) $client['id'])];
+                $business = [
+                    'business'      => $client === null ? null : model(BusinessClientLinkModel::class)->signInBusinessOf((int) $client['id']),
+                    'legal_pending' => model(LegalDocumentModel::class)->pendingForAccount((int) $account['id'], $this->request->getLocale()),
+                ];
             } catch (Throwable $e) {
                 log_message('error', 'sign-in: {message}', ['message' => $e->getMessage()]);
 
