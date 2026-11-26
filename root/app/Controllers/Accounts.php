@@ -309,6 +309,29 @@ class Accounts extends BaseController
     }
 
     /**
+     * POST /staff/org-chart {}
+     * The active staff and who each reports to, for the Admin app's org chart: the Executive Office and Human
+     * Resources only (the department filter on the route)
+     * @return ResponseInterface
+     */
+    public function orgChart(): ResponseInterface
+    {
+        if ($this->jsonInput() === null) {
+            return ApiResponse::error(lang('Accounts.invalidRequest'), 422);
+        }
+
+        try {
+            $rows = model(StaffMasterModel::class)->listForOrgChart();
+        } catch (DatabaseException $e) {
+            log_message('error', 'v1/staff/org-chart: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Accounts.lookupFailed'), 500);
+        }
+
+        return ApiResponse::success(['rows' => $rows]);
+    }
+
+    /**
      * auth_master.id of the signed-in account, for log_activity.changed_by_acc
      * @return int
      */

@@ -250,6 +250,38 @@ class StaffMasterModel extends Model
     }
 
     /**
+     * The staff on the org chart: active accounts (auth_master.account_status A) still employed (employment_status
+     * A or P), by name. id is staff_master.id, the value manager_staff_id stores; manager_staff_id is null for the top
+     * of a reporting line, and may point at someone not on the chart (a manager who has left). Work-facing fields only.
+     * @return list<array>
+     */
+    public function listForOrgChart(): array
+    {
+        $rows = $this->db->table($this->table)
+            ->select('staff_master.id, staff_master.manager_staff_id, auth_master.uid, auth_master.full_name, '
+                . 'auth_master.avatar_path, staff_master.job_title, staff_master.department_id')
+            ->join('auth_master', 'auth_master.id = staff_master.auth_id', 'inner')
+            ->where('auth_master.account_type', AuthMasterModel::TYPE_STAFF)
+            ->where('auth_master.account_status', 'A')
+            ->whereIn('staff_master.employment_status', [self::STATUS_ACTIVE, self::STATUS_PROBATION])
+            ->orderBy('auth_master.full_name', 'ASC')
+            ->orderBy('staff_master.id', 'ASC')
+            ->get()
+            ->getResultArray();
+
+        return array_map(static function (array $row) {
+            $row['id']               = (int) $row['id'];
+            $row['manager_staff_id'] = $row['manager_staff_id'] === null ? null : (int) $row['manager_staff_id'];
+            $row['department_id']    = (int) $row['department_id'];
+            if ($row['avatar_path'] === null || $row['avatar_path'] === '') {
+                $row['avatar_path'] = InitialsAvatar::urlFor($row['full_name']);
+            }
+
+            return $row;
+        }, $rows);
+    }
+
+    /**
      * Whether a staff_master row with this id belongs to a staff account
      * @param int $id
      * @return bool

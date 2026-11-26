@@ -191,6 +191,11 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('certificate-file/(:segment)', 'SubscriptionAdmin::certificateFile/$1');
     });
 
+    // Admin app's org chart, the staff's reporting lines: the Executive Office and Human Resources only; see App\Controllers\Accounts
+    $routes->group('staff', ['filter' => ['jwt:S', 'department:EXE,HRD']], static function (RouteCollection $routes) {
+        $routes->post('org-chart', 'Accounts::orgChart');
+    });
+
     // Admin app's Finance dashboard: Executive Office and Finance only; see App\Controllers\Dashboards
     $routes->group('staff/dashboard', ['filter' => ['jwt:S', 'department:EXE,FIN']], static function (RouteCollection $routes) {
         $routes->post('finance', 'Dashboards::finance');
