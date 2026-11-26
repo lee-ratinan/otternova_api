@@ -19,6 +19,7 @@ return [
     'alreadyEnded'         => 'このサブスクリプションはすでに終了しています。',
     'statusChanged'        => 'サブスクリプションを更新しました。',
     'businessNotFound'          => 'ビジネスが見つかりません。',
+    'artifactNotFound'          => '商品またはサービスが見つかりません。',
     'invalidDecision'           => 'A（承認）またはN（却下）を選択してください。',
     'withholdingNotRequested'   => 'このビジネスは源泉徴収税の判断を待っていません。',
     'withholdingApproved'       => '源泉徴収税を承認しました。',

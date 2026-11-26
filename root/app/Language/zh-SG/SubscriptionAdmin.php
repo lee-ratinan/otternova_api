@@ -19,6 +19,7 @@ return [
     'alreadyEnded'         => '此订阅已结束。',
     'statusChanged'        => '订阅已更新。',
     'businessNotFound'          => '找不到企业。',
+    'artifactNotFound'          => '找不到商品或服务。',
     'invalidDecision'           => '请选择 A（批准）或 N（拒绝）。',
     'withholdingNotRequested'   => '这家企业没有在等待预扣税决定。',
     'withholdingApproved'       => '预扣税已批准。',

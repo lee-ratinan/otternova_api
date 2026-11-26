@@ -200,6 +200,89 @@ class ArtifactMasterModel extends Model
     }
 
     /**
+     * One page of the artifacts of a business for the Otternova staff (the Admin app), by name, with their category's
+     * name and how many variants they have; search matches the name and the SKUs of their variants
+     * @param int                   $businessId
+     * @param int                   $start
+     * @param int                   $length
+     * @param string                $search
+     * @param array<string, string> $filters artifact_type (P, S), artifact_status (A, I, D): each only when set
+     * @return array{records_total: int, records_filtered: int, rows: list<array>}
+     */
+    public function listForStaff(int $businessId, int $start, int $length, string $search, array $filters): array
+    {
+        $variants = $this->db->prefixTable(self::VARIANTS);
+        $total    = $this->db->table($this->table)->where('business_id', $businessId)->countAllResults();
+        $builder  = $this->db->table($this->table . ' a')
+            ->select('a.public_id, a.artifact_name, a.artifact_type, a.artifact_status, a.artifact_label, c.category_name,'
+                . ' a.price_active_lowest, a.price_compare_lowest, a.rating_count, a.rating_average, a.created_at, a.updated_at')
+            ->select('(SELECT COUNT(*) FROM ' . $variants . ' v WHERE v.artifact_id = a.id) AS variant_count', false)
+            ->join('artifact_category c', 'c.id = a.category_id', 'left')
+            ->where('a.business_id', $businessId);
+        foreach (['artifact_type', 'artifact_status'] as $filter) {
+            if (isset($filters[$filter])) {
+                $builder->where('a.' . $filter, $filters[$filter]);
+            }
+        }
+        if ($search !== '') {
+            $char = $this->db->likeEscapeChar;
+            $term = str_replace([$char, '%', '_'], [$char . $char, $char . '%', $char . '_'], $search);
+            $like = $this->db->escape('%' . $term . '%');
+            $builder->groupStart()
+                ->like('a.artifact_name', $term, 'both', null, true)
+                ->orWhere('EXISTS (SELECT 1 FROM ' . $variants . ' s WHERE s.artifact_id = a.id AND s.sku LIKE ' . $like . " ESCAPE '" . $char . "')", null, false)
+                ->groupEnd();
+        }
+        $filtered = $builder->countAllResults(false);
+        $rows     = $builder->orderBy('a.artifact_name')->orderBy('a.id')->limit($length, $start)->get()->getResultArray();
+
+        return ['records_total' => $total, 'records_filtered' => $filtered, 'rows' => array_map(static fn (array $row): array => self::withPrices([
+            'variant_count'  => (int) $row['variant_count'],
+            'rating_count'   => (int) $row['rating_count'],
+            'rating_average' => number_format((float) $row['rating_average'], 2, '.', ''),
+        ] + $row), $rows)];
+    }
+
+    /**
+     * An artifact of a business with everything saved with it, for the Otternova staff (the Admin app): detail(),
+     * with the names of its category, of its variants' attributes and values, and of the stores holding its stock
+     * @param int    $businessId
+     * @param string $publicId
+     * @return array{artifact: array, variants: list<array>, images: list<array>}|null Null when the business has no such artifact
+     */
+    public function detailForStaff(int $businessId, string $publicId): ?array
+    {
+        $row = $this->db->table($this->table . ' a')
+            ->select('a.id, a.created_at, a.updated_at, c.category_name')
+            ->join('artifact_category c', 'c.id = a.category_id', 'left')
+            ->where('a.business_id', $businessId)->where('a.public_id', $publicId)
+            ->get()->getRowArray();
+        if ($row === null) {
+            return null;
+        }
+        $detail = $this->detail((int) $row['id']);
+        $detail['artifact'] += ['category_name' => $row['category_name'], 'created_at' => $row['created_at'], 'updated_at' => $row['updated_at']];
+
+        $attributes = array_column($this->db->table('artifact_attribute')->select('public_id, attribute_name')
+            ->where('business_id', $businessId)->get()->getResultArray(), 'attribute_name', 'public_id');
+        $values = array_column($this->db->table('artifact_attribute_value v')->select('v.public_id, v.attribute_value')
+            ->join('artifact_attribute a', 'a.id = v.attribute_id')
+            ->where('a.business_id', $businessId)->get()->getResultArray(), 'attribute_value', 'public_id');
+        $stores = array_column($this->db->table('business_store')->select('public_id, store_name')
+            ->where('business_id', $businessId)->get()->getResultArray(), 'store_name', 'public_id');
+        foreach ($detail['variants'] as &$variant) {
+            $variant['attribute_values'] = array_map(static fn (array $value): array => $value + [
+                'attribute_name'  => $attributes[$value['attribute_public_id']] ?? null,
+                'attribute_value' => $values[$value['value_public_id']] ?? null,
+            ], $variant['attribute_values']);
+            $variant['inventory'] = array_map(static fn (array $stock): array => $stock + ['store_name' => $stores[$stock['store_public_id']] ?? null], $variant['inventory']);
+        }
+        unset($variant);
+
+        return $detail;
+    }
+
+    /**
      * The variants of an artifact as stored, in their order, keyed by public_id, each with
      * - values:           attribute_id => attribute_value_id
      * - inventory:        store_id => quantity

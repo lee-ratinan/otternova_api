@@ -524,6 +524,47 @@ class BusinessClientLinkModel extends Model
     }
 
     /**
+     * Everyone ever linked to a business, for the Otternova staff (the Admin app): their sign-in email and account
+     * status, their role and dates there, and the names of the stores they work in now and the services they give.
+     * No national ID, birth date, notes or salary; only public keys go out (uid).
+     * @param int $businessId
+     * @return list<array{uid: string, full_name: string, email_address: string, account_status: string, client_role: string, client_status: string, show_profile: string, start_date: string, termination_date: string|null, stores: list<string>, services: list<string>}>
+     */
+    public function staffForOtternova(int $businessId): array
+    {
+        $rows = $this->db->table($this->table . ' l')
+            ->select('l.client_id, a.uid, a.full_name, a.email_address, a.account_status, l.client_role, l.client_status, l.show_profile, l.start_date, l.termination_date')
+            ->join('client_master c', 'c.id = l.client_id')
+            ->join('auth_master a', 'a.id = c.auth_id')
+            ->where('l.business_id', $businessId)
+            ->orderBy('a.full_name')->orderBy('a.id')
+            ->get()->getResultArray();
+        $names = static function (array $pairs, string $column): array {
+            $out = [];
+            foreach ($pairs as $pair) {
+                $out[(int) $pair['client_id']][] = $pair[$column];
+            }
+
+            return $out;
+        };
+        $stores = $names($this->db->table('business_store_client_link sl')->select('sl.client_id, s.store_name')
+            ->join('business_store s', 's.id = sl.store_id')
+            ->where('sl.business_id', $businessId)->where('sl.link_status', 'A') // the stores they work in now
+            ->orderBy('s.store_name')->get()->getResultArray(), 'store_name');
+        $services = $names($this->db->table('business_service_client_link sv')->select('sv.client_id, m.artifact_name')
+            ->join('artifact_master m', 'm.id = sv.artifact_id')
+            ->where('sv.business_id', $businessId)
+            ->orderBy('m.artifact_name')->get()->getResultArray(), 'artifact_name');
+
+        return array_map(static function (array $row) use ($stores, $services): array {
+            $clientId = (int) $row['client_id'];
+            unset($row['client_id']);
+
+            return $row + ['stores' => $stores[$clientId] ?? [], 'services' => $services[$clientId] ?? []];
+        }, $rows);
+    }
+
+    /**
      * Someone ever linked to a business, by their auth_master.uid
      * @param int    $businessId
      * @param string $uid

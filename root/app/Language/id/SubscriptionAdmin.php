@@ -19,6 +19,7 @@ return [
     'alreadyEnded'         => 'Langganan ini sudah berakhir.',
     'statusChanged'        => 'Langganan diperbarui.',
     'businessNotFound'          => 'Bisnis tidak ditemukan.',
+    'artifactNotFound'          => 'Produk atau layanan tidak ditemukan.',
     'invalidDecision'           => 'Silakan pilih A (setujui) atau N (tolak).',
     'withholdingNotRequested'   => 'Bisnis ini tidak sedang menunggu keputusan pemotongan pajak.',
     'withholdingApproved'       => 'Pemotongan pajak disetujui.',

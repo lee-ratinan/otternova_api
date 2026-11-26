@@ -19,6 +19,7 @@ return [
     'alreadyEnded'         => 'This subscription has already ended.',
     'statusChanged'        => 'Subscription updated.',
     'businessNotFound'          => 'Business not found.',
+    'artifactNotFound'          => 'Product or service not found.',
     'invalidDecision'           => 'Please choose A (approve) or N (turn down).',
     'withholdingNotRequested'   => 'This business is not waiting for a withholding tax decision.',
     'withholdingApproved'       => 'Withholding tax approved.',

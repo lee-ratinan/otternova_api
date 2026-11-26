@@ -19,6 +19,7 @@ return [
     'alreadyEnded'         => '此訂閱已結束。',
     'statusChanged'        => '訂閱已更新。',
     'businessNotFound'          => '找不到商家。',
+    'artifactNotFound'          => '找不到商品或服務。',
     'invalidDecision'           => '請選擇 A（核准）或 N（拒絕）。',
     'withholdingNotRequested'   => '這間商家沒有在等待扣繳稅款的決定。',
     'withholdingApproved'       => '扣繳稅款已核准。',

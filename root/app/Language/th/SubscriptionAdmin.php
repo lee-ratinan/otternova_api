@@ -19,6 +19,7 @@ return [
     'alreadyEnded'              => 'การสมัครสมาชิกนี้สิ้นสุดแล้ว',
     'statusChanged'             => 'อัปเดตการสมัครสมาชิกแล้ว',
     'businessNotFound'          => 'ไม่พบธุรกิจ',
+    'artifactNotFound'          => 'ไม่พบสินค้าหรือบริการ',
     'invalidDecision'           => 'กรุณาเลือก A (อนุมัติ) หรือ N (ไม่อนุมัติ)',
     'withholdingNotRequested'   => 'ธุรกิจนี้ไม่ได้รอการพิจารณาภาษีหัก ณ ที่จ่าย',
     'withholdingApproved'       => 'อนุมัติภาษีหัก ณ ที่จ่ายแล้ว',

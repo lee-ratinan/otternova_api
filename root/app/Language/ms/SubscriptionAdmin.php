@@ -19,6 +19,7 @@ return [
     'alreadyEnded'         => 'Langganan ini telah tamat.',
     'statusChanged'        => 'Langganan dikemas kini.',
     'businessNotFound'          => 'Perniagaan tidak ditemui.',
+    'artifactNotFound'          => 'Produk atau perkhidmatan tidak ditemui.',
     'invalidDecision'           => 'Sila pilih A (luluskan) atau N (tolak).',
     'withholdingNotRequested'   => 'Perniagaan ini tidak menunggu keputusan cukai pegangan.',
     'withholdingApproved'       => 'Cukai pegangan diluluskan.',

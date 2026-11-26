@@ -170,6 +170,10 @@ $routes->group('v1', static function (RouteCollection $routes) {
     $routes->group('staff/businesses', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
         $routes->post('list', 'BusinessAdmin::list');
         $routes->post('business', 'BusinessAdmin::business');
+        $routes->post('staff', 'BusinessAdmin::staff');
+        $routes->post('stores', 'BusinessAdmin::stores');
+        $routes->post('artifacts', 'BusinessAdmin::artifacts');
+        $routes->post('artifact', 'BusinessAdmin::artifact');
     });
 
     // Admin app's view of every subscription and payment: Executive Office and Finance only; see App\Controllers\SubscriptionAdmin
