@@ -7,6 +7,7 @@ use App\Libraries\ApiResponse;
 use App\Models\AuthAccountModel;
 use App\Models\OtternovaDepartmentModel;
 use App\Models\StaffMasterModel;
+use App\Models\StaffSalaryModel;
 use CodeIgniter\Database\Exceptions\DatabaseException;
 use CodeIgniter\Encryption\Exceptions\EncryptionException;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
@@ -14,13 +15,24 @@ use CodeIgniter\HTTP\ResponseInterface;
 use stdClass;
 
 /**
- * auth_master accounts for the Admin app, behind the jwt:S filter (staff only);
+ * auth_master accounts for the Admin app, behind the jwt:S filter (staff only). Managing accounts (list, any account's
+ * full record, admin-edit, delete) is for the Executive Office only (MANAGE_DEPARTMENTS); every staff member reads and
+ * self-edits their own record and reads the others' public profiles.
  * showOwn() and saveOwn() are the Client app's own profile, behind jwt:C
  */
 class Accounts extends BaseController
 {
     private const DEFAULT_LENGTH = 25;
     private const MAX_LENGTH     = 500;
+
+    /** otternova_department.department_code values that manage accounts; the routes' department:EXE filter matches */
+    public const MANAGE_DEPARTMENTS = ['EXE'];
+
+    /** staff_master columns of a public profile: work-facing only, nothing personal, legal, identity or HR */
+    public const PUBLIC_PROFILE_FIELDS = [
+        'preferred_name', 'job_title', 'department_id', 'manager_staff_id', 'employment_type', 'employment_start_date',
+        'work_country_code', 'work_email_address', 'work_telephone_number', 'status_message', 'bio',
+    ];
 
     /**
      * POST /staff/accounts { start, length, search, order: [{field, dir}], filters: {column: value} }
@@ -65,6 +77,8 @@ class Accounts extends BaseController
      * One account with its staff_master or client_master profile, for the Admin app's account form.
      * "profile" is {} when the account has no profile row yet. account.avatar_path is shown but never saved by
      * /staff/account/update; null means the default avatar.
+     * The caller's own uid is open to every staff member; anyone else's to MANAGE_DEPARTMENTS only (403 otherwise,
+     * before the lookup, so a 404 tells nothing about who exists). Others use /staff/public-profile.
      * @return ResponseInterface
      */
     public function show(): ResponseInterface
@@ -76,6 +90,9 @@ class Accounts extends BaseController
         $uid = is_string($input['uid'] ?? null) ? trim($input['uid']) : '';
         if ($uid === '') {
             return ApiResponse::error(lang('Accounts.uidRequired'), 400);
+        }
+        if ($uid !== (string) service('authContext')->claims()->sub && ($denied = $this->denyUnlessManager()) !== null) {
+            return $denied;
         }
 
         try {
@@ -99,11 +116,53 @@ class Accounts extends BaseController
     }
 
     /**
+     * POST /staff/public-profile { uid }
+     * One active staff member's public profile, for every staff member: account {uid, full_name, avatar_path} and
+     * the PUBLIC_PROFILE_FIELDS of their staff_master row. Client accounts, staff who are not active and staff
+     * without a staff_master row are a 404, as is an unknown uid.
+     * @return ResponseInterface
+     */
+    public function publicProfile(): ResponseInterface
+    {
+        $input = $this->jsonInput();
+        if ($input === null) {
+            return ApiResponse::error(lang('Accounts.invalidRequest'), 422);
+        }
+        $uid = is_string($input['uid'] ?? null) ? trim($input['uid']) : '';
+        if ($uid === '') {
+            return ApiResponse::error(lang('Accounts.uidRequired'), 400);
+        }
+
+        try {
+            $record = model(AuthAccountModel::class)->findForForm($uid);
+        } catch (DatabaseException|EncryptionException $e) {
+            log_message('error', 'v1/staff/public-profile: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Accounts.loadFailed'), 500);
+        }
+        if ($record === null || $record['profile'] === null
+            || $record['account']['account_type'] !== AuthAccountModel::TYPE_STAFF
+            || $record['account']['account_status'] !== AuthAccountModel::STATUS_ACTIVE) {
+            return ApiResponse::error(lang('Accounts.notFound'), 404);
+        }
+
+        return ApiResponse::success([
+            'account' => [
+                'uid'         => $record['account']['uid'],
+                'full_name'   => $record['account']['full_name'],
+                'avatar_path' => $record['account']['avatar_path'],
+            ],
+            'profile' => array_intersect_key($record['profile'], array_flip(self::PUBLIC_PROFILE_FIELDS)),
+        ]);
+    }
+
+    /**
      * POST /staff/account/update { mode, uid, account: {...}, profile: {...} }
      * mode "admin-edit": an empty uid creates a staff account (with its staff_master row); otherwise the account
      * with that uid is updated and its profile row inserted or updated.
      * mode "self-edit": the signed-in staff member updates their own account only, without the locked fields
      * (AuthAccountModel::SELF_EDIT_LOCKED_*). See App\Libraries\AccountForm for the checks.
+     * mode "admin-edit" is for MANAGE_DEPARTMENTS only (403 otherwise); "self-edit" is open to every staff member.
      * @return ResponseInterface
      */
     public function save(): ResponseInterface
@@ -122,6 +181,9 @@ class Accounts extends BaseController
         $callerUid = (string) service('authContext')->claims()->sub;
         if ($selfEdit && $uid !== $callerUid) {
             return ApiResponse::error(lang('Accounts.selfEditOwnOnly'), 403);
+        }
+        if (! $selfEdit && ($denied = $this->denyUnlessManager()) !== null) {
+            return $denied;
         }
         $accountIn = is_array($input['account'] ?? null) ? $input['account'] : [];
         $profileIn = is_array($input['profile'] ?? null) ? $input['profile'] : [];
@@ -182,6 +244,10 @@ class Accounts extends BaseController
             }
             if ($uid === (string) service('authContext')->claims()->sub) {
                 return ApiResponse::error(lang('Accounts.cannotDeleteSelf'), 403);
+            }
+            // salary rows and payslips are payroll records, kept with the staff_master row they belong to
+            if (model(StaffSalaryModel::class)->hasPayHistory((int) $record['account']['id'])) {
+                return ApiResponse::error(lang('Accounts.hasPayHistory'), 409);
             }
             if (! $accounts->deleteWithProfile($record, $this->actorId())) {
                 return ApiResponse::error(lang('Accounts.lastActiveStaff'), 409);
@@ -329,6 +395,24 @@ class Accounts extends BaseController
         }
 
         return ApiResponse::success(['rows' => $rows]);
+    }
+
+    /**
+     * Null when the signed-in staff member's department is one of MANAGE_DEPARTMENTS, else the error response:
+     * the same answers as the department filter, for the routes shared with the own-profile paths
+     * @return ResponseInterface|null
+     */
+    private function denyUnlessManager(): ?ResponseInterface
+    {
+        try {
+            $code = model(OtternovaDepartmentModel::class)->codeOfStaff($this->actorId());
+        } catch (DatabaseException $e) {
+            log_message('error', 'accounts department check: {message}', ['message' => $e->getMessage()]);
+
+            return ApiResponse::error(lang('Auth.departmentCheckFailed'), 500);
+        }
+
+        return in_array($code, self::MANAGE_DEPARTMENTS, true) ? null : ApiResponse::error(lang('Auth.wrongDepartment'), 403);
     }
 
     /**

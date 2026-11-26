@@ -16,6 +16,9 @@ class FieldEncryption
     /** table => its encrypted columns */
     public const FIELDS = [
         'staff_master'     => ['national_id_number', 'tax_id_number'],
+        // where a staff member's pay goes, and the copy a payslip keeps
+        'staff_pay_account' => ['bank_account_number'],
+        'staff_payslip'     => ['tax_id_number', 'bank_account_number'],
         'client_master'    => ['national_id_number'],
         'business_master'  => ['tax_id'],
         // a frozen invoice or receipt prints the business's tax_id

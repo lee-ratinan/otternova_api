@@ -72,10 +72,10 @@ $routes->group('v1', static function (RouteCollection $routes) {
     $routes->group('staff', ['filter' => 'jwt:S'], static function (RouteCollection $routes) {
         $routes->get('me', 'Auth::me');
         $routes->post('change-password', 'Auth::changePassword');
-        $routes->post('accounts', 'Accounts::list');
+        // own record for everyone; anyone else's record and mode admin-edit: Accounts::MANAGE_DEPARTMENTS only, checked in the controller
         $routes->post('account', 'Accounts::show');
         $routes->post('account/update', 'Accounts::save');
-        $routes->post('account/delete', 'Accounts::delete');
+        $routes->post('public-profile', 'Accounts::publicProfile');
         $routes->post('departments', 'Accounts::departments');
         $routes->post('staff-members', 'Accounts::staffMembers');
         $routes->post('business-types', 'Businesses::listTypes');
@@ -191,9 +191,23 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->get('certificate-file/(:segment)', 'SubscriptionAdmin::certificateFile/$1');
     });
 
+    // Admin app's Manage Accounts: the Executive Office only (Accounts::MANAGE_DEPARTMENTS); see App\Controllers\Accounts
+    $routes->group('staff', ['filter' => ['jwt:S', 'department:EXE']], static function (RouteCollection $routes) {
+        $routes->post('accounts', 'Accounts::list');
+        $routes->post('account/delete', 'Accounts::delete');
+    });
+
     // Admin app's org chart, the staff's reporting lines: the Executive Office and Human Resources only; see App\Controllers\Accounts
     $routes->group('staff', ['filter' => ['jwt:S', 'department:EXE,HRD']], static function (RouteCollection $routes) {
         $routes->post('org-chart', 'Accounts::orgChart');
+    });
+
+    // Admin app's staff salary history and bank accounts: the Executive Office only; see App\Controllers\StaffSalaries
+    $routes->group('staff/salary', ['filter' => ['jwt:S', 'department:EXE']], static function (RouteCollection $routes) {
+        $routes->post('/', 'StaffSalaries::show');
+        $routes->post('add', 'StaffSalaries::add');
+        $routes->post('edit', 'StaffSalaries::edit');
+        $routes->post('pay-account', 'StaffSalaries::savePayAccount');
     });
 
     // Admin app's Finance dashboard: Executive Office and Finance only; see App\Controllers\Dashboards
