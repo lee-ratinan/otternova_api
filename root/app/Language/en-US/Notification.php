@@ -169,6 +169,24 @@ return [
         'OTHER'                 => 'Other',
     ],
 
+    'report' => [
+        'submitted' => [
+            'title'   => 'Report: {subject}',
+            'message' => 'A visitor reported {subject} of {business}: {reason}. Please review it.',
+        ],
+    ],
+
+    // what a mart visitor reported (ModerationReportModel::REASONS), for report.submitted
+    'report_reason' => [
+        'PROHIBITED'            => 'Prohibited or illegal goods or services',
+        'SCAM'                  => 'Scam or fraud',
+        'MISLEADING'            => 'Misleading information',
+        'INTELLECTUAL_PROPERTY' => 'Copyright or trademark infringement',
+        'OFFENSIVE'             => 'Offensive or hateful content',
+        'CHILD_SAFETY'          => 'Child safety',
+        'OTHER'                 => 'Other',
+    ],
+
     'invalidRequest' => 'The request could not be read. Please reload the page and try again.',
     'invalidStatus'  => 'Please choose unread or read.',
     'notFound'       => 'This notification could not be found.',

@@ -169,6 +169,24 @@ return [
         'OTHER'                 => 'その他',
     ],
 
+    'report' => [
+        'submitted' => [
+            'title'   => '報告：{subject}',
+            'message' => '訪問者が{business}の{subject}を報告しました：{reason}。確認してください。',
+        ],
+    ],
+
+    // what a mart visitor reported (ModerationReportModel::REASONS), for report.submitted
+    'report_reason' => [
+        'PROHIBITED'            => '禁止・違法な商品やサービス',
+        'SCAM'                  => '詐欺',
+        'MISLEADING'            => '誤解を招く情報',
+        'INTELLECTUAL_PROPERTY' => '著作権・商標の侵害',
+        'OFFENSIVE'             => '不快・差別的なコンテンツ',
+        'CHILD_SAFETY'          => '子どもの安全',
+        'OTHER'                 => 'その他',
+    ],
+
     'invalidRequest' => 'リクエストを読み取れませんでした。ページを再読み込みして、もう一度お試しください。',
     'invalidStatus'  => '未読または既読を選択してください。',
     'notFound'       => 'この通知が見つかりませんでした。',

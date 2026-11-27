@@ -413,17 +413,20 @@ class BusinessMasterModel extends Model
      * @param array<string, string> $filters is_business_open (Y, N), wht_status (N, R, A), country_code,
      *                                       subscription_status (P, A, S, C, X, or NO_SUBSCRIPTION), review_status
      *                                       (U, A, F, P), moderation_status (N, B, R), and awaiting_review (Y: the
-     *                                       business or one of its artifacts is pending re-review)
+     *                                       business or one of its artifacts is pending re-review), and open_reports
+     *                                       (Y: a mart visitor's report of it awaits the staff, ModerationReportModel)
      * @return array{records_total: int, records_filtered: int, rows: list<array>}
      */
     public function listForStaff(int $start, int $length, string $search, array $filters): array
     {
         $total     = $this->db->table($this->table)->countAllResults();
         $artifacts = $this->db->prefixTable('artifact_master');
+        $reports   = $this->db->prefixTable('moderation_report');
         $builder   = $this->staffBuilder()
             ->select('b.business_slug, b.business_name, t.type_code, b.contact_email_address, b.country_code, b.currency_code')
             ->select('b.is_business_open, b.wht_status, s.subscription_status, p.plan_code, b.review_status, b.moderation_status, b.created_at')
-            ->select('(SELECT COUNT(*) FROM ' . $artifacts . " r WHERE r.business_id = b.id AND r.review_status = 'P') AS artifacts_to_review", false);
+            ->select('(SELECT COUNT(*) FROM ' . $artifacts . " r WHERE r.business_id = b.id AND r.review_status = 'P') AS artifacts_to_review", false)
+            ->select('(SELECT COUNT(*) FROM ' . $reports . " q WHERE q.business_id = b.id AND q.report_status = 'N') AS open_reports", false);
         foreach (['is_business_open', 'wht_status', 'country_code', 'review_status', 'moderation_status'] as $field) {
             if (isset($filters[$field])) {
                 $builder->where('b.' . $field, $filters[$field]);
@@ -434,6 +437,9 @@ class BusinessMasterModel extends Model
                 ->where('b.review_status', 'P')
                 ->orWhere('EXISTS (SELECT 1 FROM ' . $artifacts . " w WHERE w.business_id = b.id AND w.review_status = 'P')", null, false)
                 ->groupEnd();
+        }
+        if (($filters['open_reports'] ?? null) === 'Y') {
+            $builder->where('EXISTS (SELECT 1 FROM ' . $reports . " o WHERE o.business_id = b.id AND o.report_status = 'N')", null, false);
         }
         if (isset($filters['subscription_status'])) {
             if ($filters['subscription_status'] === self::NO_SUBSCRIPTION) {
@@ -455,6 +461,7 @@ class BusinessMasterModel extends Model
         $rows     = $builder->orderBy('b.id', 'DESC')->limit($length, $start)->get()->getResultArray();
         foreach ($rows as &$row) {
             $row['artifacts_to_review'] = (int) $row['artifacts_to_review'];
+            $row['open_reports']        = (int) $row['open_reports'];
         }
         unset($row);
 

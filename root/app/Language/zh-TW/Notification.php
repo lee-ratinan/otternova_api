@@ -169,6 +169,24 @@ return [
         'OTHER'                 => '其他',
     ],
 
+    'report' => [
+        'submitted' => [
+            'title'   => '檢舉：{subject}',
+            'message' => '一位訪客檢舉了 {business} 的 {subject}：{reason}。請審核。',
+        ],
+    ],
+
+    // what a mart visitor reported (ModerationReportModel::REASONS), for report.submitted
+    'report_reason' => [
+        'PROHIBITED'            => '禁止或非法的商品或服務',
+        'SCAM'                  => '詐騙',
+        'MISLEADING'            => '誤導性資訊',
+        'INTELLECTUAL_PROPERTY' => '侵犯著作權或商標',
+        'OFFENSIVE'             => '冒犯或仇恨內容',
+        'CHILD_SAFETY'          => '兒童安全',
+        'OTHER'                 => '其他',
+    ],
+
     'invalidRequest' => '無法讀取請求。請重新載入頁面後再試。',
     'invalidStatus'  => '請選擇未讀或已讀。',
     'notFound'       => '找不到此通知。',

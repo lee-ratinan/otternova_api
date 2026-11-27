@@ -66,6 +66,9 @@ $routes->group('v1', static function (RouteCollection $routes) {
         // the contact form of a business: a message to it, read in the Client app; see App\Controllers\MartMessages
         $routes->get('message-token', 'MartMessages::token');
         $routes->post('message', 'MartMessages::submit');
+        // a visitor's report of a business or its product or service to Otternova; see App\Controllers\MartReports
+        $routes->get('report-token', 'MartReports::token');
+        $routes->post('report', 'MartReports::submit');
     });
 
     // Admin app: staff accounts only (a valid token with typ S)
@@ -175,6 +178,7 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('artifacts', 'BusinessAdmin::artifacts');
         $routes->post('artifact', 'BusinessAdmin::artifact');
         $routes->post('moderation', 'ModerationAdmin::history');
+        $routes->post('reports', 'ReportAdmin::list'); // the mart visitors' reports of it; see App\Controllers\ReportAdmin
     });
 
     // Admin app's review and moderation of the businesses, their products and services and their variants: the
@@ -187,6 +191,10 @@ $routes->group('v1', static function (RouteCollection $routes) {
     });
     $routes->group('staff/moderation', ['filter' => ['jwt:S', 'department:EXE']], static function (RouteCollection $routes) {
         $routes->post('remove', 'ModerationAdmin::remove');
+    });
+    // resolving the mart visitors' reports: the Executive Office and Client Experience; see App\Controllers\ReportAdmin
+    $routes->group('staff/reports', ['filter' => ['jwt:S', 'department:EXE,CXD']], static function (RouteCollection $routes) {
+        $routes->post('resolve', 'ReportAdmin::resolve');
     });
 
     // Admin app's view of every subscription and payment: Executive Office and Finance only; see App\Controllers\SubscriptionAdmin

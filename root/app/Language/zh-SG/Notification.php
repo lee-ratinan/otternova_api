@@ -169,6 +169,24 @@ return [
         'OTHER'                 => '其他',
     ],
 
+    'report' => [
+        'submitted' => [
+            'title'   => '举报：{subject}',
+            'message' => '一位访客举报了 {business} 的 {subject}：{reason}。请审核。',
+        ],
+    ],
+
+    // what a mart visitor reported (ModerationReportModel::REASONS), for report.submitted
+    'report_reason' => [
+        'PROHIBITED'            => '禁止或非法的商品或服务',
+        'SCAM'                  => '诈骗',
+        'MISLEADING'            => '误导性信息',
+        'INTELLECTUAL_PROPERTY' => '侵犯版权或商标',
+        'OFFENSIVE'             => '冒犯或仇恨内容',
+        'CHILD_SAFETY'          => '儿童安全',
+        'OTHER'                 => '其他',
+    ],
+
     'invalidRequest' => '无法读取请求。请重新加载页面后再试。',
     'invalidStatus'  => '请选择未读或已读。',
     'notFound'       => '找不到此通知。',

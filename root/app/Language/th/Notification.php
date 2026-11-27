@@ -169,6 +169,24 @@ return [
         'OTHER'                 => 'อื่น ๆ',
     ],
 
+    'report' => [
+        'submitted' => [
+            'title'   => 'รายงาน: {subject}',
+            'message' => 'ผู้เยี่ยมชมรายงาน {subject} ของ {business}: {reason} กรุณาตรวจสอบ',
+        ],
+    ],
+
+    // what a mart visitor reported (ModerationReportModel::REASONS), for report.submitted
+    'report_reason' => [
+        'PROHIBITED'            => 'สินค้าหรือบริการต้องห้ามหรือผิดกฎหมาย',
+        'SCAM'                  => 'หลอกลวงหรือฉ้อโกง',
+        'MISLEADING'            => 'ข้อมูลทำให้เข้าใจผิด',
+        'INTELLECTUAL_PROPERTY' => 'ละเมิดลิขสิทธิ์หรือเครื่องหมายการค้า',
+        'OFFENSIVE'             => 'เนื้อหาไม่เหมาะสมหรือสร้างความเกลียดชัง',
+        'CHILD_SAFETY'          => 'ความปลอดภัยของเด็ก',
+        'OTHER'                 => 'อื่น ๆ',
+    ],
+
     'invalidRequest' => 'ไม่สามารถอ่านคำขอได้ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง',
     'invalidStatus'  => 'กรุณาเลือก ยังไม่อ่าน หรือ อ่านแล้ว',
     'notFound'       => 'ไม่พบการแจ้งเตือนนี้',

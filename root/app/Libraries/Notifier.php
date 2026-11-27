@@ -53,6 +53,8 @@ class Notifier
     public const MODERATION_UNBLOCKED = 'moderation.unblocked';
     public const MODERATION_REMOVED   = 'moderation.removed';
 
+    public const REPORT_SUBMITTED = 'report.submitted'; // to EXE and CXD: a mart visitor reported a business or its product or service
+
     /**
      * Every event type, with its Bootstrap icon and tone. The tone is info, success, warning or danger, the
      * notification-icon classes of the apps' templates.
@@ -86,6 +88,7 @@ class Notifier
         self::MODERATION_BLOCKED     => ['icon' => 'bi-slash-circle', 'tone' => 'danger'],
         self::MODERATION_UNBLOCKED   => ['icon' => 'bi-check-circle', 'tone' => 'success'],
         self::MODERATION_REMOVED     => ['icon' => 'bi-trash', 'tone' => 'danger'],
+        self::REPORT_SUBMITTED       => ['icon' => 'bi-flag', 'tone' => 'warning'],
     ];
 
     /** Shown for an event_type no longer in EVENTS */

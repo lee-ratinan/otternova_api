@@ -169,6 +169,24 @@ return [
         'OTHER'                 => 'Lain-lain',
     ],
 
+    'report' => [
+        'submitted' => [
+            'title'   => 'Laporan: {subject}',
+            'message' => 'Seorang pelawat melaporkan {subject} milik {business}: {reason}. Sila semak.',
+        ],
+    ],
+
+    // what a mart visitor reported (ModerationReportModel::REASONS), for report.submitted
+    'report_reason' => [
+        'PROHIBITED'            => 'Barang atau perkhidmatan larangan atau haram',
+        'SCAM'                  => 'Penipuan',
+        'MISLEADING'            => 'Maklumat mengelirukan',
+        'INTELLECTUAL_PROPERTY' => 'Pelanggaran hak cipta atau tanda dagangan',
+        'OFFENSIVE'             => 'Kandungan menyinggung atau kebencian',
+        'CHILD_SAFETY'          => 'Keselamatan kanak-kanak',
+        'OTHER'                 => 'Lain-lain',
+    ],
+
     'invalidRequest' => 'Permintaan tidak dapat dibaca. Sila muat semula halaman dan cuba lagi.',
     'invalidStatus'  => 'Sila pilih belum dibaca atau telah dibaca.',
     'notFound'       => 'Pemberitahuan ini tidak ditemui.',

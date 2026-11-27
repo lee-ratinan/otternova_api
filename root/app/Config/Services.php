@@ -17,6 +17,7 @@ use App\Libraries\ImageProcessor;
 use App\Libraries\JwtService;
 use App\Libraries\LoginThrottle;
 use App\Libraries\MartCache;
+use App\Libraries\MartReportGuard;
 use App\Libraries\TrackerGuard;
 use CodeIgniter\Config\BaseService;
 use RuntimeException;
@@ -108,6 +109,18 @@ class Services extends BaseService
         }
 
         return new BusinessMessageGuard(service('cache'), config(BusinessMessageForm::class), config(Auth::class)->jwtSecret);
+    }
+
+    /**
+     * The bot, flood and audience checks of the report form of otternova_mart; use ->forBusiness($id)
+     */
+    public static function martReportGuard(bool $getShared = true): MartReportGuard
+    {
+        if ($getShared) {
+            return static::getSharedInstance('martReportGuard');
+        }
+
+        return new MartReportGuard(service('cache'), config(MartReportForm::class), config(Auth::class)->jwtSecret);
     }
 
     /**

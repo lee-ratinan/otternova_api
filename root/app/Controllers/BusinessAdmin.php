@@ -32,13 +32,15 @@ class BusinessAdmin extends BaseController
         'review_status'       => ['U', 'A', 'F', 'P'],
         'moderation_status'   => ['N', 'B', 'R'],
         'awaiting_review'     => ['Y'], // the business, or one of its products or services, is pending re-review
+        'open_reports'        => ['Y'], // a mart visitor's report of it awaits the staff
     ];
 
     /**
      * POST /staff/businesses/list { start, length, search, filters: {is_business_open, wht_status, subscription_status,
-     * review_status, moderation_status, awaiting_review, country_code} }
+     * review_status, moderation_status, awaiting_review, open_reports, country_code} }
      * One page of businesses, newest first, with the status of their latest subscription, their review and moderation,
-     * and how many of their products and services are pending re-review (artifacts_to_review); search matches the
+     * how many of their products and services are pending re-review (artifacts_to_review) and how many reports of mart
+     * visitors await the staff (open_reports, ModerationReportModel); search matches the
      * business's name, slug and contact email. subscription_status NONE is a business that never subscribed;
      * awaiting_review Y is a business pending re-review or with a product or service that is.
      * @return ResponseInterface
