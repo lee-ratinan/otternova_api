@@ -187,7 +187,8 @@ class BusinessClientLinkModel extends Model
      * @param int      $clientId
      * @param int|null $businessId null: the default business, else the first linked
      * @return array|null business_client_link columns, and under "business" the business_master ones with its plan_code
-     *                    and subscription_status
+     *                    and subscription_status, its review_status (U, A, F, P) and moderation_status (N, B, R), and
+     *                    moderation_notice (ModerationEventModel::noticeOf(), null when nothing stands)
      */
     private function sessionBusiness(int $clientId, ?int $businessId): ?array
     {
@@ -199,7 +200,7 @@ class BusinessClientLinkModel extends Model
             'contact_person_name',
             'contact_email_address', 'contact_phone_number', 'contact_website', 'contact_address_line_1',
             'contact_address_line_2', 'contact_city', 'contact_subdivision_code', 'contact_postal_code', 'country_code',
-            'currency_code',
+            'currency_code', 'review_status', 'moderation_status',
         ];
         $builder = $this->db->table($this->table . ' l')
             ->select('l.business_id, l.client_role, l.client_status, l.is_default_business, l.start_date, t.public_id AS business_type_public_id')
@@ -225,6 +226,8 @@ class BusinessClientLinkModel extends Model
         $businessId = (int) $row['business_id'];
         unset($row['business_id']);
         $row = BusinessMasterModel::withDecimals($row) + model(SubscriptionMasterModel::class)->planOfBusiness($businessId);
+        // Otternova's review and moderation of it, and what the business is told to fix (ModerationEventModel)
+        $row['moderation_notice'] = model(ModerationEventModel::class)->noticeOf($businessId, null, (string) $row['review_status'], (string) $row['moderation_status']);
 
         $linkFields = ['client_role' => true, 'client_status' => true, 'is_default_business' => true, 'start_date' => true];
 

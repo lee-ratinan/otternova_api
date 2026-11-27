@@ -46,6 +46,13 @@ class Notifier
     public const INVITATION_ACCEPTED = 'invitation.accepted'; // to the owners: someone invited has joined
     public const REVIEW_SUBMITTED    = 'review.submitted';    // to the owners and managers: a review to approve or hide
 
+    // to the owners and managers: Otternova's moderation of the business, a product or service or a variant (see
+    // App\Models\ModerationEventModel::act())
+    public const MODERATION_FLAGGED   = 'moderation.flagged';
+    public const MODERATION_BLOCKED   = 'moderation.blocked';
+    public const MODERATION_UNBLOCKED = 'moderation.unblocked';
+    public const MODERATION_REMOVED   = 'moderation.removed';
+
     /**
      * Every event type, with its Bootstrap icon and tone. The tone is info, success, warning or danger, the
      * notification-icon classes of the apps' templates.
@@ -75,6 +82,10 @@ class Notifier
         self::CERTIFICATE_REJECTED   => ['icon' => 'bi-x-circle', 'tone' => 'danger'],
         self::INVITATION_ACCEPTED    => ['icon' => 'bi-person-plus', 'tone' => 'success'],
         self::REVIEW_SUBMITTED       => ['icon' => 'bi-star', 'tone' => 'info'],
+        self::MODERATION_FLAGGED     => ['icon' => 'bi-flag', 'tone' => 'warning'],
+        self::MODERATION_BLOCKED     => ['icon' => 'bi-slash-circle', 'tone' => 'danger'],
+        self::MODERATION_UNBLOCKED   => ['icon' => 'bi-check-circle', 'tone' => 'success'],
+        self::MODERATION_REMOVED     => ['icon' => 'bi-trash', 'tone' => 'danger'],
     ];
 
     /** Shown for an event_type no longer in EVENTS */

@@ -139,6 +139,36 @@ return [
         'awaiting' => '未払いのため、キャンセルや来店なしの可能性があります',
     ],
 
+    'moderation' => [
+        'flagged' => [
+            'title'   => 'Otternovaが{subject}にフラグを付けました',
+            'message' => '理由：{reason}。{message} 修正して保存してください。Otternovaが再審査します。',
+        ],
+        'blocked' => [
+            'title'   => '{subject}がブロックされました',
+            'message' => 'Otternovaが{subject}をOtterNovaMartから非公開にしました。理由：{reason}。{message} 修正して保存してください。Otternovaがブロックを解除すると再び販売できます。',
+        ],
+        'unblocked' => [
+            'title'   => '{subject}のブロックが解除されました',
+            'message' => 'Otternovaが{subject}のブロックを解除しました。ブロック前の状態に戻っています。{message}',
+        ],
+        'removed' => [
+            'title'   => '{subject}が削除されました',
+            'message' => 'Otternovaが{subject}を完全に削除しました。理由：{reason}。{message} 既存の注文は引き続き対応されます。',
+        ],
+    ],
+
+    // why Otternova flagged, blocked or removed something (ModerationEventModel::REASONS), for moderation.*
+    'moderation_reason' => [
+        'PROHIBITED'            => '禁止・制限されている商品',
+        'MISLEADING'            => '誤解を招く・不正確な情報',
+        'INTELLECTUAL_PROPERTY' => '知的財産に関する懸念',
+        'AUDIENCE'              => '対象者に適していない',
+        'BUSINESS_TYPE'         => '事業の種類と一致しない',
+        'PRICING'               => '価格に関する懸念',
+        'OTHER'                 => 'その他',
+    ],
+
     'invalidRequest' => 'リクエストを読み取れませんでした。ページを再読み込みして、もう一度お試しください。',
     'invalidStatus'  => '未読または既読を選択してください。',
     'notFound'       => 'この通知が見つかりませんでした。',

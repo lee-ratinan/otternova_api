@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Libraries\ActivityLog;
+use App\Libraries\Notifier;
 use CodeIgniter\Model;
 use Throwable;
 
@@ -20,6 +21,7 @@ use Throwable;
  * - Resubmitted (RS): written by resubmitBusiness() and resubmitArtifact() when the business changes a flagged business or artifact; review_status P,
  *   for the staff to review it again.
  * Every write goes to log_activity in the same transaction, and the business's mart answers are made stale after it.
+ * A flag, block, unblock or removal notifies the business's owners and managers (Notifier), in the same transaction.
  */
 class ModerationEventModel extends Model
 {
@@ -56,6 +58,14 @@ class ModerationEventModel extends Model
     public const MODERATION_NONE    = 'N';
     public const MODERATION_BLOCKED = 'B';
     public const MODERATION_REMOVED = 'R';
+
+    /** The actions the business's owners and managers are notified of, and the event of each */
+    private const NOTIFIED = [
+        self::FLAG    => Notifier::MODERATION_FLAGGED,
+        self::BLOCK   => Notifier::MODERATION_BLOCKED,
+        self::UNBLOCK => Notifier::MODERATION_UNBLOCKED,
+        self::REMOVE  => Notifier::MODERATION_REMOVED,
+    ];
 
     /** reason_code: why something was flagged, blocked or removed */
     public const REASONS = ['PROHIBITED', 'MISLEADING', 'INTELLECTUAL_PROPERTY', 'AUDIENCE', 'BUSINESS_TYPE', 'PRICING', 'OTHER'];
@@ -297,10 +307,50 @@ class ModerationEventModel extends Model
             'internal_note'   => $note['internal_note'] ?? null,
             'previous_status' => $previous,
         ], $actorId, $log);
+        if (isset(self::NOTIFIED[$action])) {
+            $this->notify($subject, $id, $action, $note, $actorId);
+        }
 
         $after = $changes + $row;
 
         return ['review_status' => $reviewed ? $after['review_status'] : null, 'moderation_status' => $after['moderation_status']];
+    }
+
+    /**
+     * Notify the business's owners and managers of an action, inside the transaction: what it was taken on (the
+     * business, or the product or service, with the variant's SKU), the reason and the message to them, and the page of
+     * the Client app to fix it on
+     * @param array  $subject
+     * @param int    $id      The subject's id
+     * @param string $action  One of NOTIFIED
+     * @param array  $note
+     * @param int    $actorId
+     * @return void
+     */
+    private function notify(array $subject, int $id, string $action, array $note, int $actorId): void
+    {
+        $businessId = (int) $subject['business_id'];
+        if ($subject['type'] === self::SUBJECT_BUSINESS) {
+            $name   = (string) ($this->db->table('business_master')->select('business_name')->where('id', $businessId)->get()->getRow()->business_name ?? '');
+            $target = '/admin/business';
+            $table  = 'business_master';
+        } else {
+            $artifact = $this->db->table('artifact_master')->select('public_id, artifact_name')->where('id', (int) $subject['artifact_id'])->get()->getRowArray() ?? [];
+            $name     = (string) ($artifact['artifact_name'] ?? '');
+            $target   = '/admin/artifacts/edit/' . ($artifact['public_id'] ?? '');
+            $table    = 'artifact_master';
+            if ($subject['type'] === self::SUBJECT_VARIANT) {
+                $sku   = (string) ($this->db->table('artifact_variant')->select('sku')->where('id', $id)->get()->getRow()->sku ?? '');
+                $name .= $sku === '' ? '' : ' (' . $sku . ')';
+                $table = 'artifact_variant';
+            }
+        }
+        $reason = $note['reason_code'] ?? null;
+        (new Notifier())->toBusiness($businessId, [BusinessClientLinkModel::ROLE_OWNER, BusinessClientLinkModel::ROLE_MANAGER], self::NOTIFIED[$action], [
+            'subject' => $name,
+            'reason'  => in_array($reason, self::REASONS, true) ? 'lang:moderation_reason.' . $reason : 'lang:moderation_reason.OTHER',
+            'message' => trim((string) ($note['client_message'] ?? '')),
+        ], $target, [$table, $id], $actorId);
     }
 
     /**

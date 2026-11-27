@@ -139,6 +139,36 @@ return [
         'awaiting' => 'not paid yet, so it may still be cancelled or not come',
     ],
 
+    'moderation' => [
+        'flagged' => [
+            'title'   => 'Otternova flagged {subject}',
+            'message' => 'Reason: {reason}. {message} Please make the changes and save; Otternova will review it again.',
+        ],
+        'blocked' => [
+            'title'   => '{subject} is blocked',
+            'message' => 'Otternova took {subject} off OtterNovaMart. Reason: {reason}. {message} Please fix it and save; it can go back on sale once Otternova unblocks it.',
+        ],
+        'unblocked' => [
+            'title'   => '{subject} is unblocked',
+            'message' => 'Otternova has unblocked {subject}; it is back as it was before the block. {message}',
+        ],
+        'removed' => [
+            'title'   => '{subject} was removed',
+            'message' => 'Otternova has removed {subject} for good. Reason: {reason}. {message} Existing orders are still honoured.',
+        ],
+    ],
+
+    // why Otternova flagged, blocked or removed something (ModerationEventModel::REASONS), for moderation.*
+    'moderation_reason' => [
+        'PROHIBITED'            => 'Prohibited or restricted item',
+        'MISLEADING'            => 'Misleading or inaccurate information',
+        'INTELLECTUAL_PROPERTY' => 'Intellectual property concern',
+        'AUDIENCE'              => 'Not suitable for its audience',
+        'BUSINESS_TYPE'         => 'Does not match the business type',
+        'PRICING'               => 'Pricing concern',
+        'OTHER'                 => 'Other',
+    ],
+
     'invalidRequest' => 'The request could not be read. Please reload the page and try again.',
     'invalidStatus'  => 'Please choose unread or read.',
     'notFound'       => 'This notification could not be found.',

@@ -139,6 +139,36 @@ return [
         'awaiting' => 'ยังไม่ได้ชำระ อาจถูกยกเลิกหรือลูกค้าไม่มาได้',
     ],
 
+    'moderation' => [
+        'flagged' => [
+            'title'   => 'Otternova ได้ทำเครื่องหมาย {subject}',
+            'message' => 'เหตุผล: {reason} {message} กรุณาแก้ไขและบันทึก แล้ว Otternova จะตรวจสอบอีกครั้ง',
+        ],
+        'blocked' => [
+            'title'   => '{subject} ถูกระงับ',
+            'message' => 'Otternova ได้นำ {subject} ออกจาก OtterNovaMart เหตุผล: {reason} {message} กรุณาแก้ไขและบันทึก จะกลับมาขายได้เมื่อ Otternova ยกเลิกการระงับ',
+        ],
+        'unblocked' => [
+            'title'   => '{subject} ถูกยกเลิกการระงับแล้ว',
+            'message' => 'Otternova ได้ยกเลิกการระงับ {subject} แล้ว กลับเป็นเหมือนก่อนถูกระงับ {message}',
+        ],
+        'removed' => [
+            'title'   => '{subject} ถูกนำออกแล้ว',
+            'message' => 'Otternova ได้นำ {subject} ออกอย่างถาวร เหตุผล: {reason} {message} คำสั่งซื้อที่มีอยู่ยังคงได้รับการดำเนินการ',
+        ],
+    ],
+
+    // why Otternova flagged, blocked or removed something (ModerationEventModel::REASONS), for moderation.*
+    'moderation_reason' => [
+        'PROHIBITED'            => 'สินค้าต้องห้ามหรือถูกจำกัด',
+        'MISLEADING'            => 'ข้อมูลทำให้เข้าใจผิดหรือไม่ถูกต้อง',
+        'INTELLECTUAL_PROPERTY' => 'ปัญหาทรัพย์สินทางปัญญา',
+        'AUDIENCE'              => 'ไม่เหมาะกับกลุ่มผู้ชม',
+        'BUSINESS_TYPE'         => 'ไม่ตรงกับประเภทธุรกิจ',
+        'PRICING'               => 'ปัญหาด้านราคา',
+        'OTHER'                 => 'อื่น ๆ',
+    ],
+
     'invalidRequest' => 'ไม่สามารถอ่านคำขอได้ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง',
     'invalidStatus'  => 'กรุณาเลือก ยังไม่อ่าน หรือ อ่านแล้ว',
     'notFound'       => 'ไม่พบการแจ้งเตือนนี้',

@@ -139,6 +139,36 @@ return [
         'awaiting' => '尚未付款，因此仍可能被取消或未到场',
     ],
 
+    'moderation' => [
+        'flagged' => [
+            'title'   => 'Otternova 已标记 {subject}',
+            'message' => '原因：{reason}。{message} 请修改并保存，Otternova 将再次审核。',
+        ],
+        'blocked' => [
+            'title'   => '{subject} 已被封锁',
+            'message' => 'Otternova 已将 {subject} 从 OtterNovaMart 下架。原因：{reason}。{message} 请修改并保存；Otternova 解除封锁后即可重新上架。',
+        ],
+        'unblocked' => [
+            'title'   => '{subject} 已解除封锁',
+            'message' => 'Otternova 已解除 {subject} 的封锁，已恢复到封锁前的状态。{message}',
+        ],
+        'removed' => [
+            'title'   => '{subject} 已被移除',
+            'message' => 'Otternova 已永久移除 {subject}。原因：{reason}。{message} 现有订单仍会照常处理。',
+        ],
+    ],
+
+    // why Otternova flagged, blocked or removed something (ModerationEventModel::REASONS), for moderation.*
+    'moderation_reason' => [
+        'PROHIBITED'            => '禁止或受限的物品',
+        'MISLEADING'            => '误导或不准确的信息',
+        'INTELLECTUAL_PROPERTY' => '知识产权问题',
+        'AUDIENCE'              => '不适合其受众',
+        'BUSINESS_TYPE'         => '与业务类型不符',
+        'PRICING'               => '价格问题',
+        'OTHER'                 => '其他',
+    ],
+
     'invalidRequest' => '无法读取请求。请重新加载页面后再试。',
     'invalidStatus'  => '请选择未读或已读。',
     'notFound'       => '找不到此通知。',

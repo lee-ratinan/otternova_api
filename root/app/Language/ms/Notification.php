@@ -139,6 +139,36 @@ return [
         'awaiting' => 'belum dibayar, jadi ia masih mungkin dibatalkan atau tidak hadir',
     ],
 
+    'moderation' => [
+        'flagged' => [
+            'title'   => 'Otternova menanda {subject}',
+            'message' => 'Sebab: {reason}. {message} Sila buat perubahan dan simpan; Otternova akan menyemaknya semula.',
+        ],
+        'blocked' => [
+            'title'   => '{subject} disekat',
+            'message' => 'Otternova telah menurunkan {subject} dari OtterNovaMart. Sebab: {reason}. {message} Sila betulkan dan simpan; ia boleh dijual semula selepas Otternova membuka sekatannya.',
+        ],
+        'unblocked' => [
+            'title'   => 'Sekatan {subject} dibuka',
+            'message' => 'Otternova telah membuka sekatan {subject}; ia kembali seperti sebelum disekat. {message}',
+        ],
+        'removed' => [
+            'title'   => '{subject} telah dialih keluar',
+            'message' => 'Otternova telah mengalih keluar {subject} secara kekal. Sebab: {reason}. {message} Pesanan sedia ada masih dihormati.',
+        ],
+    ],
+
+    // why Otternova flagged, blocked or removed something (ModerationEventModel::REASONS), for moderation.*
+    'moderation_reason' => [
+        'PROHIBITED'            => 'Barang larangan atau terhad',
+        'MISLEADING'            => 'Maklumat mengelirukan atau tidak tepat',
+        'INTELLECTUAL_PROPERTY' => 'Isu harta intelek',
+        'AUDIENCE'              => 'Tidak sesuai untuk khalayaknya',
+        'BUSINESS_TYPE'         => 'Tidak sepadan dengan jenis perniagaan',
+        'PRICING'               => 'Isu harga',
+        'OTHER'                 => 'Lain-lain',
+    ],
+
     'invalidRequest' => 'Permintaan tidak dapat dibaca. Sila muat semula halaman dan cuba lagi.',
     'invalidStatus'  => 'Sila pilih belum dibaca atau telah dibaca.',
     'notFound'       => 'Pemberitahuan ini tidak ditemui.',
