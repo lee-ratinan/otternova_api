@@ -26,4 +26,6 @@ return [
     'typeUpdated'         => '業種を保存しました。',
     'typeIdRequired'      => '業種を選択してください。',
     'typeNotFound'        => '業種が見つかりません。',
+    'blockedByOtternova' => 'Otternova はマーケットプレイスでこのビジネスをブロックしました。ご案内した点を修正すると再審査されます。ブロックが解除されると公開できます。',
+    'removedByOtternova' => 'Otternova はこのビジネスをマーケットプレイスから削除しました。今後は公開も変更もできません。',
 ];

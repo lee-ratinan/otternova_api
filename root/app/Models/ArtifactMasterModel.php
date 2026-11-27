@@ -79,7 +79,7 @@ class ArtifactMasterModel extends Model
     public function listOfBusiness(int $businessId, array $filters = []): array
     {
         $builder = $this->db->table($this->table . ' a')
-            ->select('a.id, a.public_id, a.artifact_name, a.artifact_type, a.artifact_status, a.artifact_label, c.public_id AS category_public_id,'
+            ->select('a.id, a.public_id, a.artifact_name, a.artifact_type, a.artifact_status, a.artifact_label, a.review_status, a.moderation_status, c.public_id AS category_public_id,'
                 . ' a.price_active_lowest, a.price_compare_lowest, a.rating_count, a.rating_average,'
                 . ' a.rating_1_count, a.rating_2_count, a.rating_3_count, a.rating_4_count, a.rating_5_count')
             ->select('(SELECT COUNT(*) FROM ' . $this->db->prefixTable(self::VARIANTS) . ' v WHERE v.artifact_id = a.id) AS variant_count', false)
@@ -172,6 +172,10 @@ class ArtifactMasterModel extends Model
             'rating_average'       => number_format((float) $row['rating_average'], 2, '.', ''),
             'rating_breakdown'     => ArtifactReviewModel::breakdownOf($row),
             'translations'         => $this->translationsOf(self::TRANSLATIONS, 'artifact_id', [$id], ['artifact_name', 'artifact_description'])[$id] ?? [],
+            // Otternova's review and moderation (ModerationEventModel), and what the business is told to fix
+            'review_status'        => $row['review_status'],
+            'moderation_status'    => $row['moderation_status'],
+            'moderation_notice'    => model(ModerationEventModel::class)->noticeOf((int) $row['business_id'], $id, $row['review_status'], $row['moderation_status']),
         ]);
 
         $variants = array_map(static fn (array $variant): array => [
@@ -181,6 +185,7 @@ class ArtifactMasterModel extends Model
             'price_active'     => number_format((float) $variant['price_active'], 2, '.', ''),
             'price_compare'    => $variant['price_compare'] === null ? null : number_format((float) $variant['price_compare'], 2, '.', ''),
             'variant_status'   => $variant['variant_status'],
+            'moderation_status' => $variant['moderation_status'],
             'weight_grams'     => $variant['weight_grams'] === null ? null : (int) $variant['weight_grams'],
             'duration_minutes' => $variant['duration_minutes'] === null ? null : (int) $variant['duration_minutes'],
             'booking_type'     => $variant['booking_type'],
@@ -206,7 +211,8 @@ class ArtifactMasterModel extends Model
      * @param int                   $start
      * @param int                   $length
      * @param string                $search
-     * @param array<string, string> $filters artifact_type (P, S), artifact_status (A, I, D): each only when set
+     * @param array<string, string> $filters artifact_type (P, S), artifact_status (A, I, D), review_status (U, A, F, P),
+     *                                       moderation_status (N, B, R): each only when set
      * @return array{records_total: int, records_filtered: int, rows: list<array>}
      */
     public function listForStaff(int $businessId, int $start, int $length, string $search, array $filters): array
@@ -214,12 +220,12 @@ class ArtifactMasterModel extends Model
         $variants = $this->db->prefixTable(self::VARIANTS);
         $total    = $this->db->table($this->table)->where('business_id', $businessId)->countAllResults();
         $builder  = $this->db->table($this->table . ' a')
-            ->select('a.public_id, a.artifact_name, a.artifact_type, a.artifact_status, a.artifact_label, c.category_name,'
+            ->select('a.public_id, a.artifact_name, a.artifact_type, a.artifact_status, a.artifact_label, a.review_status, a.moderation_status, c.category_name,'
                 . ' a.price_active_lowest, a.price_compare_lowest, a.rating_count, a.rating_average, a.created_at, a.updated_at')
             ->select('(SELECT COUNT(*) FROM ' . $variants . ' v WHERE v.artifact_id = a.id) AS variant_count', false)
             ->join('artifact_category c', 'c.id = a.category_id', 'left')
             ->where('a.business_id', $businessId);
-        foreach (['artifact_type', 'artifact_status'] as $filter) {
+        foreach (['artifact_type', 'artifact_status', 'review_status', 'moderation_status'] as $filter) {
             if (isset($filters[$filter])) {
                 $builder->where('a.' . $filter, $filters[$filter]);
             }
@@ -408,6 +414,10 @@ class ArtifactMasterModel extends Model
                     $log->updated($actorId, 'Updated ' . $what, $this->table, $id, $stored, $changes);
                 }
                 $storedNames = $names === null ? [] : ($this->translationsOf(self::TRANSLATIONS, 'artifact_id', [$id], ['artifact_name', 'artifact_description'])[$id] ?? []);
+                if ($changes !== [] || $names !== null || $variants !== []) {
+                    // what Otternova flagged is changed: it goes back for review
+                    model(ModerationEventModel::class)->resubmitArtifact($id, $actorId, $log);
+                }
             }
             if ($names !== null) {
                 $this->writeTranslations(self::TRANSLATIONS, 'artifact_id', $id, $what, $storedNames, $names, $actorId, $log, $stored !== null);
@@ -501,7 +511,7 @@ class ArtifactMasterModel extends Model
      * @param ActivityLog $log
      * @return void
      */
-    private function refreshLowestPrices(int $id, string $publicId, int $actorId, ActivityLog $log): void
+    public function refreshLowestPrices(int $id, string $publicId, int $actorId, ActivityLog $log): void
     {
         $cheapest = $this->db->table(self::VARIANTS)
             ->select('price_active, price_compare')

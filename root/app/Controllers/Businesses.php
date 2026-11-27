@@ -10,6 +10,7 @@ use App\Models\BusinessClientLinkModel;
 use App\Models\BusinessMasterModel;
 use App\Models\BusinessTypeModel;
 use App\Models\ClientMasterModel;
+use App\Models\ModerationEventModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
 use Throwable;
@@ -178,6 +179,7 @@ class Businesses extends BaseController
      * POST /client/business/open { business_slug, is_business_open: "Y"|"N" }
      * Open the business on otternova_mart (Y), or close it (N): closed, it is left out of the search, its shop pages
      * say it is not open and no order can be placed. Its active owners only (403 for its managers and employees).
+     * 409 for opening a business Otternova blocked or removed (business_master.moderation_status B or R).
      * { business_slug, is_business_open }
      * @return ResponseInterface
      */
@@ -196,6 +198,11 @@ class Businesses extends BaseController
             return ApiResponse::error(lang('Business.invalidFields'), 422, ['is_business_open' => lang('Business.invalidOpen')]);
         }
         try {
+            // blocked or removed by Otternova, it stays closed: the business fixes what it was told, and the staff unblock it
+            $moderation = model(BusinessMasterModel::class)->select('moderation_status')->find((int) $link['business_id'])['moderation_status'] ?? null;
+            if ($open === BusinessMasterModel::OPEN && $moderation !== null && $moderation !== ModerationEventModel::MODERATION_NONE) {
+                return ApiResponse::error(lang($moderation === ModerationEventModel::MODERATION_REMOVED ? 'Business.removedByOtternova' : 'Business.blockedByOtternova'), 409);
+            }
             model(BusinessMasterModel::class)->setOpen((int) $link['business_id'], $open, $this->actorId());
         } catch (Throwable $e) {
             log_message('error', $endpoint . ': {message}', ['message' => $e->getMessage()]);
@@ -347,6 +354,10 @@ class Businesses extends BaseController
                 }
                 if ($role !== BusinessClientLinkModel::ROLE_OWNER) {
                     return ApiResponse::error(lang('Business.ownerOnly'), 403);
+                }
+                // removed by Otternova for good: nothing more to change
+                if ($stored['moderation_status'] === ModerationEventModel::MODERATION_REMOVED) {
+                    return ApiResponse::error(lang('Business.removedByOtternova'), 409);
                 }
             }
         } catch (Throwable $e) {

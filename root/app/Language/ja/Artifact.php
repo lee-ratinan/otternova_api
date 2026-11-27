@@ -54,4 +54,8 @@ return [
     'refineBusy'              => '現在 AI が混み合っています。しばらくしてからもう一度お試しください。',
     'refineFailed'            => '説明を改善できませんでした。もう一度お試しください。',
     'refined'                 => '説明を改善しました。内容を確認してから保存してください。',
+    'blockedByOtternova'        => 'Otternova はこの商品またはサービスをブロックしました。ご案内した点を修正すると再審査されます。ブロックが解除されると販売を再開できます。',
+    'removedByOtternova'        => 'Otternova はこの商品またはサービスを削除しました。今後は変更できません。',
+    'variantBlockedByOtternova' => 'Otternova はこのバリエーションをブロックしました。ブロックが解除されると販売を再開できます。',
+    'variantRemovedByOtternova' => 'Otternova はこのバリエーションを削除しました。今後は変更できません。',
 ];

@@ -26,4 +26,6 @@ return [
     'typeUpdated'         => 'Jenis perniagaan disimpan.',
     'typeIdRequired'      => 'Sila pilih jenis perniagaan.',
     'typeNotFound'        => 'Jenis perniagaan tidak ditemui.',
+    'blockedByOtternova' => 'Otternova telah menyekat perniagaan ini di pasaran. Betulkan seperti yang diminta, dan ia akan disemak semula; ia boleh dibuka setelah sekatan ditarik balik.',
+    'removedByOtternova' => 'Otternova telah mengeluarkan perniagaan ini dari pasaran. Ia tidak boleh dibuka atau diubah lagi.',
 ];

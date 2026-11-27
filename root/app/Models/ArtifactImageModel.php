@@ -86,7 +86,9 @@ class ArtifactImageModel extends Model
             ];
             $this->db->table($this->table)->insert($row);
             $row = ['id' => (int) $this->db->insertID()] + $row;
-            (new ActivityLog())->inserted($actorId, 'Uploaded artifact image ' . $publicId, $this->table, $row['id'], $row);
+            $log = new ActivityLog();
+            $log->inserted($actorId, 'Uploaded artifact image ' . $publicId, $this->table, $row['id'], $row);
+            model(ModerationEventModel::class)->resubmitArtifact($artifactId, $actorId, $log); // a flagged artifact goes back for review
             $place($publicId);
 
             return $row;
@@ -107,7 +109,9 @@ class ArtifactImageModel extends Model
     {
         $this->inTransaction(function () use ($row, $actorId, $remove) {
             $this->db->table($this->table)->where('id', $row['id'])->delete();
-            (new ActivityLog())->deleted($actorId, 'Deleted artifact image ' . $row['public_id'], $this->table, (int) $row['id'], $row);
+            $log = new ActivityLog();
+            $log->deleted($actorId, 'Deleted artifact image ' . $row['public_id'], $this->table, (int) $row['id'], $row);
+            model(ModerationEventModel::class)->resubmitArtifact((int) $row['artifact_id'], $actorId, $log); // a flagged artifact goes back for review
             $remove();
         });
     }

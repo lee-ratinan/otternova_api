@@ -29,12 +29,18 @@ class BusinessAdmin extends BaseController
         'is_business_open'    => [BusinessMasterModel::OPEN, BusinessMasterModel::CLOSED],
         'wht_status'          => [BusinessMasterModel::WHT_NONE, BusinessMasterModel::WHT_REQUESTED, BusinessMasterModel::WHT_APPROVED],
         'subscription_status' => ['P', 'A', 'S', 'C', 'X', BusinessMasterModel::NO_SUBSCRIPTION],
+        'review_status'       => ['U', 'A', 'F', 'P'],
+        'moderation_status'   => ['N', 'B', 'R'],
+        'awaiting_review'     => ['Y'], // the business, or one of its products or services, is pending re-review
     ];
 
     /**
-     * POST /staff/businesses/list { start, length, search, filters: {is_business_open, wht_status, subscription_status, country_code} }
-     * One page of businesses, newest first, with the status of their latest subscription; search matches the
-     * business's name, slug and contact email. subscription_status NONE is a business that never subscribed.
+     * POST /staff/businesses/list { start, length, search, filters: {is_business_open, wht_status, subscription_status,
+     * review_status, moderation_status, awaiting_review, country_code} }
+     * One page of businesses, newest first, with the status of their latest subscription, their review and moderation,
+     * and how many of their products and services are pending re-review (artifacts_to_review); search matches the
+     * business's name, slug and contact email. subscription_status NONE is a business that never subscribed;
+     * awaiting_review Y is a business pending re-review or with a product or service that is.
      * @return ResponseInterface
      */
     public function list(): ResponseInterface
@@ -128,7 +134,7 @@ class BusinessAdmin extends BaseController
     }
 
     /**
-     * POST /staff/businesses/artifacts { business_slug, start, length, search, filters: {artifact_type, artifact_status} }
+     * POST /staff/businesses/artifacts { business_slug, start, length, search, filters: {artifact_type, artifact_status, review_status, moderation_status} }
      * One page of the business's products and services by name; search matches the name and the variants' SKUs
      * @return ResponseInterface
      */
@@ -139,6 +145,8 @@ class BusinessAdmin extends BaseController
         $valid = [
             'artifact_type'   => [ArtifactMasterModel::TYPE_PRODUCT, ArtifactMasterModel::TYPE_SERVICE],
             'artifact_status' => [ArtifactMasterModel::STATUS_ACTIVE, ArtifactMasterModel::STATUS_INACTIVE, ArtifactMasterModel::STATUS_DISCONTINUED],
+            'review_status'     => ['U', 'A', 'F', 'P'],
+            'moderation_status' => ['N', 'B', 'R'],
         ];
         $filters = [];
         $errors  = [];

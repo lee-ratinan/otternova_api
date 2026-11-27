@@ -54,4 +54,8 @@ return [
     'refineBusy'              => 'AI 目前繁忙，请稍后再试。',
     'refineFailed'            => '无法改进描述，请再试一次。',
     'refined'                 => '描述已改进。请检查后再保存。',
+    'blockedByOtternova'        => 'Otternova 已屏蔽此商品或服务。请按我们的要求修改，修改后会重新审核；解除屏蔽后即可重新上架。',
+    'removedByOtternova'        => 'Otternova 已移除此商品或服务，无法再修改。',
+    'variantBlockedByOtternova' => 'Otternova 已屏蔽此规格，解除屏蔽后即可重新上架。',
+    'variantRemovedByOtternova' => 'Otternova 已移除此规格，无法再修改。',
 ];

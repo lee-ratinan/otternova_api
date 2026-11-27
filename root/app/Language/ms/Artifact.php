@@ -54,4 +54,8 @@ return [
     'refineBusy'              => 'AI sedang sibuk. Sila cuba lagi sebentar lagi.',
     'refineFailed'            => 'Tidak dapat memperhalusi penerangan. Sila cuba lagi.',
     'refined'                 => 'Penerangan telah diperhalusi. Sila semak, kemudian simpan.',
+    'blockedByOtternova'        => 'Otternova telah menyekat produk atau perkhidmatan ini. Betulkan seperti yang diminta, dan ia akan disemak semula; ia boleh dijual semula setelah sekatan ditarik balik.',
+    'removedByOtternova'        => 'Otternova telah mengeluarkan produk atau perkhidmatan ini. Ia tidak boleh diubah lagi.',
+    'variantBlockedByOtternova' => 'Otternova telah menyekat varian ini. Ia boleh dijual semula setelah sekatan ditarik balik.',
+    'variantRemovedByOtternova' => 'Otternova telah mengeluarkan varian ini. Ia tidak boleh diubah lagi.',
 ];

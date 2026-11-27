@@ -26,4 +26,6 @@ return [
     'typeUpdated'         => '商家類型已儲存。',
     'typeIdRequired'      => '請選擇商家類型。',
     'typeNotFound'        => '找不到商家類型。',
+    'blockedByOtternova' => 'Otternova 已在市集上封鎖此商家。請依我們的要求修改，修改後會重新審核；解除封鎖後即可開店。',
+    'removedByOtternova' => 'Otternova 已將此商家從市集移除，無法再開店或修改。',
 ];

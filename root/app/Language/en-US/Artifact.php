@@ -54,4 +54,8 @@ return [
     'refineBusy'              => 'The AI is busy right now. Please try again in a moment.',
     'refineFailed'            => 'Could not refine the description. Please try again.',
     'refined'                 => 'Description refined. Please review it, then save.',
+    'blockedByOtternova'        => 'Otternova has blocked this product or service. Fix what we asked, and it will be reviewed again; it can go on sale once it is unblocked.',
+    'removedByOtternova'        => 'Otternova has removed this product or service. It can no longer be changed.',
+    'variantBlockedByOtternova' => 'Otternova has blocked this variant. It can go on sale once it is unblocked.',
+    'variantRemovedByOtternova' => 'Otternova has removed this variant. It can no longer be changed.',
 ];

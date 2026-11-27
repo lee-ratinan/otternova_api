@@ -12,6 +12,7 @@ use App\Models\ArtifactAttributeModel;
 use App\Models\ArtifactCategoryModel;
 use App\Models\ArtifactMasterModel;
 use App\Models\BusinessMasterModel;
+use App\Models\ModerationEventModel;
 use App\Models\SubscriptionMasterModel;
 use CodeIgniter\HTTP\Exceptions\HTTPException;
 use CodeIgniter\HTTP\ResponseInterface;
@@ -343,6 +344,24 @@ class Artifacts extends BaseController
             return $this->failed($endpoint, $e, 'Artifact.loadFailed');
         }
         $errors += $fieldErrors + $variantErrors;
+        // what Otternova blocked stays off sale until it is unblocked, and what it removed is not changed at all; the
+        // business may fix a blocked one, which sends it back for review (ModerationEventModel::resubmitArtifact())
+        if ($stored !== null) {
+            if ($stored['moderation_status'] === ModerationEventModel::MODERATION_REMOVED) {
+                return ApiResponse::error(lang('Artifact.removedByOtternova'), 409);
+            }
+            if ($stored['moderation_status'] === ModerationEventModel::MODERATION_BLOCKED && ($artifact['artifact_status'] ?? null) === ArtifactMasterModel::STATUS_ACTIVE) {
+                $errors['artifact_status'] = lang('Artifact.blockedByOtternova');
+            }
+        }
+        foreach ($variants as $i => $variant) {
+            $moderation = $variant['stored']['moderation_status'] ?? ModerationEventModel::MODERATION_NONE;
+            if ($moderation === ModerationEventModel::MODERATION_REMOVED) {
+                $errors['variants.' . $i . '.public_id'] = lang('Artifact.variantRemovedByOtternova');
+            } elseif ($moderation === ModerationEventModel::MODERATION_BLOCKED && $variant['row']['variant_status'] === 'A') {
+                $errors['variants.' . $i . '.variant_status'] = lang('Artifact.variantBlockedByOtternova');
+            }
+        }
         if ($stored === null && $variantsIn === []) {
             $errors['variants'] = lang('Artifact.variantRequired');
         }

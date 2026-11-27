@@ -174,6 +174,19 @@ $routes->group('v1', static function (RouteCollection $routes) {
         $routes->post('stores', 'BusinessAdmin::stores');
         $routes->post('artifacts', 'BusinessAdmin::artifacts');
         $routes->post('artifact', 'BusinessAdmin::artifact');
+        $routes->post('moderation', 'ModerationAdmin::history');
+    });
+
+    // Admin app's review and moderation of the businesses, their products and services and their variants: the
+    // Executive Office and Client Experience; removing for good: the Executive Office only. See App\Controllers\ModerationAdmin
+    $routes->group('staff/moderation', ['filter' => ['jwt:S', 'department:EXE,CXD']], static function (RouteCollection $routes) {
+        $routes->post('approve', 'ModerationAdmin::approve');
+        $routes->post('flag', 'ModerationAdmin::flag');
+        $routes->post('block', 'ModerationAdmin::block');
+        $routes->post('unblock', 'ModerationAdmin::unblock');
+    });
+    $routes->group('staff/moderation', ['filter' => ['jwt:S', 'department:EXE']], static function (RouteCollection $routes) {
+        $routes->post('remove', 'ModerationAdmin::remove');
     });
 
     // Admin app's view of every subscription and payment: Executive Office and Finance only; see App\Controllers\SubscriptionAdmin

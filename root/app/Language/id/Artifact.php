@@ -54,4 +54,8 @@ return [
     'refineBusy'              => 'AI sedang sibuk. Silakan coba lagi sebentar lagi.',
     'refineFailed'            => 'Tidak dapat menyempurnakan deskripsi. Silakan coba lagi.',
     'refined'                 => 'Deskripsi telah disempurnakan. Silakan periksa, lalu simpan.',
+    'blockedByOtternova'        => 'Otternova telah memblokir produk atau layanan ini. Perbaiki sesuai permintaan kami, dan akan ditinjau kembali; produk dapat dijual lagi setelah blokirnya dibuka.',
+    'removedByOtternova'        => 'Otternova telah menghapus produk atau layanan ini. Produk ini tidak dapat diubah lagi.',
+    'variantBlockedByOtternova' => 'Otternova telah memblokir varian ini. Varian dapat dijual lagi setelah blokirnya dibuka.',
+    'variantRemovedByOtternova' => 'Otternova telah menghapus varian ini. Varian ini tidak dapat diubah lagi.',
 ];

@@ -26,4 +26,6 @@ return [
     'typeUpdated'         => 'Business type saved.',
     'typeIdRequired'      => 'Please choose a business type.',
     'typeNotFound'        => 'Business type not found.',
+    'blockedByOtternova' => 'Otternova has blocked this business on the marketplace. Fix what we asked, and it will be reviewed again; it can open once it is unblocked.',
+    'removedByOtternova' => 'Otternova has removed this business from the marketplace. It can no longer be opened or changed.',
 ];

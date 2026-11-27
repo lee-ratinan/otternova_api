@@ -26,4 +26,6 @@ return [
     'typeUpdated'         => '企业类型已保存。',
     'typeIdRequired'      => '请选择企业类型。',
     'typeNotFound'        => '找不到企业类型。',
+    'blockedByOtternova' => 'Otternova 已在市集上屏蔽此企业。请按我们的要求修改，修改后会重新审核；解除屏蔽后即可开店。',
+    'removedByOtternova' => 'Otternova 已将此企业从市集移除，无法再开店或修改。',
 ];

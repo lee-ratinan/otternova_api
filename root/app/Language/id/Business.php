@@ -26,4 +26,6 @@ return [
     'typeUpdated'         => 'Jenis bisnis disimpan.',
     'typeIdRequired'      => 'Silakan pilih jenis bisnis.',
     'typeNotFound'        => 'Jenis bisnis tidak ditemukan.',
+    'blockedByOtternova' => 'Otternova telah memblokir bisnis ini di marketplace. Perbaiki sesuai permintaan kami, dan akan ditinjau kembali; bisnis dapat dibuka setelah blokirnya dibuka.',
+    'removedByOtternova' => 'Otternova telah menghapus bisnis ini dari marketplace. Bisnis ini tidak dapat dibuka atau diubah lagi.',
 ];

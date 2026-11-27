@@ -66,7 +66,7 @@ class BusinessSearchModel extends Model
             return $empty;
         }
 
-        $builder = $this->db->table('business_master b')->select('b.id')->where('b.is_business_open', BusinessMasterModel::OPEN); // closed ones are not on the mart
+        $builder = $this->db->table('business_master b')->select('b.id')->where('b.is_business_open', BusinessMasterModel::OPEN)->where('b.moderation_status', 'N'); // closed, blocked or removed ones are not on the mart
         foreach ($words as $word) {
             // not escapeLikeString(): it doubles quotes too, which escape() then does again
             $pattern = str_replace([self::LIKE_ESCAPE, '%', '_'], [self::LIKE_ESCAPE . self::LIKE_ESCAPE, self::LIKE_ESCAPE . '%', self::LIKE_ESCAPE . '_'], $word);

@@ -410,20 +410,30 @@ class BusinessMasterModel extends Model
      * @param int                   $start
      * @param int                   $length
      * @param string                $search  Matched in the business's name, slug and contact email
-     * @param array<string, string> $filters is_business_open (Y, N), wht_status (N, R, A), country_code, and
-     *                                       subscription_status (P, A, S, C, X, or NO_SUBSCRIPTION)
+     * @param array<string, string> $filters is_business_open (Y, N), wht_status (N, R, A), country_code,
+     *                                       subscription_status (P, A, S, C, X, or NO_SUBSCRIPTION), review_status
+     *                                       (U, A, F, P), moderation_status (N, B, R), and awaiting_review (Y: the
+     *                                       business or one of its artifacts is pending re-review)
      * @return array{records_total: int, records_filtered: int, rows: list<array>}
      */
     public function listForStaff(int $start, int $length, string $search, array $filters): array
     {
-        $total   = $this->db->table($this->table)->countAllResults();
-        $builder = $this->staffBuilder()
+        $total     = $this->db->table($this->table)->countAllResults();
+        $artifacts = $this->db->prefixTable('artifact_master');
+        $builder   = $this->staffBuilder()
             ->select('b.business_slug, b.business_name, t.type_code, b.contact_email_address, b.country_code, b.currency_code')
-            ->select('b.is_business_open, b.wht_status, s.subscription_status, p.plan_code, b.created_at');
-        foreach (['is_business_open', 'wht_status', 'country_code'] as $field) {
+            ->select('b.is_business_open, b.wht_status, s.subscription_status, p.plan_code, b.review_status, b.moderation_status, b.created_at')
+            ->select('(SELECT COUNT(*) FROM ' . $artifacts . " r WHERE r.business_id = b.id AND r.review_status = 'P') AS artifacts_to_review", false);
+        foreach (['is_business_open', 'wht_status', 'country_code', 'review_status', 'moderation_status'] as $field) {
             if (isset($filters[$field])) {
                 $builder->where('b.' . $field, $filters[$field]);
             }
+        }
+        if (($filters['awaiting_review'] ?? null) === 'Y') {
+            $builder->groupStart()
+                ->where('b.review_status', 'P')
+                ->orWhere('EXISTS (SELECT 1 FROM ' . $artifacts . " w WHERE w.business_id = b.id AND w.review_status = 'P')", null, false)
+                ->groupEnd();
         }
         if (isset($filters['subscription_status'])) {
             if ($filters['subscription_status'] === self::NO_SUBSCRIPTION) {
@@ -443,6 +453,10 @@ class BusinessMasterModel extends Model
         }
         $filtered = $builder->countAllResults(false);
         $rows     = $builder->orderBy('b.id', 'DESC')->limit($length, $start)->get()->getResultArray();
+        foreach ($rows as &$row) {
+            $row['artifacts_to_review'] = (int) $row['artifacts_to_review'];
+        }
+        unset($row);
 
         return ['records_total' => $total, 'records_filtered' => $filtered, 'rows' => $rows];
     }
@@ -593,6 +607,9 @@ class BusinessMasterModel extends Model
             }
             if ($names !== null) {
                 $this->writeNames($id, $changes['business_slug'] ?? $stored['business_slug'], $this->namesOf($id), $names, $actorId, $log, true);
+            }
+            if ($changes !== [] || $names !== null) {
+                model(ModerationEventModel::class)->resubmitBusiness($id, $actorId, $log); // a flagged business goes back for review
             }
         });
     }
